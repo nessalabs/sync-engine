@@ -4,7 +4,7 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slices 1 and 2 merged; slice 3 is under review.** The default-feature core
+**Current status: slices 1–3 implemented.** The default-feature core
 has bounded record replication and an in-memory two-device lab. The optional
 `sqlite` feature adds a restartable receiver store and a file-backed reference
 source. The optional `transport` feature adds a loopback-only, development
