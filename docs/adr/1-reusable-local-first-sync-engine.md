@@ -6,9 +6,12 @@ A linked phone can read a home gateway's conversation list, saved transcript, an
 
 - **Date:** 2026-09-28
 - **Status:** proposed
-- **Issue:** [#247](https://github.com/nessalabs/sync-engine/issues/1)
+- **Issue:** [#1](https://github.com/nessalabs/sync-engine/issues/1)
+- **Moved from:** Nessa ADR 247 and [nessa-agent#247](https://github.com/nessalabs/nessa-agent/issues/247), now closed as moved.
 - **Contract:** [sync engine design](../design/sync-engine.md)
 - **Related:** [0008 — agent execution](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0008-agent-client-api.md), [0009 — event-stream integration](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0009-reusable-event-stream-crate.md), [0011 — authorized conversation delivery](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0011-nessa-session-protocol-and-authorities.md)
+
+**Delivery scope:** this document includes the later Nessa integration target. The independent core and example apps are delivered first through the [vertical-slice plan](../implementation-plan.md). Nessa storage, pairing and command integration are not prerequisites for the standalone core.
 
 ## Context
 

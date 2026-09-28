@@ -1,0 +1,9 @@
+[package]
+name = "nessa-sync"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Reusable replication for local-first applications"
+publish = false
+
+[workspace]
