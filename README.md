@@ -4,13 +4,14 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slice 1 implemented locally.** The default-feature core has
-bounded record replication and an in-memory two-device lab. Persistence across
-process restart, a wire protocol, and product integration are later slices.
+**Current status: slices 1 and 2 implemented locally.** The default-feature core
+has bounded record replication and an in-memory two-device lab. The optional
+`sqlite` feature adds a restartable receiver store and a file-backed reference
+source. A wire protocol and product integration are later slices.
 
 ## Start here
 
-- [Vertical-slice implementation plan](docs/implementation-plan.md), starting with [slice 1 / issue #2](https://github.com/nessalabs/sync-engine/issues/2)
+- [Vertical-slice implementation plan](docs/implementation-plan.md), including [slice 2 / issue #3](https://github.com/nessalabs/sync-engine/issues/3)
 - [Component and sequence diagrams](docs/design/core-walkthrough.md)
 - [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
 - [Detailed target contract and validation plan](docs/design/sync-engine.md)
@@ -25,7 +26,7 @@ Nessa's broader runtime architecture remains separate.
 1. Two-device replication lab.
 2. Durable storage and transcript restart.
 3. Real transport, missed notifications and weak links.
-4. Transcript and task-board example apps: **first milestone complete**.
+4. Transcript and task-board example apps, completing the first milestone.
 5. Tail snapshots, historical backfill and bounded lazy loading.
 6. Catalogue passes that finish despite continuous updates.
 
@@ -51,15 +52,47 @@ adapter must interpret its declared payload schema before applying it. A saved
 incarnation, schema, or access-epoch mismatch returns both scopes and requires an
 explicit host reset; slice 1 never rewinds or silently replaces that checkpoint.
 
+## Slice 2 restartable transcript verification
+
+```sh
+python3 scripts/verify-slice-2.py
+```
+
+The runner builds the optional SQLite example, then starts fresh processes
+against files it creates in a temporary directory. It verifies cached reads
+while the source file is unavailable, a failure on the second insert of a page
+rolling back the entire page and checkpoint, and a restart after a committed
+reply is discarded. It prints one JSON result with the final checkpoint,
+record count and recovery assertions. User-selected database paths are never
+reset or removed by this runner.
+
+Run the example manually from the repository root:
+
+```sh
+cargo run --locked --features sqlite --example transcript_sqlite -- append ./source.db fact-1 "hello"
+cargo run --locked --features sqlite --example transcript_sqlite -- sync ./source.db ./device.db device-a
+cargo run --locked --features sqlite --example transcript_sqlite -- show ./device.db device-a
+```
+
+`show` only opens the receiver file. The example creates the named database
+files and never removes them. Its text decoder is a host example; core records
+remain opaque.
+`SqliteReferenceSource` is an indexed, local example source. Nessa can later
+adapt committed `event-stream` reads to `RecordSource`; the sync core does not
+depend on that crate. SQLite transactions protect process-restart recovery on
+the locally tested filesystem; this slice makes no power-loss, backup, remote
+authorization, or wire-security claim.
+
 ## Core checks
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked --all-targets
-cargo test --locked --doc
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps
-cargo +1.85.0 check --locked --all-targets
+cargo clippy --locked --all-features --all-targets -- -D warnings
+cargo test --locked --no-default-features --all-targets
+cargo test --locked --all-features --all-targets
+cargo test --locked --all-features --doc
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
+cargo +1.85.0 check --locked --all-features --all-targets
 ```
 
 The minimum Rust toolchain may need `rustup toolchain install 1.85.0 --profile minimal`.
@@ -67,5 +100,5 @@ CI installs its toolchains and runs only this repository's checks. Organization
 runner quotas can still be shared. Nessa will pin a reviewed core revision when its
 integration starts; this setup adds no dependency or CI job to nessa-agent.
 
-The crate currently defines no Cargo features. The lab and checks run without
-accounts, credentials, SQLite, networking, or Nessa.
+The `sqlite` feature is optional; a default or `--no-default-features` build
+does not link SQLite. Both labs run without accounts, networking, or Nessa.
