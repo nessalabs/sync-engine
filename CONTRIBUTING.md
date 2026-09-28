@@ -48,3 +48,12 @@ Use this repository's workflow and lockfile. Add checks to the existing job when
 practical. A new OS job needs behavior that differs by platform. Verify optional
 infrastructure does not leak into the default core dependency graph. Keep the
 published minimum Rust version tested when dependencies are introduced.
+
+The `verify` job is the stable pull-request check. For pull requests
+containing only Markdown changes, it runs the path-classification tests and skips
+Rust setup and checks. A pull request that changes source, scripts, Cargo files,
+workflow files, or other non-Markdown files runs formatting, Clippy, tests,
+doctests, the slice-1 lab, Rustdoc, and MSRV. Renames inspect both old and new
+paths. Pushes to `main` and manual runs always run those Rust checks to refresh
+the shared cache and verify the committed branch. If a Rust source starts embedding
+Markdown, update the classifier and its tests before relying on this fast path.

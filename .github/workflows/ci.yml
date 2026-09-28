@@ -8,29 +8,69 @@ permissions:
   contents: read
 concurrency:
   group: sync-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep main's run alive to populate the shared Rust cache.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
+      - name: Test CI path classification
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+      - name: Classify changed paths
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "Rust checks run for $EVENT."
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # GitHub's files endpoint is paginated. Include both sides of a rename.
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}/files?per_page=100" \
+            --jq '.[] | {filename, previous_filename, status} | @json' > "$RUNNER_TEMP/pr-files.jsonl"
+          if [ "$(python3 scripts/ci/documentation_only.py < "$RUNNER_TEMP/pr-files.jsonl")" = true ]; then
+            echo "Markdown-only PR; Rust checks are skipped."
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Rust checks run."
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install supported Rust toolchains
+        if: steps.changes.outputs.rust != 'false'
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup toolchain install 1.85.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.rust != 'false'
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Format
+        if: steps.changes.outputs.rust != 'false'
         run: cargo +stable fmt --all -- --check
       - name: Lint
+        if: steps.changes.outputs.rust != 'false'
         run: cargo +stable clippy --locked --all-targets -- -D warnings
       - name: Test core, memory adapter, example, and API examples
+        if: steps.changes.outputs.rust != 'false'
         run: |
           cargo +stable test --locked --all-targets
           cargo +stable test --locked --doc
       - name: Slice 1 two-device lab
+        if: steps.changes.outputs.rust != 'false'
         run: ./scripts/verify-slice-1
       - name: Public API documentation
+        if: steps.changes.outputs.rust != 'false'
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo +stable doc --locked --no-deps
       - name: Minimum supported Rust
+        if: steps.changes.outputs.rust != 'false'
         run: cargo +1.85.0 check --locked --all-targets
