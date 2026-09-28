@@ -8,3 +8,8 @@ pub use memory::*;
 mod sqlite;
 #[cfg(feature = "sqlite")]
 pub use sqlite::*;
+
+#[cfg(feature = "transport")]
+mod loopback;
+#[cfg(feature = "transport")]
+pub use loopback::*;

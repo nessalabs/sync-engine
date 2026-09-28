@@ -9,6 +9,7 @@ publish = false
 [features]
 default = []
 sqlite = ["dep:rusqlite"]
+transport = ["sqlite"]
 
 [dependencies]
 rusqlite = { version = "=0.32.1", features = ["bundled"], optional = true }
@@ -16,5 +17,9 @@ rusqlite = { version = "=0.32.1", features = ["bundled"], optional = true }
 [[example]]
 name = "transcript_sqlite"
 required-features = ["sqlite"]
+
+[[example]]
+name = "loopback_sync"
+required-features = ["transport"]
 
 [workspace]

@@ -4,15 +4,17 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slices 1 and 2 implemented locally.** The default-feature core
+**Current status: slices 1 and 2 merged; slice 3 is under review.** The default-feature core
 has bounded record replication and an in-memory two-device lab. The optional
 `sqlite` feature adds a restartable receiver store and a file-backed reference
-source. A wire protocol and product integration are later slices.
+source. The optional `transport` feature adds a loopback-only, development
+server and network source adapter. Product integration remains a later slice.
 
 ## Start here
 
 - [Vertical-slice implementation plan](docs/implementation-plan.md), including [slice 2 / issue #3](https://github.com/nessalabs/sync-engine/issues/3)
 - [Component and sequence diagrams](docs/design/core-walkthrough.md)
+- [Loopback transport and recovery sequence](docs/design/loopback-transport.md)
 - [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
 - [Detailed target contract and validation plan](docs/design/sync-engine.md)
 - [Contributing](CONTRIBUTING.md)
@@ -82,6 +84,32 @@ adapt committed `event-stream` reads to `RecordSource`; the sync core does not
 depend on that crate. SQLite transactions protect process-restart recovery on
 the locally tested filesystem; this slice makes no power-loss, backup, remote
 authorization, or wire-security claim.
+
+## Slice 3 loopback transport verification
+
+```sh
+python3 scripts/verify-slice-3.py
+python3 scripts/verify-slice-3.py --profiles
+```
+
+The first command runs independent server and receiver processes against
+temporary SQLite files. It asserts two receivers converge, an offline receiver
+fetches only missing payload, every hint can be lost and a fallback check still
+converges, truncated and wrong-identity pages do not advance a checkpoint,
+authorization precedes source reads, and one held receiver does not block the
+other or an append. It also sends an oversized frame header and checks rejection.
+The JSON result separates payload and protocol bytes, duplicate bytes, head
+checks, and applied lag. `--profiles` additionally sends actual transcript
+payload at 32 and 64 kbit/s with 0.8 and 1.5 second emulated RTT, and verifies
+an outage followed by checkpoint recovery. The elapsed times are local evidence,
+not a service availability or phone latency guarantee. CI runs the fast command.
+
+The example accepts only IPv4 loopback addresses. Its explicit read and write
+tokens and fixed receiver allowlist are development credentials; they provide no
+pairing, encryption or safe exposure outside this machine. The local host owns
+the fallback interval. A subscription is a wake hint, and the receiver always
+fetches and validates bounded pages from its durable checkpoint. See the
+[transport sequence](docs/design/loopback-transport.md) for the race ordering.
 
 ## Core checks
 
