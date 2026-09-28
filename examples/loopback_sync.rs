@@ -2,8 +2,8 @@
 //! here belong to the caller; this example never deletes or resets them.
 
 use std::env;
-use std::io;
-use std::net::{SocketAddr, SocketAddrV4};
+use std::io::{self, Read};
+use std::net::{SocketAddr, SocketAddrV4, TcpStream};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -11,7 +11,8 @@ use std::time::Duration;
 use nessa_sync::replication::application::{begin_pass, finish_pass, SyncError};
 use nessa_sync::replication::domain::{Id, Limits, Scope};
 use nessa_sync::replication::infrastructure::{
-    read_frame, LoopbackClient, LoopbackConfig, LoopbackServer, SqliteReplicaStore, WireCounters,
+    FrameError, LoopbackClient, LoopbackConfig, LoopbackServer, SqliteReplicaStore, WireCounters,
+    MAX_FRAME_BYTES,
 };
 
 type AnyError = Box<dyn std::error::Error>;
@@ -44,6 +45,47 @@ fn client(endpoint: &str, token: &str) -> Result<LoopbackClient, AnyError> {
 
 fn error<E: std::fmt::Debug>(value: E) -> io::Error {
     io::Error::other(format!("{value:?}"))
+}
+
+fn take_hint_frame(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, FrameError> {
+    if buffer.len() < 4 {
+        return Ok(None);
+    }
+    let length =
+        u32::from_be_bytes(buffer[..4].try_into().map_err(|_| FrameError::Malformed)?) as usize;
+    if length > MAX_FRAME_BYTES {
+        return Err(FrameError::TooLarge);
+    }
+    if buffer.len() < length + 4 {
+        return Ok(None);
+    }
+    let frame = buffer[4..length + 4].to_vec();
+    buffer.drain(..length + 4);
+    Ok(Some(frame))
+}
+
+fn read_hint(stream: &mut TcpStream, buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, FrameError> {
+    loop {
+        if let Some(frame) = take_hint_frame(buffer)? {
+            return Ok(Some(frame));
+        }
+        let mut chunk = [0_u8; 256];
+        match stream.read(&mut chunk) {
+            Ok(0) => {
+                return Err(FrameError::Io(io::Error::from(
+                    io::ErrorKind::UnexpectedEof,
+                )));
+            }
+            Ok(count) => buffer.extend_from_slice(&chunk[..count]),
+            Err(error)
+                if error.kind() == io::ErrorKind::TimedOut
+                    || error.kind() == io::ErrorKind::WouldBlock =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(FrameError::Io(error)),
+        }
+    }
 }
 
 fn counter_line(
@@ -173,15 +215,13 @@ fn run() -> Result<(), AnyError> {
                             Err(error) => eprintln!("catch-up error: {error:?}"),
                         }
                         hints.set_read_timeout(Some(fallback))?;
+                        let mut hint_buffer = Vec::new();
                         loop {
-                            match read_frame(&mut hints) {
-                                Ok(frame) if frame == [7] || frame == [8] => {
+                            match read_hint(&mut hints, &mut hint_buffer) {
+                                Ok(Some(frame)) if frame == [7] || frame == [8] => {
                                     hint_bytes += 5;
                                 }
-                                Err(nessa_sync::replication::infrastructure::FrameError::Io(
-                                    error,
-                                )) if error.kind() == io::ErrorKind::TimedOut
-                                    || error.kind() == io::ErrorKind::WouldBlock => {}
+                                Ok(None) => {}
                                 _ => break,
                             }
                             match catch_up(&target, &mut authorizer, &mut source, &mut store) {
@@ -215,5 +255,21 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("{error:?}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hint_frame_keeps_partial_header_and_body() {
+        let mut buffer = vec![0, 0];
+        assert!(take_hint_frame(&mut buffer).unwrap().is_none());
+        buffer.extend_from_slice(&[0, 1]);
+        assert!(take_hint_frame(&mut buffer).unwrap().is_none());
+        buffer.push(7);
+        assert_eq!(take_hint_frame(&mut buffer).unwrap(), Some(vec![7]));
+        assert!(buffer.is_empty());
     }
 }
