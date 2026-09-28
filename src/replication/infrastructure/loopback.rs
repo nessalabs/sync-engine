@@ -223,6 +223,12 @@ pub struct LoopbackServer {
 impl LoopbackServer {
     /// Binds only the IPv4 loopback address. Port zero requests an OS-chosen port.
     pub fn bind(port: u16, config: LoopbackConfig) -> io::Result<Self> {
+        if config.read_token == config.write_token {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "read and write credentials must differ",
+            ));
+        }
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))?;
         Ok(Self {
             listener,
@@ -684,5 +690,25 @@ mod tests {
             read_frame(&mut bytes.as_slice()),
             Err(FrameError::Io(_))
         ));
+    }
+
+    #[test]
+    fn read_and_write_credential_must_differ() {
+        let value = |text| Id::new(text).unwrap();
+        let config = LoopbackConfig {
+            source_path: PathBuf::from("unused.db"),
+            origin: value("origin"),
+            stream: value("stream"),
+            incarnation: value("first"),
+            schema: value("schema"),
+            access_epoch: value("epoch"),
+            read_token: value("same"),
+            write_token: value("same"),
+            allowed_receivers: vec![value("receiver")],
+        };
+        assert_eq!(
+            LoopbackServer::bind(0, config).err().unwrap().kind(),
+            io::ErrorKind::InvalidInput
+        );
     }
 }

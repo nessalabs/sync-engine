@@ -256,6 +256,7 @@ def main():
             assert blocked.returncode == 0, errors
             assert json.loads(output)["checkpoint"] == 6
 
+            command("append", addr, WRITE, "bulk-fact", "p" * 4096)
             profiles = []
             if args.profiles:
                 for kbit, rtt in [(32, 0.8), (64, 1.5)]:
@@ -265,12 +266,12 @@ def main():
                     start = time.monotonic()
                     result = command("sync", f"127.0.0.1:{profile.port}", profile_store,
                                      "device-a", READ)
-                    assert result["checkpoint"] == 6
+                    assert result["checkpoint"] == 7
                     profiles.append({"kbit_per_second": kbit, "rtt_seconds": rtt,
                                      "elapsed_seconds": round(time.monotonic() - start, 3),
                                      "protocol_bytes": result["protocol_bytes"],
                                      "payload_bytes": result["payload_bytes"]})
-                    assert result["payload_bytes"] == 30
+                    assert result["payload_bytes"] == 4126
                 outage = Proxy(port, outage=True)
                 proxies.append(outage)
                 command("sync", f"127.0.0.1:{outage.port}", base / "outage.db",
@@ -278,7 +279,7 @@ def main():
                 outage.outage = False
                 restored = command("sync", f"127.0.0.1:{outage.port}",
                                    base / "outage.db", "device-a", READ)
-                assert restored["checkpoint"] == 6
+                assert restored["checkpoint"] == 7
             # Commit while the subscription acknowledgement is held. The
             # receiver has subscribed but has not begun its first head check.
             race = Proxy(port, hold_subscribe=True)
@@ -292,11 +293,11 @@ def main():
             race.release_subscribe.set()
             race_output, race_errors = racing.communicate(timeout=6)
             assert racing.returncode == 0, race_errors
-            assert json.loads(race_output)["checkpoint"] == 7
-            assert command("sync", addr, first, "device-a", READ)["checkpoint"] == 7
-            assert command("sync", addr, second, "device-b", READ)["checkpoint"] == 7
+            assert json.loads(race_output)["checkpoint"] == 8
+            assert command("sync", addr, first, "device-a", READ)["checkpoint"] == 8
+            assert command("sync", addr, second, "device-b", READ)["checkpoint"] == 8
             final = command("show", first, "device-a")
-            assert final == {"checkpoint": 7, "count": 7}
+            assert final == {"checkpoint": 8, "count": 8}
             print(json.dumps({"slice": 3, "converged": True, "final": final,
                               "offline_payload_bytes": resumed["payload_bytes"],
                               "unchanged_payload_bytes": unchanged["payload_bytes"],

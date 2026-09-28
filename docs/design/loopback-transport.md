@@ -98,10 +98,10 @@ sequenceDiagram
 | Reply truncated after source read | Checkpoint stays at 3; fresh connection reaches 4 |
 | Page identity changed in flight | Core rejects echoed scope; checkpoint stays at 4 |
 | Slow receiver socket | Proxy holds A's page while source appends and B reaches 6 |
-| Source writes during subscription setup | Proxy holds subscribe acknowledgement, source commits fact 7, receiver catches it on first head check |
+| Source writes during subscription setup | Proxy holds subscribe acknowledgement, source commits fact 8, receiver catches it on first head check |
 | Wrong credential or receiver | Server refuses before its source head count changes |
 | Over-limit wire length | Server rejects header and stays available |
-| Low bandwidth, RTT and outage | Optional profile transfers 30 payload bytes and resumes after outage |
+| Low bandwidth, RTT and outage | Optional profile transfers 4,126 payload bytes and resumes after outage |
 
 The optional profile is a small correctness experiment. It does not model radio
 packet loss, mobile OS background policy, battery cost, relay availability or
