@@ -57,20 +57,26 @@ jobs:
         run: cargo +stable fmt --all -- --check
       - name: Lint
         if: steps.changes.outputs.rust != 'false'
-        run: cargo +stable clippy --locked --all-targets -- -D warnings
-      - name: Test core, memory adapter, example, and API examples
+        run: cargo +stable clippy --locked --all-features --all-targets -- -D warnings
+      - name: Test core, SQLite adapters, examples, and API examples
         if: steps.changes.outputs.rust != 'false'
         run: |
-          cargo +stable test --locked --all-targets
-          cargo +stable test --locked --doc
+          cargo +stable test --locked --no-default-features --all-targets
+          cargo +stable test --locked --all-features --all-targets
+          cargo +stable test --locked --all-features --doc
       - name: Slice 1 two-device lab
         if: steps.changes.outputs.rust != 'false'
         run: ./scripts/verify-slice-1
+      - name: Slice 2 process-restart and rollback lab
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-slice-2.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo +stable doc --locked --no-deps
+        run: cargo +stable doc --locked --all-features --no-deps
       - name: Minimum supported Rust
         if: steps.changes.outputs.rust != 'false'
-        run: cargo +1.85.0 check --locked --all-targets
+        run: |
+          cargo +1.85.0 check --locked --no-default-features --all-targets
+          cargo +1.85.0 check --locked --all-features --all-targets

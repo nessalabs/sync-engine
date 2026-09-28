@@ -1,5 +1,10 @@
-//! In-memory reference adapters for the first-slice lab. They implement the
-//! application ports but provide no process-restart durability or wire security.
+//! Reference adapters for the application ports. SQLite adapters are optional;
+//! the in-memory adapters remain available without any database dependency.
 
 mod memory;
 pub use memory::*;
+
+#[cfg(feature = "sqlite")]
+mod sqlite;
+#[cfg(feature = "sqlite")]
+pub use sqlite::*;

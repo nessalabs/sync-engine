@@ -1,9 +1,11 @@
 # Implementation plan: verifiable vertical slices
 
-**Status: slice 1 implemented locally; slices 2–6 remain planned.**
-The repository contains the bounded record core and independent CI for
-[slice 1](https://github.com/nessalabs/sync-engine/issues/2). Do not infer durable
-restart or real transport guarantees from its in-memory adapter. [Issue #1](https://github.com/nessalabs/sync-engine/issues/1) tracks the
+**Status: slices 1 and 2 implemented locally; slices 3–6 remain planned.**
+The repository contains the bounded record core, optional SQLite restart
+adapter and independent CI for [slice 1](https://github.com/nessalabs/sync-engine/issues/2)
+and [slice 2](https://github.com/nessalabs/sync-engine/issues/3). Do not infer real
+transport or product integration guarantees from these reference adapters.
+[Issue #1](https://github.com/nessalabs/sync-engine/issues/1) tracks the
 work. The [ADR](adr/1-reusable-local-first-sync-engine.md) and
 [detailed target contract](design/sync-engine.md) were moved from Nessa.
 
@@ -71,8 +73,9 @@ A slice may have several commits. Keep one bounded deliverable reviewable at a t
    line. Update its status only when the published evidence actually passes.
 
 The `verify-slice-N` scripts and example commands are **required outputs of those
-issues**. Slice 1 provides `./scripts/verify-slice-1`; later runners do not
-exist yet. The root README gives the copyable verification command.
+issues**. Slices 1 and 2 provide `./scripts/verify-slice-1` and
+`python3 scripts/verify-slice-2.py`; later runners do not exist yet. The root
+README gives the copyable verification commands.
 
 ## Slice-specific execution briefs
 

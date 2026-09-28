@@ -6,4 +6,15 @@ rust-version = "1.85"
 description = "Reusable replication for local-first applications"
 publish = false
 
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+rusqlite = { version = "=0.32.1", features = ["bundled"], optional = true }
+
+[[example]]
+name = "transcript_sqlite"
+required-features = ["sqlite"]
+
 [workspace]
