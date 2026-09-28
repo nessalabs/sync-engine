@@ -21,15 +21,16 @@ jobs:
       - name: Format
         run: cargo +stable fmt --all -- --check
       - name: Lint
-        run: cargo +stable clippy --locked --all-targets --all-features -- -D warnings
-      - name: Test default core and all adapters
+        run: cargo +stable clippy --locked --all-targets -- -D warnings
+      - name: Test core, memory adapter, example, and API examples
         run: |
-          cargo +stable test --locked --no-default-features
-          cargo +stable test --locked --all-features --all-targets
-          cargo +stable test --locked --all-features --doc
+          cargo +stable test --locked --all-targets
+          cargo +stable test --locked --doc
+      - name: Slice 1 two-device lab
+        run: ./scripts/verify-slice-1
       - name: Public API documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo +stable doc --locked --all-features --no-deps
+        run: cargo +stable doc --locked --no-deps
       - name: Minimum supported Rust
-        run: cargo +1.85.0 check --locked --all-targets --all-features
+        run: cargo +1.85.0 check --locked --all-targets

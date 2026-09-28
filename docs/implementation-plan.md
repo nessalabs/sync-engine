@@ -1,9 +1,9 @@
 # Implementation plan: verifiable vertical slices
 
-**Status: ready for implementation, no sync behavior implemented yet.**
-The repository contains a compilable library scaffold and independent CI. Start
-with [slice 1](https://github.com/nessalabs/sync-engine/issues/2), not the whole target
-architecture. [Issue #1](https://github.com/nessalabs/sync-engine/issues/1) tracks the
+**Status: slice 1 implemented locally; slices 2–6 remain planned.**
+The repository contains the bounded record core and independent CI for
+[slice 1](https://github.com/nessalabs/sync-engine/issues/2). Do not infer durable
+restart or real transport guarantees from its in-memory adapter. [Issue #1](https://github.com/nessalabs/sync-engine/issues/1) tracks the
 work. The [ADR](adr/1-reusable-local-first-sync-engine.md) and
 [detailed target contract](design/sync-engine.md) were moved from Nessa.
 
@@ -71,8 +71,8 @@ A slice may have several commits. Keep one bounded deliverable reviewable at a t
    line. Update its status only when the published evidence actually passes.
 
 The `verify-slice-N` scripts and example commands are **required outputs of those
-issues**, not commands that exist in this scaffold. Do not report a planned command
-as having passed. Current setup checks are documented in the root README.
+issues**. Slice 1 provides `./scripts/verify-slice-1`; later runners do not
+exist yet. The root README gives the copyable verification command.
 
 ## Slice-specific execution briefs
 
@@ -215,7 +215,7 @@ This repository has its own workflow, lockfile and build cache. No workflow chan
 is made in `nessa-agent`, and no dependency from that repo is added by this work.
 GitHub-hosted runner capacity and organization quotas may still be shared.
 
-The initial workflow checks the scaffold, not sync correctness. Each implementation
+The workflow checks slice 1 behavior through its lab and tests. Each implementation
 slice adds its behavioral gate to the existing job where practical. Add OS jobs
 when a real filesystem/process adapter needs platform coverage. A later Nessa
 integration pins a reviewed version and runs its own adapter compatibility tests;
@@ -229,5 +229,5 @@ core commits must not automatically advance that dependency.
 - Main tracker: #1. First implementation issue: #2.
 - Read this plan, the walkthrough and CONTRIBUTING before coding.
 - Begin with slice 1 and finish its lab, tests and evidence before moving onward.
-- This handoff contains **no completed replication implementation**. The scaffold
-  may compile with zero behavioral tests; that is not evidence of sync correctness.
+- This original handoff predates slice 1. Its current evidence is the checked-in
+  two-device lab, failure tests, and CI command.
