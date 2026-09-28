@@ -69,3 +69,5 @@ integration starts; this setup adds no dependency or CI job to nessa-agent.
 
 The crate currently defines no Cargo features. The lab and checks run without
 accounts, credentials, SQLite, networking, or Nessa.
+
+CI Markdown fast-path smoke check.
