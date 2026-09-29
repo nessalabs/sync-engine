@@ -9,6 +9,8 @@ use rusqlite::{Connection, TransactionBehavior};
 const SCHEMA_VERSION: i64 = 1;
 pub(super) const SOURCE_APPLICATION_ID: i64 = 0x4e53_5353;
 pub(super) const REPLICA_APPLICATION_ID: i64 = 0x4e53_5352;
+pub(super) const CATALOGUE_SOURCE_APPLICATION_ID: i64 = 0x4e53_5343;
+pub(super) const CATALOGUE_REPLICA_APPLICATION_ID: i64 = 0x4e53_5344;
 
 /// File open, schema, or identity refusal before any replication operation.
 #[derive(Debug)]

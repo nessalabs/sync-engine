@@ -4,7 +4,7 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slices 1–5 implemented.** The default-feature core
+**Current status: slices 1–6 implemented.** The default-feature core
 has bounded record replication and an in-memory two-device lab. The optional
 `sqlite` feature adds a restartable receiver store and a file-backed reference
 source. The optional `transport` feature adds a loopback-only, development
@@ -17,6 +17,7 @@ server and network source adapter. Product integration remains a later slice.
 - [Loopback transport and recovery sequence](docs/design/loopback-transport.md)
 - [Transcript and task app sequence](docs/design/example-apps.md)
 - [Tail and older-history state table](docs/design/tail-history.md)
+- [Finite catalogue pass state table](docs/design/catalogue-pass.md)
 - [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
 - [Detailed target contract and validation plan](docs/design/sync-engine.md)
 - [Contributing](CONTRIBUTING.md)
@@ -175,6 +176,29 @@ fence transactionally. The host-facing `HistoryReadState` distinguishes
 unloaded, loading, partial, complete-empty, complete, failed, stale and
 deleted states. Large-history UI rendering, mobile background scheduling and
 production snapshot compatibility policy remain host work.
+
+## Slice 6 catalogue pass verification
+
+```sh
+python3 scripts/verify-slice-6.py
+```
+
+The process lab runs transcript-list and task-list host modes over the same
+catalogue core. Each source has 600 current entries. A phone cache saves its
+first page, restarts, finishes the captured revision 600 despite ongoing edits,
+then catches an edit behind the cursor, a new entry, and a deletion on its next
+pass. The result reports metadata bytes, changed payload bytes, resolution
+reads, page counts, and an unchanged check with zero payload bytes. SQLite
+transaction tests also inject a failed page commit and verify that entries and
+cursor roll back together.
+
+The reference adapters use separate local source and receiver files. The byte
+counters describe decoded metadata and payload transferred across their ports;
+they are not a measured network protocol or mobile latency. The host owns entry
+schema and policy. An explicit access-scope reset removes previously authorized
+live cache values before a full pass and retains deletion markers; stale pages
+from the old epoch cannot commit. Production ownership-aware absence lookup and
+remote catalogue transport remain integration work.
 
 ## Core checks
 

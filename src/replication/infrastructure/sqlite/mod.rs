@@ -9,15 +9,19 @@
 //! `connection` owns file identity, opening policy, and schema setup. Each
 //! adapter owns its connection and closes it on drop; the domain and application
 //! layers import only their ports and never import SQLite.
+//! `catalogue` supplies separate latest-value source and receiver files for
+//! finite list passes; it does not share transcript history tables.
 
+mod catalogue;
 mod connection;
 mod replica;
 mod source;
 
+pub use catalogue::{SqliteCatalogueSource, SqliteCatalogueStore};
 pub use connection::SqliteOpenError;
 use connection::{
-    configure_connection, ensure_schema, open_connection, REPLICA_APPLICATION_ID,
-    SOURCE_APPLICATION_ID,
+    configure_connection, ensure_schema, open_connection, CATALOGUE_REPLICA_APPLICATION_ID,
+    CATALOGUE_SOURCE_APPLICATION_ID, REPLICA_APPLICATION_ID, SOURCE_APPLICATION_ID,
 };
 pub use replica::SqliteReplicaStore;
 pub use source::SqliteReferenceSource;

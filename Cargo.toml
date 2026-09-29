@@ -30,4 +30,8 @@ required-features = ["transport"]
 name = "history_lab"
 required-features = ["transport"]
 
+[[example]]
+name = "catalogue_apps"
+required-features = ["sqlite"]
+
 [workspace]

@@ -6,6 +6,8 @@
 
 /// One-page and finite-pass use cases with injected ports.
 pub mod application;
+/// Finite current-value catalogue passes, independent of transcript history.
+pub mod catalogue;
 /// Pure identities, bounds, records, and commit-plan validation.
 pub mod domain;
 /// Bounded recent-tail and older-history contracts with separate progress.
