@@ -11,7 +11,13 @@ A linked phone can read a home gateway's conversation list, saved transcript, an
 - **Contract:** [sync engine design](../design/sync-engine.md)
 - **Related:** [0008 — agent execution](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0008-agent-client-api.md), [0009 — event-stream integration](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0009-reusable-event-stream-crate.md), [0011 — authorized conversation delivery](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0011-nessa-session-protocol-and-authorities.md)
 
-**Delivery scope:** this document includes the later Nessa integration target. The independent core and example apps are delivered first through the [vertical-slice plan](../implementation-plan.md). Nessa storage, pairing and command integration are not prerequisites for the standalone core.
+**Implementation status:** the independent core's six [reference slices](../implementation-plan.md)
+are implemented, tested and closed. They cover record replication, SQLite
+restart, loopback recovery, two example views, bounded history and local
+catalogue passes. This ADR remains **proposed for Nessa product integration**:
+Nessa storage, pairing, authorization, command, mobile and backup contracts
+below are not implemented by the standalone crate. In particular, catalogue
+pages do not yet use the loopback wire.
 
 ## Context
 
@@ -33,7 +39,12 @@ The [contract document](../design/sync-engine.md) defines the state/order tables
 
 ## How catch-up works
 
-A phone can show saved conversations immediately while its home gateway runs the agent. The local event stream saves transcript facts; the reusable sync engine carries missing data to each device; Nessa adapters supply ownership and conversation meaning. Receiving copied records does not execute commands.
+In the intended Nessa integration, a phone shows saved conversations while its
+home gateway runs the agent. A canonical local record source will save transcript
+facts; Nessa adapters will supply ownership and conversation meaning to the
+reusable engine. The reference apps already show cached reads and catch-up, but
+they do not use Nessa's records or dispatch commands. Receiving copied records
+does not execute commands.
 
 For example, a phone has completed catalogue revision 30 and begins a pass with boundary 40. If the gateway changes again while the phone downloads, the phone finishes the current pass, saves 40, then checks what is newer. Entry values may already reflect newer changes, so 40 is a completed pass boundary rather than a promise that all previews show the same instant. Intermediate preview versions need not be transferred. Transcript records retain their separate ordered history.
 
@@ -80,7 +91,14 @@ The engine requires bounded data and durable progress regardless of transport. I
 
 Phones can render cached conversations immediately and catch up transcript streams by applied position; per-entry catalogue revisions avoid repeatedly transferring unchanged list content. Gateway conversation and agent work continues through phone, sync-worker or relay failure; a canonical-store or authorization failure instead refuses new acceptance. The reusable crate can serve other agent products through their adapters. The cost is an ADR 0009 migration, catalogue revision fields and resumable pass state, device identity and key lifecycle, cache/restore semantics, and weak-network testing. The first release must show last-applied state and an explicit unavailable, unknown, or unresolved command outcome when the home gateway cannot be reached. The companion contract defines degraded modes and a proposed, unverified 99.99% eligible-interaction objective. Files, offline relay catch-up, automatic offline command execution, and transfer of a running agent to another gateway require separate decisions.
 
-**Agreement and validation:** bounded catalogue passes and notification-driven catch-up with recovery checks are the selected direction. The ADR remains proposed pending the implementation spikes and unresolved scope decisions below. The six-round review budget has ended; these subsequent design amendments have document checks, not another independent review or runtime proof.
+**Agreement and validation:** bounded catalogue passes and notification-driven
+catch-up with recovery checks are the selected direction. The six reference
+slices have executable tests and CI evidence; the [product validation
+plan](../design/sync-engine.md#validation-before-acceptance) still has Nessa
+storage, security, phone, command and recovery work. The ADR stays proposed
+until those integration decisions and spikes are reviewed. The earlier
+six-round ADR review budget has ended; the reference implementation's tests
+do not prove the remaining product contracts.
 
 
 ## Open decisions before implementation

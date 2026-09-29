@@ -1,9 +1,10 @@
-# How the sync core will work
+# How the reference sync core works
 
-**Design illustrations, not implemented behavior.** Use this with the
-[vertical-slice plan](../implementation-plan.md) and [main issue #1](https://github.com/nessalabs/sync-engine/issues/1).
-The [full target contract](sync-engine.md) owns the wider state machines. This
-walkthrough explains the first core and its example-app boundaries in plain English.
+These diagrams explain the six implemented reference slices. They simplify
+details in the code; the [implementation plan](../implementation-plan.md) and
+slice-specific design notes identify the runnable evidence. The [product target
+contract](sync-engine.md) also describes Nessa integration that this library
+does not implement.
 
 ## 1. The pieces and who owns them
 
@@ -188,7 +189,7 @@ alone cannot prove an adapter's atomicity. A successful compile is not recovery 
 
 ## 6. Partial loading without pretending missing means empty
 
-This is slice 5. Its storage and reset contracts are more work than the first core.
+Slice 5 adds history storage and reset contracts to the record core.
 A view asks for data; the loader checks local coverage, combines overlapping requests,
 and fetches only missing ranges. An explicit coverage marker distinguishes a complete
 empty result from data not yet loaded.
@@ -223,7 +224,7 @@ are local reads, known coverage, bounded hydration and coherent state after rest
 
 ## 7. Catalogue pages keep their finish line
 
-This is slice 6. A catalogue is the current list of entities, not every historical
+Slice 6 adds a separate catalogue. It is the current list of entities, not every historical
 version of their previews. It therefore has a separate progress contract.
 
 ```mermaid
@@ -231,8 +232,9 @@ sequenceDiagram
     participant C as Receiver
     participant L as Local catalogue
     participant S as Source catalogue
-    C->>S: Begin pass after completed revision 30
-    S-->>C: Boundary 40 and stable first page cursor
+    C->>S: Read head after completed revision 30
+    S-->>C: Current revision 40
+    C->>L: Save pass boundary 40 and generation
     C->>S: Request first page through boundary 40
     S-->>C: Entry IDs and revisions
     C->>S: Fetch changed payloads
@@ -252,15 +254,18 @@ sequenceDiagram
 
 Current entry values may be newer than boundary 40; the completed boundary is a
 coverage guarantee, not a snapshot of every value at one instant. The detailed
-catalogue contract governs stable ordering, payload races, absence classification,
-auth epochs and deletion fences. A partial page never proves that an unseen entry
-was deleted.
+catalogue design governs stable ordering, payload races, auth epochs and deletion
+fences. The reference reset wipes old live values before the new pass; Nessa's
+ownership-aware absence classification remains a product target. Catalogue
+pages in the current example use local SQLite ports, not the loopback wire.
+A partial page never proves that an unseen entry was deleted.
 
 ## First-slice transition and verification map
 
-These rows define the initial implementation evidence under slices 1–3. Expand the
-owning table before adding snapshots/catalogues. Their detailed rules stay in the
-[full design](sync-engine.md), with tests added in their respective slices.
+These rows summarize record-delivery evidence from slices 1–3. History and
+catalogue ordering have their own [tail-history](tail-history.md) and
+[catalogue-pass](catalogue-pass.md) tables. The broader Nessa rules remain in
+the [product target design](sync-engine.md).
 
 | Trigger | Core/application response | Persistent result or assertion |
 | --- | --- | --- |

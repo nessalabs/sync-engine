@@ -51,7 +51,7 @@ sequenceDiagram
 | Live follower | Reuse the existing authorized finite pass from the saved live head. Apply new records and that head atomically. It never derives its position from historical coverage. |
 | Older source | Return one bounded contiguous range ending at `before - 1`, with exact scope/generation echo and source pruning floor. If that range is no longer readable, return typed `ResetRequired`; never jump to the available floor. |
 | Older installer | In one transaction verify scope, generation, deletion fence and every overlapping record's immutable ID and bytes. Add only the missing contiguous prefix and decrease only the history lower bound. A stale all-overlap reply is an idempotent no-op. A gap or conflicting overlap is refused. |
-| View loader | `Unloaded`, `Loading`, `Partial`, `CompleteEmpty`, `Complete`, `Failed` and `Stale` are distinct host states. At most one bounded older-page fetch runs for a scope; overlapping view requests join that work. Local covered reads use no source request. Control and head checks use independent bounded reads. |
+| View loader | `HistoryReadState` represents unloaded, loading, partial, complete-empty, complete, failed, stale and deleted states. The example host serializes bounded older-page fetches for a scope; `HydrationQueue` coalesces overlapping requests but does not start or schedule network work itself. Local covered reads use no source request. |
 
 The source may retain physical records for append deduplication after it stops
 serving them historically. The visible pruning floor is the contract. The
@@ -78,12 +78,11 @@ implement the same ports without adopting its tables.
 | Fifty identical or overlapping requests | Coalesce into the minimum missing lower target, issue only the bounded pages required for coverage, and resolve requests from the local store after commit. |
 | Source unavailable during hydration | Keep cached data, show stale/failed request state, and retry from durable coverage on a later explicit wake. |
 
-## Evidence required before closing issue #6
+## Reference implementation evidence
 
-The runnable example uses a long stream and separate source/receiver processes.
-Its first open transfers only a bounded recent tail. It restarts during older
-backfill, validates overlap and competing generations with controlled barriers,
-tests a permanent deletion fence, injects pruning, and reports record payload
-bytes, protocol bytes, page reads and the final live/lower positions. The same
-script is run by CI. Timing data is evidence from a local test, not a mobile
-latency promise.
+`python3 scripts/verify-slice-5.py` uses a long stream and separate source and
+receiver processes. Its first open transfers only a bounded recent tail. It
+restarts during older backfill, validates overlap and competing generations with
+controlled barriers, tests a permanent deletion fence, injects pruning, and
+reports payload bytes, protocol bytes, page reads and both positions. CI runs
+the same script. Timing data is local evidence, not a mobile latency promise.

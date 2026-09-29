@@ -15,7 +15,8 @@ and creations above `H` wait for the next pass. The receiver saves the page
 cursor only after all selected entry payloads are resolved and the page commits.
 The final page alone advances completed revision to `H`. A fresh head check
 then discovers any newer work. One source transaction covers each metadata
-page; none spans network exchange.
+page. This reference catalogue adapter uses separate local SQLite files; it
+does not yet exchange pages over the loopback network adapter.
 
 ```mermaid
 sequenceDiagram

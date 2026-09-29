@@ -1,206 +1,113 @@
-# Sync engine
+# Nessa Sync Engine
 
-Reusable Rust replication for local-first applications, with independent releases
-and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
-in host adapters.
+`nessa-sync` is a reusable Rust library for moving committed data into local
+caches. An app reads its cache immediately, even when its source is unreachable;
+when connected, it fetches bounded changes from each receiver's saved progress.
+The library keeps payload meaning, authorization policy, scheduling, and agent
+execution in the host application.
 
-**Current status: slices 1–6 implemented.** The default-feature core
-has bounded record replication and an in-memory two-device lab. The optional
-`sqlite` feature adds a restartable receiver store and a file-backed reference
-source. The optional `transport` feature adds a loopback-only, development
-server and network source adapter. Product integration remains a later slice.
+**Status:** six reference slices are implemented and checked in this repository's
+CI. The crate is unpublished (`publish = false`). The loopback network adapter
+and example credentials are for local development. There is no Nessa gateway or
+mobile integration, production pairing, encrypted relay, or production service
+availability claim yet.
 
-## Start here
+## What is implemented
 
-- [Vertical-slice implementation plan](docs/implementation-plan.md), including [slice 2 / issue #3](https://github.com/nessalabs/sync-engine/issues/3)
-- [Component and sequence diagrams](docs/design/core-walkthrough.md)
-- [Loopback transport and recovery sequence](docs/design/loopback-transport.md)
-- [Transcript and task app sequence](docs/design/example-apps.md)
-- [Tail and older-history state table](docs/design/tail-history.md)
-- [Finite catalogue pass state table](docs/design/catalogue-pass.md)
-- [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
-- [Detailed target contract and validation plan](docs/design/sync-engine.md)
-- [Contributing](CONTRIBUTING.md)
+| Capability | Implemented reference path | Verify |
+| --- | --- | --- |
+| Ordered immutable records | Exact source/scope identity, bounded pages, finite catch-up, atomic apply and checkpoint; two independent in-memory receivers | `./scripts/verify-slice-1` |
+| Durable records | SQLite source and receiver, restart recovery, transaction rollback and immutable ID checks | `python3 scripts/verify-slice-2.py` |
+| Network recovery | Loopback-only framed transport, authorized source reads, wake hints, fallback checks and fault injection | `python3 scripts/verify-slice-3.py` |
+| Two host applications | Transcript and task-board views over the same core, with local browser reads and separate freshness state | `python3 scripts/verify-slice-4.py` |
+| Long transcript history | Bounded recent tail, separate live and older-history positions, coalesced older reads, reset generations and deletion fences | `python3 scripts/verify-slice-5.py` |
+| Changing catalogues | Current entries with per-entry revisions, retained deletion markers and finite resumable passes | `python3 scripts/verify-slice-6.py` |
 
-The design moved from [nessa-agent#247](https://github.com/nessalabs/nessa-agent/issues/247).
-[Issue #1](https://github.com/nessalabs/sync-engine/issues/1) is the parent tracker here.
-Nessa's broader runtime architecture remains separate.
+Each command runs from the repository root and exits nonzero on failure. CI runs
+all six. The optional weak-link profiles are available with
+`python3 scripts/verify-slice-3.py --profiles`.
 
-## Delivery milestones
+## How it fits together
 
-1. Two-device replication lab.
-2. Durable storage and transcript restart.
-3. Real transport, missed notifications and weak links.
-4. Transcript and task-board example apps, completing the first milestone.
-5. Tail snapshots, historical backfill and bounded lazy loading.
-6. Catalogue passes that finish despite continuous updates.
+```mermaid
+flowchart LR
+    A["Host application: payloads, policy, scheduling"] --> C["nessa-sync: validation and pass coordination"]
+    C --> S["Source port"]
+    C --> D["Atomic receiver store port"]
+    S --> R["Reference adapters: memory, SQLite, loopback"]
+    D --> R
+    D --> V["Host projection and local view"]
+```
 
-A cached view should not fetch unchanged records remotely. Notifications, access
-checks, head checks and connection maintenance still consume protocol bytes; the
-examples will measure those separately from record payloads.
+The host calls `begin_pass` and drives bounded record pages. The source assigns
+committed positions; each receiver saves its own checkpoint with the applied
+records. A wake hint only asks the host to check again. Lost hints are recovered
+by reconnect and host-scheduled head checks. Opening a cached view does not
+fetch its unchanged record payload. Head checks, authentication, hints and
+connection maintenance still use network bytes.
 
-## Slice 1 end-to-end verification
+Transcript history and a changing list have **different progress**. A long
+transcript can start with a small recent tail and load older records on demand
+without rewinding its live head. A catalogue pages current entries in stable
+creation order through a captured revision boundary; edits made during the pass
+are discovered by the next pass. The [walkthrough](docs/design/core-walkthrough.md)
+and [detailed slice notes](docs/implementation-plan.md) show the sequences and
+failure cases.
+
+## Use the examples
+
+Start with the default-feature, two-receiver lab:
 
 ```sh
 ./scripts/verify-slice-1
 ```
 
-The command asserts both devices have the exact five source records, separate
-checkpoints, an offline catch-up, and zero new record payload bytes for an unchanged
-head. It prints one JSON object with read, payload-byte, and apply counters. The
-integration tests inject malformed pages, policy failures, competing plans, store
-failures, uncertain commits, and concurrent source writes. CI runs the same script.
-The in-memory store does not survive process restart; the source and authorizer are
-illustrative injected adapters, not a production trust or transport boundary. A
-transport adapter must enforce its wire frame limit before decode, and a product
-adapter must interpret its declared payload schema before applying it. A saved
-incarnation, schema, or access-epoch mismatch returns both scopes and requires an
-explicit host reset; slice 1 never rewinds or silently replaces that checkpoint.
-
-## Slice 2 restartable transcript verification
+For a local transcript stored across process restarts, run:
 
 ```sh
 python3 scripts/verify-slice-2.py
 ```
 
-The runner builds the optional SQLite example, then starts fresh processes
-against files it creates in a temporary directory. It verifies cached reads
-while the source file is unavailable, a failure on the second insert of a page
-rolling back the entire page and checkpoint, and a restart after a committed
-reply is discarded. It prints one JSON result with the final checkpoint,
-record count and recovery assertions. User-selected database paths are never
-reset or removed by this runner.
+The [transcript and task-board example](docs/design/example-apps.md) has a
+loopback source, two cached receivers and local browser views. The
+[history lab](docs/design/tail-history.md) exercises networked tail and older
+reads. The [catalogue lab](docs/design/catalogue-pass.md) runs transcript-list
+and task-list host modes against separate local SQLite source and receiver
+files; catalogue transport over the loopback wire is not implemented. Its byte
+counters are logical metadata and payload sizes, not measured wire bytes.
 
-Run the example manually from the repository root:
+The default build needs no SQLite or socket dependency. `sqlite` adds local
+reference storage. `transport` includes `sqlite` and adds the loopback-only
+network adapter. The crate requires Rust 1.85 or newer.
 
-```sh
-cargo run --locked --features sqlite --example transcript_sqlite -- append ./source.db fact-1 "hello"
-cargo run --locked --features sqlite --example transcript_sqlite -- sync ./source.db ./device.db device-a
-cargo run --locked --features sqlite --example transcript_sqlite -- show ./device.db device-a
-```
+## Boundaries and next work
 
-`show` only opens the receiver file. The example creates the named database
-files and never removes them. Its text decoder is a host example; core records
-remain opaque.
-`SqliteReferenceSource` is an indexed, local example source. Nessa can later
-adapt committed `event-stream` reads to `RecordSource`; the sync core does not
-depend on that crate. SQLite transactions protect process-restart recovery on
-the locally tested filesystem; this slice makes no power-loss, backup, remote
-authorization, or wire-security claim.
+The source and receiver adapters are reference implementations. They demonstrate
+specific transaction, restart and loopback fault behavior; they do not prove
+power-loss recovery, backup consistency, mobile background execution, or remote
+security. An unchanged stream sends no new **record payload** in the examples;
+it can still require a small head check. Data that a receiver has not cached
+must be transferred when requested.
 
-## Slice 3 loopback transport verification
+Nessa can later adapt committed [event-stream](https://github.com/nessalabs/event-stream)
+reads to the `RecordSource` port. This repository does not depend on that crate
+or use it as the sync protocol. Nessa must also supply its canonical record
+fold, conversation catalogue, current authorization, pairing, command receipts,
+artifact policy and backup/restore before a linked phone can safely control an
+agent. The [ADR](docs/adr/1-reusable-local-first-sync-engine.md) and
+[product target contract](docs/design/sync-engine.md) describe that broader
+direction; their unimplemented requirements are not guarantees of this crate.
 
-```sh
-python3 scripts/verify-slice-3.py
-python3 scripts/verify-slice-3.py --profiles
-```
+The next standalone slice is [catalogue pages over the bounded loopback
+transport](https://github.com/nessalabs/sync-engine/issues/18). [Artifact
+synchronization](https://github.com/nessalabs/sync-engine/issues/19) has its own
+parent issue and linked contract, transfer, and Nessa adapter tasks. The Nessa
+product work is grouped under [linked-device reads](https://github.com/nessalabs/nessa-agent/issues/257),
+[pairing and connectivity](https://github.com/nessalabs/nessa-agent/issues/263),
+[remote commands](https://github.com/nessalabs/nessa-agent/issues/267), and
+[backup and restore](https://github.com/nessalabs/nessa-agent/issues/270).
 
-The first command runs independent server and receiver processes against
-temporary SQLite files. It asserts two receivers converge, an offline receiver
-fetches only missing payload, every hint can be lost and a fallback check still
-converges, truncated and wrong-identity pages do not advance a checkpoint,
-authorization precedes source reads, and one held receiver does not block the
-other or an append. It also sends an oversized frame header and checks rejection.
-The JSON result separates payload and protocol bytes, duplicate bytes, head
-checks, and applied lag. `--profiles` additionally sends actual transcript
-payload at 32 and 64 kbit/s with 0.8 and 1.5 second emulated RTT, and verifies
-an outage followed by checkpoint recovery. The elapsed times are local evidence,
-not a service availability or phone latency guarantee. CI runs the fast command.
-
-The example accepts only IPv4 loopback addresses. Its explicit read and write
-tokens and fixed receiver allowlist are development credentials; they provide no
-pairing, encryption or safe exposure outside this machine. The local host owns
-the fallback interval. A subscription is a wake hint, and the receiver always
-fetches and validates bounded pages from its durable checkpoint. See the
-[transport sequence](docs/design/loopback-transport.md) for the race ordering.
-
-## Slice 4 local app verification
-
-```sh
-python3 scripts/verify-slice-4.py
-```
-
-The same process-level suite runs against a transcript and a task board. Each
-uses the same Rust replication core, loopback transport and durable receiver
-store, with different payload encoders and projections in the example host. It
-starts source and local browser-view processes for phone and laptop identities,
-stops and restarts the source, and restarts a receiver view with the source off.
-It asserts cached navigation makes zero remote record reads, an unchanged head
-transfers zero record payload, and one update transfers only that event. The
-task view folds create, title, completion and deletion events. An unsynced view
-shows **Not loaded yet**; a confirmed empty source shows **Complete and empty**.
-
-To explore one app manually, run the source in one terminal, then use other
-terminals for mutations, sync and the local browser view:
-
-```sh
-cargo run --locked --features transport --example local_apps -- source transcript ./messages-source.db 4311 read-token write-token
-cargo run --locked --features transport --example local_apps -- mutate transcript 127.0.0.1:4311 write-token fact-1 message "hello"
-cargo run --locked --features transport --example local_apps -- sync transcript 127.0.0.1:4311 ./phone.db ./phone.status phone read-token
-cargo run --locked --features transport --example local_apps -- view transcript ./phone.db ./phone.status phone 4312
-```
-
-Open `http://127.0.0.1:4312/`. Browser requests use the local receiver cache;
-their bytes are separate from the remote sync counters. The source receives
-mutations; receiver views are read-only. The explicit status path holds last
-check and byte counters; the SQLite checkpoint remains authoritative for
-applied position. If status is missing after a crash, the view labels existing
-records partial instead of presenting a false empty collection. Paths supplied
-by the user are never deleted by these examples. The web view is a small local
-demonstration, not an authenticated public UI or offline command outbox.
-The view shows the time since the last network check separately from the time
-since the last applied change. An unchanged or failed check does not make old
-content look newly applied.
-
-## Slice 5 tail and older-history verification
-
-```sh
-python3 scripts/verify-slice-5.py
-```
-
-The runner starts an independent loopback source and receiver processes. A
-40-record transcript first transfers only its most recent five records. Its
-forward checkpoint remains separate from the lower boundary of saved older
-history. Fifty overlapping view requests combine into three bounded older-page
-reads; a fresh process resumes from the committed lower boundary. A delayed
-older reply cannot rewind a newer live head. Delayed snapshot and history
-replies are refused after a newer reset or deletion fence. A source pruning
-floor produces typed `ResetRequired` and leaves the partial cache intact.
-The JSON result reports payload and protocol bytes, request counts and both
-positions. CI runs this same command.
-
-The example source keeps physical fact rows after advancing its historical
-read floor, preserving immutable ID deduplication. The reference receiver
-saves tail records, two progress boundaries, reset generation and deletion
-fence transactionally. The host-facing `HistoryReadState` distinguishes
-unloaded, loading, partial, complete-empty, complete, failed, stale and
-deleted states. Large-history UI rendering, mobile background scheduling and
-production snapshot compatibility policy remain host work.
-
-## Slice 6 catalogue pass verification
-
-```sh
-python3 scripts/verify-slice-6.py
-```
-
-The process lab runs transcript-list and task-list host modes over the same
-catalogue core. Each source has 600 current entries. A phone cache saves its
-first page, restarts, finishes the captured revision 600 despite ongoing edits,
-then catches an edit behind the cursor, a new entry, and a deletion on its next
-pass. The result reports metadata bytes, changed payload bytes, resolution
-reads, page counts, and an unchanged check with zero payload bytes. SQLite
-transaction tests also inject a failed page commit and verify that entries and
-cursor roll back together.
-
-The reference adapters use separate local source and receiver files. The byte
-counters describe decoded metadata and payload transferred across their ports;
-they are not a measured network protocol or mobile latency. The host owns entry
-schema and policy. An explicit access-scope reset removes previously authorized
-live cache values before a full pass and retains deletion markers; stale pages
-from the old epoch cannot commit. Production ownership-aware absence lookup and
-remote catalogue transport remain integration work.
-
-## Core checks
+## Development and CI
 
 ```sh
 cargo fmt --all -- --check
@@ -212,12 +119,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 cargo +1.85.0 check --locked --all-features --all-targets
 ```
 
-The minimum Rust toolchain may need `rustup toolchain install 1.85.0 --profile minimal`.
-CI installs its toolchains and runs only this repository's checks. Organization
-runner quotas can still be shared. Nessa will pin a reviewed core revision when its
-integration starts; this setup adds no dependency or CI job to nessa-agent.
-
-The `sqlite` and `transport` features are optional; a default or
-`--no-default-features` build does not link SQLite or open sockets. The first
-lab runs in memory. Later labs use local files and loopback networking without
-accounts or Nessa.
+CI runs these checks plus the six labs on source changes. A Markdown-only pull
+request runs the path-classification test and skips Rust setup and checks.
+The repository has its own workflow and build cache; a Nessa integration would
+pin a reviewed core revision and test its own adapter. See
+[CONTRIBUTING.md](CONTRIBUTING.md) before making changes.

@@ -1,19 +1,19 @@
 # Implementation plan: verifiable vertical slices
 
-**Status: slices 1 and 2 implemented locally; slices 3–6 remain planned.**
-The repository contains the bounded record core, optional SQLite restart
-adapter and independent CI for [slice 1](https://github.com/nessalabs/sync-engine/issues/2)
-and [slice 2](https://github.com/nessalabs/sync-engine/issues/3). Do not infer real
-transport or product integration guarantees from these reference adapters.
-[Issue #1](https://github.com/nessalabs/sync-engine/issues/1) tracks the
-work. The [ADR](adr/1-reusable-local-first-sync-engine.md) and
-[detailed target contract](design/sync-engine.md) were moved from Nessa.
+**Status: all six reference slices are implemented and their issues are closed.**
+The core, optional SQLite and loopback adapters, examples and six verification
+labs run in independent CI. The [parent tracker #1](https://github.com/nessalabs/sync-engine/issues/1)
+records this milestone. The [ADR](adr/1-reusable-local-first-sync-engine.md)
+and [product target contract](design/sync-engine.md) also cover later Nessa
+integration; the reference adapters do not supply its pairing, permissions,
+command execution or backup.
 
 ## Outcome we are building toward
 
 An app opens its saved data immediately. One device can disconnect while another
 keeps receiving changes. The disconnected device later catches up from its own
-saved progress, without downloading unchanged record payloads or repeating actions.
+saved progress, without downloading unchanged record payloads or reapplying
+already saved facts as new changes.
 The same core serves a transcript app and a task-board app whose payloads differ.
 
 Reading a cached screen requires no remote record fetch. Small head checks,
@@ -24,20 +24,19 @@ records is not a claim of zero total network traffic.
 
 ## Milestones and stopping points
 
-| Slice | Starts with | Independently verifiable end | GitHub |
+| Slice | Verified reference result | Command | Issue |
 | --- | --- | --- | --- |
-| 1. Bounded replication | Empty library scaffold | A deterministic source/two-device lab converges and rejects invalid batches | [#2](https://github.com/nessalabs/sync-engine/issues/2) |
-| 2. Durable replicas | Slice 1 | Separate process restart recovers transcript and checkpoint from SQLite | [#3](https://github.com/nessalabs/sync-engine/issues/3) |
-| 3. Real connection | Slice 2 | Source server and two receiver processes converge through dropped hints and weak links | [#4](https://github.com/nessalabs/sync-engine/issues/4) |
-| 4. Two applications | Slices 2 and 3 | Transcript and task-board views demonstrate cached reads, stale state and small updates | [#5](https://github.com/nessalabs/sync-engine/issues/5) |
-| 5. Load only needed history | Milestone 1 | Long transcript opens from a bounded tail and safely fetches older pages | [#6](https://github.com/nessalabs/sync-engine/issues/6) |
-| 6. Changing catalogue | Milestone 1 | A continuously changing list completes finite passes and recovers interruptions | [#7](https://github.com/nessalabs/sync-engine/issues/7) |
+| 1. Bounded replication | Two receivers converge and reject invalid batches | `./scripts/verify-slice-1` | [#2](https://github.com/nessalabs/sync-engine/issues/2) |
+| 2. Durable replicas | Separate process restart recovers transcript and checkpoint from SQLite | `python3 scripts/verify-slice-2.py` | [#3](https://github.com/nessalabs/sync-engine/issues/3) |
+| 3. Loopback connection | Source server and two receiver processes recover dropped hints and faults | `python3 scripts/verify-slice-3.py` | [#4](https://github.com/nessalabs/sync-engine/issues/4) |
+| 4. Two applications | Transcript and task-board browser views read local caches | `python3 scripts/verify-slice-4.py` | [#5](https://github.com/nessalabs/sync-engine/issues/5) |
+| 5. Long history | Recent tail and older pages keep separate durable progress | `python3 scripts/verify-slice-5.py` | [#6](https://github.com/nessalabs/sync-engine/issues/6) |
+| 6. Changing catalogue | A 600-entry list finishes finite passes and recovers interruptions | `python3 scripts/verify-slice-6.py` | [#7](https://github.com/nessalabs/sync-engine/issues/7) |
 
-**Milestone 1 ends after slice 4.** It proves a reusable durable replication core
-and two example apps over actual transport. Slices 5 and 6 form a later milestone
-for the larger data sets and list contracts required by Nessa. Pairing, remote
-command admission, encrypted relays, Nessa adapters and backups remain separate
-integration work. None blocks building the core and examples.
+**Milestone 1 ended after slice 4; slices 5 and 6 are also complete as reference
+implementations.** Catalogue passes currently use separate local SQLite files;
+they do not travel over the loopback adapter. Pairing, remote command admission,
+encrypted relays, Nessa adapters and backups remain separate integration work.
 
 ```mermaid
 flowchart LR
@@ -72,10 +71,10 @@ A slice may have several commits. Keep one bounded deliverable reviewable at a t
    Open the implementation PR against its GitHub issue. Stop at its stated finish
    line. Update its status only when the published evidence actually passes.
 
-The `verify-slice-N` scripts and example commands are **required outputs of those
-issues**. Slices 1 and 2 provide `./scripts/verify-slice-1` and
-`python3 scripts/verify-slice-2.py`; later runners do not exist yet. The root
-README gives the copyable verification commands.
+All six `verify-slice-N` runners are checked in and run by CI. The root
+[README](../README.md) gives the copyable commands and current capability
+boundaries. The briefs below record the acceptance criteria used for each
+completed slice; they are not pending work orders.
 
 ## Slice-specific execution briefs
 
@@ -178,23 +177,28 @@ per-entry revisions, retained deletion markers and a stable paging order. A pass
 captures a boundary and finishes even when current values advance beyond it. The
 next pass picks up changes, including changes behind the cursor.
 
-Resolve payloads before page progress commits. Full-reset absence classification,
-auth epochs, tombstones and response generation are explicit contracts. Do not
-infer deletion from a partial pass or archived/missing-summary presentation state.
+Resolve payloads before page progress commits. The reference adapter uses
+an explicit epoch/reset generation and retains deletion markers. On a scope
+reset it erases old live cache values before starting a full pass, so it never
+infers deletion from partial absence. Nessa's ownership-aware post-pass absence
+classification remains in the [product target contract](design/sync-engine.md).
 
 **Finish:** continuous churn, changed/deleted payloads, interrupted pages and stale
 responses all have direct tests. The list finishes a pass rather than repeatedly
-starting over. Record bytes, unchanged manifest bytes and request overhead separately.
+starting over. Record logical manifest and changed-payload bytes separately.
+The local catalogue lab does not measure wire request overhead.
 
 ## Code organization and dependencies
 
-Suggested initial shape, filled only as each slice needs it:
+Current feature structure:
 
 ```text
 src/replication/
-  domain/          identities, bounds, batch validation, scheduling decisions
-  application/     one-page catch-up and injected ports
-  infrastructure/  optional reference adapters
+  domain/          stream identities, bounds and page validation
+  application/     finite record catch-up and injected ports
+  history/         recent-tail and older-page contracts
+  catalogue/       current-entry passes and revisions
+  infrastructure/  memory, optional SQLite and loopback reference adapters
 examples/          host-specific transcript and task-board applications
 scripts/           end-to-end verification runners
 ```
@@ -207,7 +211,7 @@ Use typed errors and immutable value objects. Do not introduce empty abstraction
 layers or a global service locator.
 
 Dependency versions and the minimum supported Rust version must be verified when
-introduced. The scaffold's Rust 1.85 floor is checked in CI. Do not silently raise it
+introduced. The crate's Rust 1.85 floor is checked in CI. Do not silently raise it
 to accommodate an example dependency. The development adapter's durability claim
 is limited to its demonstrated transaction/restart guarantees; storage hardware
 failure and production transport security need their own evidence.
@@ -218,19 +222,7 @@ This repository has its own workflow, lockfile and build cache. No workflow chan
 is made in `nessa-agent`, and no dependency from that repo is added by this work.
 GitHub-hosted runner capacity and organization quotas may still be shared.
 
-The workflow checks slice 1 behavior through its lab and tests. Each implementation
-slice adds its behavioral gate to the existing job where practical. Add OS jobs
+The workflow checks all six slice labs and their tests. Add OS jobs
 when a real filesystem/process adapter needs platform coverage. A later Nessa
 integration pins a reviewed version and runs its own adapter compatibility tests;
 core commits must not automatically advance that dependency.
-
-## Handoff to Sol medium
-
-- Repository: `https://github.com/nessalabs/sync-engine` (public).
-- Worktree: `/Users/nessa/Documents/NessaLabs/sync-engine-core`.
-- Setup branch: `codex/1-sync-core`, based on the standalone repository.
-- Main tracker: #1. First implementation issue: #2.
-- Read this plan, the walkthrough and CONTRIBUTING before coding.
-- Begin with slice 1 and finish its lab, tests and evidence before moving onward.
-- This original handoff predates slice 1. Its current evidence is the checked-in
-  two-device lab, failure tests, and CI command.
