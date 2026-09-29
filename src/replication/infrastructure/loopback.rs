@@ -6,23 +6,28 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::replication::application::{Access, RecordSource, ScopeAuthorizer, SourceError};
+use crate::replication::catalogue::{
+    CataloguePass, CatalogueSource, CatalogueSourceError, EntryKey, ManifestEntry, ManifestPage,
+    ManifestRequest, ResolvedEntry,
+};
 use crate::replication::domain::{Id, Page, PageRequest, Record, Scope};
 use crate::replication::history::{
     HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
 };
 
-use super::SqliteReferenceSource;
+use super::{SqliteCatalogueSource, SqliteReferenceSource};
 
 /// Maximum complete wire body, checked before allocating a read buffer.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 const MAX_PAGE_PAYLOAD: usize = 512 * 1024;
 const MAX_PAGE_RECORDS: usize = 64;
+const MAX_CATALOGUE_ENTRIES: usize = 128;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -35,6 +40,15 @@ pub enum FrameError {
     TooLarge,
     /// Body was malformed or carried an invalid identity.
     Malformed,
+}
+
+/// One-shot response fault for the local catalogue transport lab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogueFault {
+    /// Close the connection before sending the first catalogue response.
+    DropFirstReply,
+    /// Announce the first response length and send only its status byte.
+    TruncateFirstReply,
 }
 
 impl From<io::Error> for FrameError {
@@ -184,12 +198,96 @@ impl<'a> Decoder<'a> {
         })
     }
 
+    fn catalogue_key(&mut self) -> Result<EntryKey, FrameError> {
+        Ok(EntryKey {
+            creation: self.u64()?,
+            id: self.id()?,
+        })
+    }
+
+    fn catalogue_pass(&mut self) -> Result<CataloguePass, FrameError> {
+        let scope = self.scope()?;
+        let completed = self.u64()?;
+        let boundary = self.u64()?;
+        let generation = self.u64()?;
+        let cursor = match self.byte()? {
+            0 => None,
+            1 => Some(self.catalogue_key()?),
+            _ => return Err(FrameError::Malformed),
+        };
+        Ok(CataloguePass {
+            scope,
+            completed,
+            boundary,
+            cursor,
+            generation,
+        })
+    }
+
+    fn manifest_entry(&mut self) -> Result<ManifestEntry, FrameError> {
+        let key = self.catalogue_key()?;
+        let revision = self.u64()?;
+        let deleted = match self.byte()? {
+            0 => false,
+            1 => true,
+            _ => return Err(FrameError::Malformed),
+        };
+        Ok(ManifestEntry {
+            key,
+            revision,
+            deleted,
+        })
+    }
+
     fn finish(self) -> Result<(), FrameError> {
         if self.offset == self.bytes.len() {
             Ok(())
         } else {
             Err(FrameError::Malformed)
         }
+    }
+}
+
+fn put_catalogue_key(out: &mut Vec<u8>, key: &EntryKey) {
+    out.extend_from_slice(&key.creation.to_be_bytes());
+    put_id(out, &key.id);
+}
+
+fn put_catalogue_pass(out: &mut Vec<u8>, pass: &CataloguePass) {
+    put_scope(out, &pass.scope);
+    for value in [pass.completed, pass.boundary, pass.generation] {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+    match &pass.cursor {
+        Some(key) => {
+            out.push(1);
+            put_catalogue_key(out, key);
+        }
+        None => out.push(0),
+    }
+}
+
+fn put_manifest_entry(out: &mut Vec<u8>, entry: &ManifestEntry) {
+    put_catalogue_key(out, &entry.key);
+    out.extend_from_slice(&entry.revision.to_be_bytes());
+    out.push(u8::from(entry.deleted));
+}
+
+fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
+    match error {
+        CatalogueSourceError::Unavailable => 2,
+        CatalogueSourceError::IdentityChanged => 3,
+        CatalogueSourceError::InvalidRequest => 4,
+        CatalogueSourceError::OversizedEntry => 5,
+    }
+}
+
+fn decode_catalogue_error(code: u8) -> CatalogueSourceError {
+    match code {
+        3 => CatalogueSourceError::IdentityChanged,
+        4 => CatalogueSourceError::InvalidRequest,
+        5 => CatalogueSourceError::OversizedEntry,
+        _ => CatalogueSourceError::Unavailable,
     }
 }
 
@@ -238,6 +336,10 @@ fn decode_history_error(code: u8) -> HistorySourceError {
 pub struct LoopbackConfig {
     /// Source SQLite path, created only if absent.
     pub source_path: PathBuf,
+    /// Optional, separate current-value catalogue SQLite source file.
+    pub catalogue_source_path: Option<PathBuf>,
+    /// Optional one-shot development fault; never a production transport mode.
+    pub catalogue_fault: Option<CatalogueFault>,
     /// Exact source origin.
     pub origin: Id,
     /// Exact source stream.
@@ -268,6 +370,21 @@ impl LoopbackConfig {
         .map_err(|_| FrameError::Malformed)
     }
 
+    fn open_catalogue_source(&self) -> Result<SqliteCatalogueSource, FrameError> {
+        let path = self
+            .catalogue_source_path
+            .as_ref()
+            .ok_or(FrameError::Malformed)?;
+        SqliteCatalogueSource::open(
+            path,
+            self.origin.clone(),
+            self.stream.clone(),
+            self.incarnation.clone(),
+            self.schema.clone(),
+        )
+        .map_err(|_| FrameError::Malformed)
+    }
+
     fn matches(&self, scope: &Scope) -> bool {
         scope.origin() == &self.origin
             && scope.stream() == &self.stream
@@ -285,6 +402,10 @@ struct ServerCounters {
     tail_reads: AtomicU64,
     older_reads: AtomicU64,
     history_payload_bytes: AtomicU64,
+    catalogue_head_reads: AtomicU64,
+    catalogue_manifest_reads: AtomicU64,
+    catalogue_resolve_reads: AtomicU64,
+    catalogue_fault_claimed: AtomicBool,
 }
 
 /// Loopback source server with one independent thread and SQLite handle per
@@ -651,15 +772,173 @@ fn serve_one(
             let result = config.open_source()?.prune_through(position);
             write_frame(&mut stream, &[if result.is_ok() { 0 } else { 2 }])?;
         }
+        11..=13 => {
+            let scope = if operation == 12 {
+                let pass = input.catalogue_pass()?;
+                let count = input.u64()?;
+                input.finish()?;
+                if !catalogue_access(config, &token, &pass.scope, counters, &mut stream)? {
+                    return Ok(());
+                }
+                if count == 0
+                    || count > MAX_CATALOGUE_ENTRIES as u64
+                    || pass.generation == 0
+                    || pass.boundary <= pass.completed
+                {
+                    write_frame(&mut stream, &[4])?;
+                    return Ok(());
+                }
+                let request = ManifestRequest {
+                    pass,
+                    max_entries: count as usize,
+                };
+                counters
+                    .catalogue_manifest_reads
+                    .fetch_add(1, Ordering::Relaxed);
+                let result = config.open_catalogue_source()?.manifest(&request);
+                let mut response = Vec::new();
+                match result {
+                    Ok(page) => {
+                        response.push(0);
+                        put_catalogue_pass(&mut response, &page.request.pass);
+                        response
+                            .extend_from_slice(&(page.request.max_entries as u64).to_be_bytes());
+                        response.push(u8::from(page.has_more));
+                        response.extend_from_slice(&(page.entries.len() as u16).to_be_bytes());
+                        for entry in &page.entries {
+                            put_manifest_entry(&mut response, entry);
+                        }
+                    }
+                    Err(error) => response.push(catalogue_error_code(error)),
+                }
+                write_catalogue_frame(&mut stream, &response, config, counters)?;
+                return Ok(());
+            } else if operation == 13 {
+                let pass = input.catalogue_pass()?;
+                let id = input.id()?;
+                let max = input.u64()?;
+                input.finish()?;
+                let scope = pass.scope.clone();
+                if !catalogue_access(config, &token, &scope, counters, &mut stream)? {
+                    return Ok(());
+                }
+                if max == 0
+                    || max > MAX_PAGE_PAYLOAD as u64
+                    || pass.generation == 0
+                    || pass.boundary <= pass.completed
+                {
+                    write_frame(&mut stream, &[4])?;
+                    return Ok(());
+                }
+                counters
+                    .catalogue_resolve_reads
+                    .fetch_add(1, Ordering::Relaxed);
+                let mut response = Vec::new();
+                match config
+                    .open_catalogue_source()?
+                    .resolve(&pass, &id, max as usize)
+                {
+                    Ok(entry) => {
+                        response.push(0);
+                        put_catalogue_pass(&mut response, &pass);
+                        put_id(&mut response, &id);
+                        response.extend_from_slice(&max.to_be_bytes());
+                        put_manifest_entry(&mut response, &entry.manifest);
+                        response.extend_from_slice(&(entry.payload.len() as u32).to_be_bytes());
+                        response.extend_from_slice(&entry.payload);
+                    }
+                    Err(error) => response.push(catalogue_error_code(error)),
+                }
+                write_catalogue_frame(&mut stream, &response, config, counters)?;
+                return Ok(());
+            } else {
+                input.scope()?
+            };
+            input.finish()?;
+            if !catalogue_access(config, &token, &scope, counters, &mut stream)? {
+                return Ok(());
+            }
+            let mut response = Vec::new();
+            counters
+                .catalogue_head_reads
+                .fetch_add(1, Ordering::Relaxed);
+            match config.open_catalogue_source()?.head(&scope) {
+                Ok(head) => {
+                    response.push(0);
+                    put_scope(&mut response, &scope);
+                    response.extend_from_slice(&head.to_be_bytes());
+                }
+                Err(error) => response.push(catalogue_error_code(error)),
+            }
+            write_catalogue_frame(&mut stream, &response, config, counters)?;
+        }
+        14 => {
+            input.finish()?;
+            if token != config.write_token {
+                write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            let mut response = vec![0];
+            for value in [
+                &counters.catalogue_head_reads,
+                &counters.catalogue_manifest_reads,
+                &counters.catalogue_resolve_reads,
+            ] {
+                response.extend_from_slice(&value.load(Ordering::Relaxed).to_be_bytes());
+            }
+            write_frame(&mut stream, &response)?;
+        }
         _ => return Err(FrameError::Malformed),
     }
     Ok(())
 }
 
+fn write_catalogue_frame(
+    stream: &mut TcpStream,
+    body: &[u8],
+    config: &LoopbackConfig,
+    counters: &ServerCounters,
+) -> Result<(), FrameError> {
+    if let Some(fault) = config.catalogue_fault {
+        if counters
+            .catalogue_fault_claimed
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            if fault == CatalogueFault::TruncateFirstReply {
+                stream.write_all(&(body.len() as u32).to_be_bytes())?;
+                stream.write_all(&body[..1])?;
+            }
+            return Ok(());
+        }
+    }
+    write_frame(stream, body)
+}
+
+fn catalogue_access(
+    config: &LoopbackConfig,
+    token: &Id,
+    scope: &Scope,
+    counters: &ServerCounters,
+    stream: &mut TcpStream,
+) -> Result<bool, FrameError> {
+    if *token != config.read_token
+        || !config.matches(scope)
+        || !config.allowed_receivers.contains(scope.receiver())
+        || config.catalogue_source_path.is_none()
+    {
+        counters.refused_reads.fetch_add(1, Ordering::Relaxed);
+        write_frame(stream, &[1])?;
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 /// Client-side wire accounting. Record payload and framing are separate.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WireCounters {
-    /// Complete request and response framing bytes sent or received.
+    /// Framing, metadata and request bytes after subtracting counted payload
+    /// and catalogue descriptor bytes from complete frames.
     pub protocol_bytes: u64,
     /// Source record payload bytes received, including retries.
     pub payload_bytes: u64,
@@ -668,6 +947,12 @@ pub struct WireCounters {
     pub duplicate_bytes: u64,
     /// Explicit remote head checks.
     pub head_checks: u64,
+    /// Catalogue descriptor bytes received, including repeated pages.
+    pub catalogue_manifest_bytes: u64,
+    /// Catalogue current-value bytes received, including repeated responses.
+    pub catalogue_payload_bytes: u64,
+    /// Repeated catalogue payload bytes observed by this client process.
+    pub catalogue_duplicate_bytes: u64,
 }
 
 /// One local receiver's bounded network source. This adapter uses a new TCP
@@ -677,6 +962,7 @@ pub struct LoopbackClient {
     token: Id,
     counters: WireCounters,
     seen_positions: HashMap<Scope, u64>,
+    seen_catalogue_revisions: HashMap<(Scope, Id), u64>,
 }
 
 impl LoopbackClient {
@@ -693,6 +979,7 @@ impl LoopbackClient {
             token,
             counters: WireCounters::default(),
             seen_positions: HashMap::new(),
+            seen_catalogue_revisions: HashMap::new(),
         })
     }
 
@@ -781,6 +1068,20 @@ impl LoopbackClient {
         Ok(result)
     }
 
+    /// Reads development catalogue-operation counters with the write credential.
+    pub fn catalogue_counters(&mut self) -> Result<(u64, u64, u64), FrameError> {
+        let mut request = vec![14];
+        put_id(&mut request, &self.token);
+        let response = self.exchange(&request)?;
+        let mut decoder = Decoder::new(&response);
+        if decoder.byte()? != 0 {
+            return Err(FrameError::Malformed);
+        }
+        let result = (decoder.u64()?, decoder.u64()?, decoder.u64()?);
+        decoder.finish()?;
+        Ok(result)
+    }
+
     /// Advances the development source's historical floor. Physical records
     /// remain for immutable ID deduplication; only reads below the floor stop.
     pub fn prune_through(&mut self, position: u64) -> Result<(), FrameError> {
@@ -792,6 +1093,187 @@ impl LoopbackClient {
         } else {
             Err(FrameError::Malformed)
         }
+    }
+}
+
+impl CatalogueSource for LoopbackClient {
+    fn head(&mut self, scope: &Scope) -> Result<u64, CatalogueSourceError> {
+        let response = self
+            .exchange(&self.request(11, scope))
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_catalogue_error(code));
+        }
+        let echoed = decoder
+            .scope()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let head = decoder
+            .u64()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        decoder
+            .finish()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if echoed != *scope {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
+        Ok(head)
+    }
+
+    fn manifest(
+        &mut self,
+        request: &ManifestRequest,
+    ) -> Result<ManifestPage, CatalogueSourceError> {
+        if request.max_entries == 0 || request.max_entries > MAX_CATALOGUE_ENTRIES {
+            return Err(CatalogueSourceError::InvalidRequest);
+        }
+        let mut body = vec![12];
+        put_id(&mut body, &self.token);
+        put_catalogue_pass(&mut body, &request.pass);
+        body.extend_from_slice(&(request.max_entries as u64).to_be_bytes());
+        let response = self
+            .exchange(&body)
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_catalogue_error(code));
+        }
+        let echoed = ManifestRequest {
+            pass: decoder
+                .catalogue_pass()
+                .map_err(|_| CatalogueSourceError::Unavailable)?,
+            max_entries: usize::try_from(
+                decoder
+                    .u64()
+                    .map_err(|_| CatalogueSourceError::Unavailable)?,
+            )
+            .map_err(|_| CatalogueSourceError::InvalidRequest)?,
+        };
+        if echoed != *request {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
+        let has_more = match decoder
+            .byte()
+            .map_err(|_| CatalogueSourceError::Unavailable)?
+        {
+            0 => false,
+            1 => true,
+            _ => return Err(CatalogueSourceError::Unavailable),
+        };
+        let count = u16::from_be_bytes(
+            decoder
+                .take(2)
+                .map_err(|_| CatalogueSourceError::Unavailable)?
+                .try_into()
+                .map_err(|_| CatalogueSourceError::Unavailable)?,
+        ) as usize;
+        if count > request.max_entries {
+            return Err(CatalogueSourceError::InvalidRequest);
+        }
+        let mut entries = Vec::with_capacity(count);
+        let mut descriptor_bytes = 0u64;
+        for _ in 0..count {
+            let entry = decoder
+                .manifest_entry()
+                .map_err(|_| CatalogueSourceError::Unavailable)?;
+            descriptor_bytes += entry.key.id.as_str().len() as u64 + 17;
+            entries.push(entry);
+        }
+        decoder
+            .finish()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let page = ManifestPage {
+            request: echoed,
+            entries,
+            has_more,
+        };
+        crate::replication::catalogue::validate_manifest(request, &page, MAX_CATALOGUE_ENTRIES)
+            .map_err(|_| CatalogueSourceError::InvalidRequest)?;
+        self.counters.catalogue_manifest_bytes += descriptor_bytes;
+        self.counters.protocol_bytes = self
+            .counters
+            .protocol_bytes
+            .saturating_sub(descriptor_bytes);
+        Ok(page)
+    }
+
+    fn resolve(
+        &mut self,
+        pass: &CataloguePass,
+        id: &Id,
+        max_payload_bytes: usize,
+    ) -> Result<ResolvedEntry, CatalogueSourceError> {
+        if max_payload_bytes == 0 || max_payload_bytes > MAX_PAGE_PAYLOAD {
+            return Err(CatalogueSourceError::InvalidRequest);
+        }
+        let mut body = vec![13];
+        put_id(&mut body, &self.token);
+        put_catalogue_pass(&mut body, pass);
+        put_id(&mut body, id);
+        body.extend_from_slice(&(max_payload_bytes as u64).to_be_bytes());
+        let response = self
+            .exchange(&body)
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_catalogue_error(code));
+        }
+        let echoed_pass = decoder
+            .catalogue_pass()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let echoed_id = decoder
+            .id()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let echoed_max = decoder
+            .u64()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if echoed_pass != *pass || echoed_id != *id || echoed_max != max_payload_bytes as u64 {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
+        let manifest = decoder
+            .manifest_entry()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let len = u32::from_be_bytes(
+            decoder
+                .take(4)
+                .map_err(|_| CatalogueSourceError::Unavailable)?
+                .try_into()
+                .map_err(|_| CatalogueSourceError::Unavailable)?,
+        ) as usize;
+        if len > max_payload_bytes {
+            return Err(CatalogueSourceError::OversizedEntry);
+        }
+        let payload = decoder
+            .take(len)
+            .map_err(|_| CatalogueSourceError::Unavailable)?
+            .to_vec();
+        decoder
+            .finish()
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        if manifest.key.id != *id || (manifest.deleted && !payload.is_empty()) {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
+        self.counters.catalogue_payload_bytes += len as u64;
+        self.counters.protocol_bytes = self.counters.protocol_bytes.saturating_sub(len as u64);
+        let key = (pass.scope.clone(), id.clone());
+        if self
+            .seen_catalogue_revisions
+            .get(&key)
+            .is_some_and(|seen| *seen >= manifest.revision)
+        {
+            self.counters.catalogue_duplicate_bytes += len as u64;
+        }
+        self.seen_catalogue_revisions.insert(key, manifest.revision);
+        Ok(ResolvedEntry { manifest, payload })
     }
 }
 
@@ -1065,6 +1547,33 @@ impl RecordSource for LoopbackClient {
 mod tests {
     use super::*;
 
+    fn id(value: &str) -> Id {
+        Id::new(value).unwrap()
+    }
+    fn test_scope() -> Scope {
+        Scope::new(
+            id("receiver"),
+            id("origin"),
+            id("index"),
+            id("first"),
+            id("opaque"),
+            id("epoch"),
+        )
+    }
+    fn fake_reply(response: Vec<u8>) -> LoopbackClient {
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = match listener.local_addr().unwrap() {
+            std::net::SocketAddr::V4(address) => address,
+            _ => unreachable!(),
+        };
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_frame(&mut stream).unwrap();
+            write_frame(&mut stream, &response).unwrap();
+        });
+        LoopbackClient::new(address, id("read")).unwrap()
+    }
+
     #[test]
     fn oversized_header_is_rejected_without_reading_a_body() {
         let bytes = ((MAX_FRAME_BYTES + 1) as u32).to_be_bytes();
@@ -1088,6 +1597,8 @@ mod tests {
         let value = |text| Id::new(text).unwrap();
         let config = LoopbackConfig {
             source_path: PathBuf::from("unused.db"),
+            catalogue_source_path: None,
+            catalogue_fault: None,
             origin: value("origin"),
             stream: value("stream"),
             incarnation: value("first"),
@@ -1100,6 +1611,105 @@ mod tests {
         assert_eq!(
             LoopbackServer::bind(0, config).err().unwrap().kind(),
             io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn catalogue_wire_rejects_stale_pass_echo() {
+        let request = ManifestRequest {
+            pass: CataloguePass {
+                scope: test_scope(),
+                completed: 0,
+                boundary: 2,
+                cursor: None,
+                generation: 2,
+            },
+            max_entries: 40,
+        };
+        let mut response = vec![0];
+        let mut stale = request.pass.clone();
+        stale.generation = 1;
+        put_catalogue_pass(&mut response, &stale);
+        response.extend_from_slice(&40_u64.to_be_bytes());
+        response.push(0);
+        response.extend_from_slice(&0_u16.to_be_bytes());
+        let mut client = fake_reply(response);
+        assert_eq!(
+            client.manifest(&request),
+            Err(CatalogueSourceError::IdentityChanged)
+        );
+    }
+
+    #[test]
+    fn catalogue_wire_rejects_foreign_and_invalid_deletion_payloads() {
+        let pass = CataloguePass {
+            scope: test_scope(),
+            completed: 0,
+            boundary: 1,
+            cursor: None,
+            generation: 1,
+        };
+        for (echoed_id, deleted, payload) in [
+            ("other", false, b"a".as_slice()),
+            ("item", true, b"nonempty".as_slice()),
+        ] {
+            let mut response = vec![0];
+            put_catalogue_pass(&mut response, &pass);
+            put_id(&mut response, &id("item"));
+            response.extend_from_slice(&128_u64.to_be_bytes());
+            put_manifest_entry(
+                &mut response,
+                &ManifestEntry {
+                    key: EntryKey {
+                        creation: 1,
+                        id: id(echoed_id),
+                    },
+                    revision: 1,
+                    deleted,
+                },
+            );
+            response.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+            response.extend_from_slice(payload);
+            let mut client = fake_reply(response);
+            assert_eq!(
+                client.resolve(&pass, &id("item"), 128),
+                Err(CatalogueSourceError::IdentityChanged)
+            );
+        }
+    }
+
+    #[test]
+    fn catalogue_wire_rejects_stale_payload_pass() {
+        let pass = CataloguePass {
+            scope: test_scope(),
+            completed: 0,
+            boundary: 2,
+            cursor: None,
+            generation: 2,
+        };
+        let mut stale = pass.clone();
+        stale.generation = 1;
+        let mut response = vec![0];
+        put_catalogue_pass(&mut response, &stale);
+        put_id(&mut response, &id("item"));
+        response.extend_from_slice(&128_u64.to_be_bytes());
+        put_manifest_entry(
+            &mut response,
+            &ManifestEntry {
+                key: EntryKey {
+                    creation: 1,
+                    id: id("item"),
+                },
+                revision: 1,
+                deleted: false,
+            },
+        );
+        response.extend_from_slice(&1_u32.to_be_bytes());
+        response.push(b'x');
+        let mut client = fake_reply(response);
+        assert_eq!(
+            client.resolve(&pass, &id("item"), 128),
+            Err(CatalogueSourceError::IdentityChanged)
         );
     }
 }

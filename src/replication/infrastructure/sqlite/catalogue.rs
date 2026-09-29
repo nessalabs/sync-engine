@@ -351,11 +351,11 @@ impl CatalogueSource for SqliteCatalogueSource {
 
     fn resolve(
         &mut self,
-        scope: &Scope,
+        pass: &CataloguePass,
         entry_id: &Id,
         max_payload_bytes: usize,
     ) -> Result<ResolvedEntry, CatalogueSourceError> {
-        if !self.matches(scope) {
+        if !self.matches(&pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
         if max_payload_bytes == 0 || max_payload_bytes > MAX_PAYLOAD {

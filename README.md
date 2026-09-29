@@ -6,7 +6,7 @@ when connected, it fetches bounded changes from each receiver's saved progress.
 The library keeps payload meaning, authorization policy, scheduling, and agent
 execution in the host application.
 
-**Status:** six reference slices are implemented and checked in this repository's
+**Status:** seven reference slices are implemented and checked in this repository's
 CI. The crate is unpublished (`publish = false`). The loopback network adapter
 and example credentials are for local development. There is no Nessa gateway or
 mobile integration, production pairing, encrypted relay, or production service
@@ -22,9 +22,10 @@ availability claim yet.
 | Two host applications | Transcript and task-board views over the same core, with local browser reads and separate freshness state | `python3 scripts/verify-slice-4.py` |
 | Long transcript history | Bounded recent tail, separate live and older-history positions, coalesced older reads, reset generations and deletion fences | `python3 scripts/verify-slice-5.py` |
 | Changing catalogues | Current entries with per-entry revisions, retained deletion markers and finite resumable passes | `python3 scripts/verify-slice-6.py` |
+| Networked catalogues | Bounded loopback head, manifest and payload reads; two persisted receivers, interruption/restart and wire accounting | `python3 scripts/verify-slice-7.py` |
 
 Each command runs from the repository root and exits nonzero on failure. CI runs
-all six. The optional weak-link profiles are available with
+all seven. The optional weak-link profiles are available with
 `python3 scripts/verify-slice-3.py --profiles`.
 
 ## How it fits together
@@ -73,8 +74,10 @@ loopback source, two cached receivers and local browser views. The
 [history lab](docs/design/tail-history.md) exercises networked tail and older
 reads. The [catalogue lab](docs/design/catalogue-pass.md) runs transcript-list
 and task-list host modes against separate local SQLite source and receiver
-files; catalogue transport over the loopback wire is not implemented. Its byte
-counters are logical metadata and payload sizes, not measured wire bytes.
+files; that lab's byte counters are logical metadata and payload sizes. The
+[network catalogue lab](docs/design/catalogue-pass.md) uses the bounded loopback
+adapter and reports manifest, payload and protocol bytes over the wire. It uses
+development credentials and does not establish production transport security.
 
 The default build needs no SQLite or socket dependency. `sqlite` adds local
 reference storage. `transport` includes `sqlite` and adds the loopback-only
@@ -98,9 +101,7 @@ agent. The [ADR](docs/adr/1-reusable-local-first-sync-engine.md) and
 [product target contract](docs/design/sync-engine.md) describe that broader
 direction; their unimplemented requirements are not guarantees of this crate.
 
-The next standalone slice is [catalogue pages over the bounded loopback
-transport](https://github.com/nessalabs/sync-engine/issues/18). [Artifact
-synchronization](https://github.com/nessalabs/sync-engine/issues/19) has its own
+The next standalone feature is [artifact synchronization](https://github.com/nessalabs/sync-engine/issues/19). It has its own
 parent issue and linked contract, transfer, and Nessa adapter tasks. The Nessa
 product work is grouped under [linked-device reads](https://github.com/nessalabs/nessa-agent/issues/257),
 [pairing and connectivity](https://github.com/nessalabs/nessa-agent/issues/263),
@@ -119,7 +120,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 cargo +1.85.0 check --locked --all-features --all-targets
 ```
 
-CI runs these checks plus the six labs on source changes. A Markdown-only pull
+CI runs these checks plus the seven labs on source changes. A Markdown-only pull
 request runs the path-classification test and skips Rust setup and checks.
 The repository has its own workflow and build cache; a Nessa integration would
 pin a reviewed core revision and test its own adapter. See

@@ -1,7 +1,7 @@
 # Implementation plan: verifiable vertical slices
 
-**Status: all six reference slices are implemented and their issues are closed.**
-The core, optional SQLite and loopback adapters, examples and six verification
+**Status: seven reference slices are implemented.**
+The core, optional SQLite and loopback adapters, examples and seven verification
 labs run in independent CI. The [parent tracker #1](https://github.com/nessalabs/sync-engine/issues/1)
 records this milestone. The [ADR](adr/1-reusable-local-first-sync-engine.md)
 and [product target contract](design/sync-engine.md) also cover later Nessa
@@ -32,11 +32,12 @@ records is not a claim of zero total network traffic.
 | 4. Two applications | Transcript and task-board browser views read local caches | `python3 scripts/verify-slice-4.py` | [#5](https://github.com/nessalabs/sync-engine/issues/5) |
 | 5. Long history | Recent tail and older pages keep separate durable progress | `python3 scripts/verify-slice-5.py` | [#6](https://github.com/nessalabs/sync-engine/issues/6) |
 | 6. Changing catalogue | A 600-entry list finishes finite passes and recovers interruptions | `python3 scripts/verify-slice-6.py` | [#7](https://github.com/nessalabs/sync-engine/issues/7) |
+| 7. Networked catalogue | Two durable receivers complete bounded loopback passes and recover interrupted replies | `python3 scripts/verify-slice-7.py` | [#18](https://github.com/nessalabs/sync-engine/issues/18) |
 
-**Milestone 1 ended after slice 4; slices 5 and 6 are also complete as reference
-implementations.** Catalogue passes currently use separate local SQLite files;
-they do not travel over the loopback adapter. Pairing, remote command admission,
-encrypted relays, Nessa adapters and backups remain separate integration work.
+**Milestone 1 ended after slice 4; slices 5–7 are also complete as reference
+implementations.** Slice 7 carries catalogue passes over the development
+loopback adapter. Pairing, remote command admission, encrypted relays, Nessa
+adapters and backups remain separate integration work.
 
 ```mermaid
 flowchart LR
@@ -47,6 +48,7 @@ flowchart LR
     S4 --> M1["Milestone 1, stop and review evidence"]
     M1 --> S5["5. Tail snapshots and lazy loading"]
     M1 --> S6["6. Finite catalogue passes"]
+    S6 --> S7["7. Catalogue over loopback"]
 ```
 
 ## How each slice is delivered
@@ -71,7 +73,7 @@ A slice may have several commits. Keep one bounded deliverable reviewable at a t
    Open the implementation PR against its GitHub issue. Stop at its stated finish
    line. Update its status only when the published evidence actually passes.
 
-All six `verify-slice-N` runners are checked in and run by CI. The root
+All seven `verify-slice-N` runners are checked in and run by CI. The root
 [README](../README.md) gives the copyable commands and current capability
 boundaries. The briefs below record the acceptance criteria used for each
 completed slice; they are not pending work orders.
@@ -186,7 +188,8 @@ classification remains in the [product target contract](design/sync-engine.md).
 **Finish:** continuous churn, changed/deleted payloads, interrupted pages and stale
 responses all have direct tests. The list finishes a pass rather than repeatedly
 starting over. Record logical manifest and changed-payload bytes separately.
-The local catalogue lab does not measure wire request overhead.
+The slice 6 local catalogue lab does not measure wire request overhead. Slice 7
+measures framed requests and responses across a loopback socket.
 
 ## Code organization and dependencies
 
@@ -222,7 +225,7 @@ This repository has its own workflow, lockfile and build cache. No workflow chan
 is made in `nessa-agent`, and no dependency from that repo is added by this work.
 GitHub-hosted runner capacity and organization quotas may still be shared.
 
-The workflow checks all six slice labs and their tests. Add OS jobs
+The workflow checks all seven slice labs and their tests. Add OS jobs
 when a real filesystem/process adapter needs platform coverage. A later Nessa
 integration pins a reviewed version and runs its own adapter compatibility tests;
 core commits must not automatically advance that dependency.

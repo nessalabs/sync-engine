@@ -82,6 +82,9 @@ jobs:
       - name: Slice 6 finite catalogue passes
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-slice-6.py
+      - name: Slice 7 catalogue over loopback transport
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-slice-7.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

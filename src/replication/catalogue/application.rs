@@ -65,7 +65,7 @@ pub trait CatalogueSource {
     /// Resolves the latest authorized value or retained deletion marker.
     fn resolve(
         &mut self,
-        scope: &Scope,
+        pass: &CataloguePass,
         id: &Id,
         max_payload_bytes: usize,
     ) -> Result<ResolvedEntry, CatalogueSourceError>;
@@ -206,7 +206,7 @@ where
             ));
         }
         let value = source
-            .resolve(&pass.scope, &entry.key.id, remaining)
+            .resolve(pass, &entry.key.id, remaining)
             .map_err(CatalogueError::Source)?;
         validate_resolved(entry, &value, max_payload_bytes).map_err(CatalogueError::Validation)?;
         total_bytes =
