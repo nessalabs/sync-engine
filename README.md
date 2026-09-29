@@ -83,8 +83,13 @@ adapter and reports manifest, payload and protocol bytes over the wire. It uses
 development credentials and does not establish production transport security.
 
 The default build needs no SQLite or socket dependency. `sqlite` adds local
-reference storage. `transport` includes `sqlite` and adds the loopback-only
-network adapter. The crate requires Rust 1.85 or newer.
+reference storage. `transport` adds the loopback-only network client and a
+read-only server for host-owned `RecordSource` implementations without a SQLite
+dependency. Enable both features for the SQLite reference server and network
+labs. The crate requires Rust 1.85 or newer.
+
+`python3 scripts/verify-record-server.py` runs a memory-backed source and
+receiver in separate processes with only `transport` enabled.
 
 ## Boundaries and next work
 

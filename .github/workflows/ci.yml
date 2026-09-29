@@ -62,6 +62,8 @@ jobs:
         if: steps.changes.outputs.rust != 'false'
         run: |
           cargo +stable test --locked --no-default-features --all-targets
+          cargo +stable test --locked --no-default-features --features sqlite --all-targets
+          cargo +stable test --locked --no-default-features --features transport --all-targets
           cargo +stable test --locked --all-features --all-targets
           cargo +stable test --locked --all-features --doc
       - name: Slice 1 two-device lab
@@ -85,6 +87,9 @@ jobs:
       - name: Slice 7 catalogue over loopback transport
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-slice-7.py
+      - name: Generic record server across processes
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-record-server.py
       - name: Artifact manifest and availability example
         if: steps.changes.outputs.rust != 'false'
         run: cargo run --locked --example artifact_contract
@@ -100,4 +105,5 @@ jobs:
         if: steps.changes.outputs.rust != 'false'
         run: |
           cargo +1.85.0 check --locked --no-default-features --all-targets
+          cargo +1.85.0 check --locked --no-default-features --features transport --all-targets
           cargo +1.85.0 check --locked --all-features --all-targets

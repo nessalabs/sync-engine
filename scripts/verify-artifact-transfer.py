@@ -53,7 +53,7 @@ def stop_server(process):
 
 
 def main():
-    subprocess.run(["cargo", "build", "--quiet", "--locked", "--features", "transport",
+    subprocess.run(["cargo", "build", "--quiet", "--locked", "--features", "transport,sqlite",
                     "--example", "artifact_network"], cwd=ROOT, check=True)
     binary = ROOT / "target/debug/examples/artifact_network"
     with tempfile.TemporaryDirectory(prefix="nessa-sync-artifact-") as temp:

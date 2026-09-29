@@ -9,7 +9,7 @@ publish = false
 [features]
 default = []
 sqlite = ["dep:rusqlite"]
-transport = ["sqlite"]
+transport = []
 
 [dependencies]
 rusqlite = { version = "=0.32.1", features = ["bundled"], optional = true }
@@ -21,15 +21,15 @@ required-features = ["sqlite"]
 
 [[example]]
 name = "loopback_sync"
-required-features = ["transport"]
+required-features = ["transport", "sqlite"]
 
 [[example]]
 name = "local_apps"
-required-features = ["transport"]
+required-features = ["transport", "sqlite"]
 
 [[example]]
 name = "history_lab"
-required-features = ["transport"]
+required-features = ["transport", "sqlite"]
 
 [[example]]
 name = "catalogue_apps"
@@ -39,11 +39,15 @@ required-features = ["sqlite"]
 
 [[example]]
 name = "catalogue_network"
-required-features = ["transport"]
+required-features = ["transport", "sqlite"]
 
 [[example]]
 name = "artifact_contract"
 
 [[example]]
 name = "artifact_network"
+required-features = ["transport", "sqlite"]
+
+[[example]]
+name = "generic_record_server"
 required-features = ["transport"]
