@@ -4,7 +4,7 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slices 1–3 implemented.** The default-feature core
+**Current status: slices 1–4 implemented.** The default-feature core
 has bounded record replication and an in-memory two-device lab. The optional
 `sqlite` feature adds a restartable receiver store and a file-backed reference
 source. The optional `transport` feature adds a loopback-only, development
@@ -15,6 +15,7 @@ server and network source adapter. Product integration remains a later slice.
 - [Vertical-slice implementation plan](docs/implementation-plan.md), including [slice 2 / issue #3](https://github.com/nessalabs/sync-engine/issues/3)
 - [Component and sequence diagrams](docs/design/core-walkthrough.md)
 - [Loopback transport and recovery sequence](docs/design/loopback-transport.md)
+- [Transcript and task app sequence](docs/design/example-apps.md)
 - [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
 - [Detailed target contract and validation plan](docs/design/sync-engine.md)
 - [Contributing](CONTRIBUTING.md)
@@ -111,6 +112,44 @@ the fallback interval. A subscription is a wake hint, and the receiver always
 fetches and validates bounded pages from its durable checkpoint. See the
 [transport sequence](docs/design/loopback-transport.md) for the race ordering.
 
+## Slice 4 local app verification
+
+```sh
+python3 scripts/verify-slice-4.py
+```
+
+The same process-level suite runs against a transcript and a task board. Each
+uses the same Rust replication core, loopback transport and durable receiver
+store, with different payload encoders and projections in the example host. It
+starts source and local browser-view processes for phone and laptop identities,
+stops and restarts the source, and restarts a receiver view with the source off.
+It asserts cached navigation makes zero remote record reads, an unchanged head
+transfers zero record payload, and one update transfers only that event. The
+task view folds create, title, completion and deletion events. An unsynced view
+shows **Not loaded yet**; a confirmed empty source shows **Complete and empty**.
+
+To explore one app manually, run the source in one terminal, then use other
+terminals for mutations, sync and the local browser view:
+
+```sh
+cargo run --locked --features transport --example local_apps -- source transcript ./messages-source.db 4311 read-token write-token
+cargo run --locked --features transport --example local_apps -- mutate transcript 127.0.0.1:4311 write-token fact-1 message "hello"
+cargo run --locked --features transport --example local_apps -- sync transcript 127.0.0.1:4311 ./phone.db ./phone.status phone read-token
+cargo run --locked --features transport --example local_apps -- view transcript ./phone.db ./phone.status phone 4312
+```
+
+Open `http://127.0.0.1:4312/`. Browser requests use the local receiver cache;
+their bytes are separate from the remote sync counters. The source receives
+mutations; receiver views are read-only. The explicit status path holds last
+check and byte counters; the SQLite checkpoint remains authoritative for
+applied position. If status is missing after a crash, the view labels existing
+records partial instead of presenting a false empty collection. Paths supplied
+by the user are never deleted by these examples. The web view is a small local
+demonstration, not an authenticated public UI or offline command outbox.
+The view shows the time since the last network check separately from the time
+since the last applied change. An unchanged or failed check does not make old
+content look newly applied.
+
 ## Core checks
 
 ```sh
@@ -128,5 +167,7 @@ CI installs its toolchains and runs only this repository's checks. Organization
 runner quotas can still be shared. Nessa will pin a reviewed core revision when its
 integration starts; this setup adds no dependency or CI job to nessa-agent.
 
-The `sqlite` feature is optional; a default or `--no-default-features` build
-does not link SQLite. Both labs run without accounts, networking, or Nessa.
+The `sqlite` and `transport` features are optional; a default or
+`--no-default-features` build does not link SQLite or open sockets. The first
+lab runs in memory. Later labs use local files and loopback networking without
+accounts or Nessa.

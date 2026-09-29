@@ -22,4 +22,8 @@ required-features = ["sqlite"]
 name = "loopback_sync"
 required-features = ["transport"]
 
+[[example]]
+name = "local_apps"
+required-features = ["transport"]
+
 [workspace]
