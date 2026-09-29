@@ -1,6 +1,18 @@
 # Sync engine contract for local-first agent applications
 
-**Status:** proposed under [the sync ADR](../adr/1-reusable-local-first-sync-engine.md) and [issue #1](https://github.com/nessalabs/sync-engine/issues/1). This document defines a testable design, not an implemented API. Existing conversation execution, authentication, storage, and deletion owners retain their current authority until their migrations are implemented and verified.
+**Status:** proposed Nessa product target under [the sync ADR](../adr/1-reusable-local-first-sync-engine.md).
+The standalone core completed [six reference slices](../implementation-plan.md),
+but this document also specifies Nessa integration that has not shipped. Existing
+conversation execution, authentication, storage and deletion owners retain their
+authority until their migrations are implemented and verified.
+
+| Area | Reference code today | Product work still needed |
+| --- | --- | --- |
+| Immutable transcript records | Bounded `RecordSource`/`ReplicaStore` ports, SQLite and loopback adapters, restart and fault labs | Nessa canonical record source, shared projection fold and authorization adapter |
+| Recent and older transcript | Tail/older ports, durable boundaries and loopback history lab | Nessa snapshot composition, phone projection and lifecycle integration |
+| Conversation catalogue | Current-entry revisions and finite passes over separate local SQLite files | Nessa ownership query, revisions/tombstones, remote catalogue transport and ownership-aware absence handling |
+| Device and command path | No production implementation | Pairing, authenticated remote link/relay, phone cache, durable command receipts and Stop |
+| Artifacts and recovery | No implementation | File manifests/content transfer and independently restorable backup/restore |
 
 **Delivery scope:** this document includes the later Nessa integration target. The independent core and example apps are delivered first through the [vertical-slice plan](../implementation-plan.md). Nessa storage, pairing and command integration are not prerequisites for the standalone core.
 
@@ -230,4 +242,8 @@ At ADR 182's deletion fence, the gateway metadata owner atomically advances the 
 4. **State-order regression suite:** test every row above against the domain, application and real persistence/transport adapters that own it. Include cache write failure, crash-before-send, lost reply/phone crash, same ID on different operation/target, stale scope, slow receiver, duplicate delivery, archive/unarchive, missing summary, deletion refusal before catalogue refresh, delayed snapshot after a newer delta/revision, competing resets, catalogue updates across page cursors, manifest/payload races, partial-pass resume, lost/coalesced hints and head-check races, older-page overlap/pruning/deletion race, delayed Stop with queued/newer turns, and SDK unresolved recovery.
 5. **Restore drill:** back up, delete a conversation, lose the source laptop before its inventory upload, then restore the older backup into a fresh gateway. Verify that a valid contiguous inventory prefix does not bypass quarantine; test explicit rollback, new identity/key and re-pairing, owner, transcript, receipts and audit, and ensure no historical command runs or old origin writes concurrently.
 
-The ADR remains proposed until the contract survives these spikes and review. Implementation and supported-platform checks follow the repository's [gates](https://github.com/nessalabs/nessa-agent/blob/main/CODING_STANDARDS.md#gates); a successful read-only document review is not evidence that the engine already works.
+The first six standalone slices have runnable evidence in this repository's CI.
+The ADR remains proposed for Nessa until the remaining product spikes and
+reviews establish these wider contracts. Implementation and supported-platform
+checks follow the relevant repository gates; passing the reference labs does
+not establish production security, mobile behavior or backup recovery.

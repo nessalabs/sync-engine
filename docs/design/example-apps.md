@@ -66,4 +66,5 @@ the last check unavailable.
 
 This example deliberately uses explicit source mutations and read-only receiver
 views. It does not accept commands offline, run agents, provide remote pairing,
-or solve large-history hydration. Those have separate owners and milestones.
+or use the later history and catalogue example modules. Those modules have
+separate [history](tail-history.md) and [catalogue](catalogue-pass.md) labs.
