@@ -1,4 +1,4 @@
-#![cfg(feature = "transport")]
+#![cfg(all(feature = "transport", feature = "sqlite"))]
 
 use std::path::PathBuf;
 use std::thread;

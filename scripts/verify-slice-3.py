@@ -171,7 +171,7 @@ def main():
     parser.add_argument("--profiles", action="store_true",
                         help="also run slower real-time 32/64 kbit, 0.8/1.5 s RTT profiles")
     args = parser.parse_args()
-    subprocess.run(["cargo", "build", "--locked", "--features", "transport", "--example",
+    subprocess.run(["cargo", "build", "--locked", "--features", "transport,sqlite", "--example",
                     "loopback_sync"], cwd=ROOT, check=True, capture_output=True)
     with tempfile.TemporaryDirectory(prefix="nessa-sync-slice3-") as root:
         base = Path(root)

@@ -117,7 +117,7 @@ def start_server(source_path):
 
 
 def main():
-    subprocess.run(["cargo", "build", "--locked", "--features", "transport",
+    subprocess.run(["cargo", "build", "--locked", "--features", "transport,sqlite",
                     "--example", "loopback_sync", "--example", "history_lab"],
                    cwd=ROOT, check=True, capture_output=True)
     with tempfile.TemporaryDirectory(prefix="nessa-sync-slice5-") as directory:

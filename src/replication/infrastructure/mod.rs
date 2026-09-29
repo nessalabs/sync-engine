@@ -1,7 +1,8 @@
 //! Reference adapters for the application ports. SQLite adapters are optional;
 //! the in-memory adapters remain available without any database dependency.
-//! The loopback adapter implements bounded framed record, history and catalogue
-//! reads only when `transport` is enabled; the default core opens no sockets.
+//! `transport` provides bounded framed clients and a generic read-only record
+//! server. Enable `sqlite` as well for the SQLite-backed reference server.
+//! The default core opens no sockets.
 
 mod memory;
 pub use memory::*;

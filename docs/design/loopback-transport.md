@@ -6,6 +6,16 @@ bounded record pages and atomic receiver checkpoints. The optional `transport`
 adapter frames requests and responses. The example host owns scheduling,
 credentials and the receiver's SQLite file.
 
+`transport` alone provides `LoopbackClient` and
+`LoopbackRecordServer::bind(port, LoopbackReadConfig, open_source)`. The host
+factory opens an application-owned `RecordSource` per authorized head or page
+request. The source is dropped before the response is written. This server
+accepts only authorization, head and page operations; it has no write credential,
+append endpoint, subscription, history, catalogue or artifact route. The
+SQLite reference `LoopbackServer` and the network labs require both `transport`
+and `sqlite`.
+The transport-only process lab is `python3 scripts/verify-record-server.py`.
+
 ```mermaid
 sequenceDiagram
     participant A as Receiver A host

@@ -41,7 +41,7 @@ def wait_server(port_number, process):
 
 
 def main():
-    subprocess.run(["cargo", "build", "--quiet", "--locked", "--features", "transport", "--example", "catalogue_network", "--example", "catalogue_apps"], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "--quiet", "--locked", "--features", "transport,sqlite", "--example", "catalogue_network", "--example", "catalogue_apps"], cwd=ROOT, check=True)
     network = ROOT / "target/debug/examples/catalogue_network"
     local = ROOT / "target/debug/examples/catalogue_apps"
     with tempfile.TemporaryDirectory(prefix="nessa-sync-catalogue-wire-") as temp:

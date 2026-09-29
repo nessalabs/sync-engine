@@ -193,7 +193,7 @@ def run_case(app, root):
 
 
 def main():
-    subprocess.run(["cargo", "build", "--locked", "--features", "transport",
+    subprocess.run(["cargo", "build", "--locked", "--features", "transport,sqlite",
                     "--example", "local_apps"], cwd=ROOT, capture_output=True, check=True)
     with tempfile.TemporaryDirectory(prefix="nessa-sync-slice4-") as directory:
         root = Path(directory)

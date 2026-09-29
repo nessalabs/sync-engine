@@ -4,10 +4,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+#[cfg(feature = "sqlite")]
+use std::net::TcpListener;
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
+#[cfg(feature = "sqlite")]
 use std::path::PathBuf;
+#[cfg(feature = "sqlite")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(feature = "sqlite")]
 use std::sync::{Arc, Condvar, Mutex};
+#[cfg(feature = "sqlite")]
 use std::thread;
 use std::time::Duration;
 
@@ -27,12 +33,18 @@ use crate::replication::history::{
     HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
 };
 
+#[cfg(feature = "sqlite")]
 use super::{SqliteArtifactSource, SqliteCatalogueSource, SqliteReferenceSource};
+
+mod record_server;
+pub use record_server::{LoopbackReadConfig, LoopbackRecordServer};
 
 /// Maximum complete wire body, checked before allocating a read buffer.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
-const MAX_PAGE_PAYLOAD: usize = 512 * 1024;
-const MAX_PAGE_RECORDS: usize = 64;
+/// Maximum payload bytes in one record page.
+pub const MAX_PAGE_PAYLOAD: usize = 512 * 1024;
+/// Maximum records in one record page.
+pub const MAX_PAGE_RECORDS: usize = 64;
 const MAX_CATALOGUE_ENTRIES: usize = 128;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,6 +61,7 @@ pub enum FrameError {
 }
 
 /// One-shot response fault for the local catalogue transport lab.
+#[cfg(feature = "sqlite")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CatalogueFault {
     /// Close the connection before sending the first catalogue response.
@@ -316,6 +329,7 @@ fn put_catalogue_pass(out: &mut Vec<u8>, pass: &CataloguePass) {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn put_manifest_entry(out: &mut Vec<u8>, entry: &ManifestEntry) {
     put_catalogue_key(out, &entry.key);
     out.extend_from_slice(&entry.revision.to_be_bytes());
@@ -346,6 +360,7 @@ fn put_chunk_request(out: &mut Vec<u8>, request: &ChunkRequest) {
     out.extend_from_slice(&(request.max_bytes as u64).to_be_bytes());
 }
 
+#[cfg(feature = "sqlite")]
 fn manifest_source_error_code(error: ManifestSourceError) -> u8 {
     match error {
         ManifestSourceError::Unavailable => 2,
@@ -364,6 +379,7 @@ fn decode_manifest_source_error(code: u8) -> ManifestSourceError {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn chunk_source_error_code(error: ChunkSourceError) -> u8 {
     match error {
         ChunkSourceError::Unavailable => 2,
@@ -386,6 +402,7 @@ fn decode_chunk_source_error(code: u8) -> ChunkSourceError {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
     match error {
         CatalogueSourceError::Unavailable => 2,
@@ -424,6 +441,58 @@ fn decode_source_error(code: u8) -> SourceError {
     }
 }
 
+fn encode_record_page(request: &PageRequest, page: Page) -> Result<Vec<u8>, SourceError> {
+    if page.request != *request {
+        return Err(SourceError::IdentityChanged);
+    }
+    if page.records.is_empty() || page.records.len() > request.max_records {
+        return Err(SourceError::InvalidRequest);
+    }
+    let count = u8::try_from(page.records.len()).map_err(|_| SourceError::InvalidRequest)?;
+    let mut bytes = 0usize;
+    let mut next = request.after;
+    let mut ids = HashSet::new();
+    for record in &page.records {
+        if record.scope != request.scope || !ids.insert(&record.id) {
+            return Err(SourceError::IdentityChanged);
+        }
+        next = next.checked_add(1).ok_or(SourceError::InvalidRequest)?;
+        if record.position != next || next > request.target {
+            return Err(SourceError::InvalidRequest);
+        }
+        if record.payload.len() > request.max_record_bytes {
+            return Err(SourceError::OversizedRecord);
+        }
+        bytes = bytes
+            .checked_add(record.payload.len())
+            .ok_or(SourceError::OversizedRecord)?;
+        if bytes > request.max_payload_bytes {
+            return Err(SourceError::OversizedRecord);
+        }
+        u32::try_from(record.payload.len()).map_err(|_| SourceError::OversizedRecord)?;
+    }
+    let mut response = vec![0];
+    put_scope(&mut response, &page.request.scope);
+    for value in [
+        page.request.after,
+        page.request.target,
+        page.request.max_records as u64,
+        page.request.max_payload_bytes as u64,
+        page.request.max_record_bytes as u64,
+    ] {
+        response.extend_from_slice(&value.to_be_bytes());
+    }
+    response.push(count);
+    for record in &page.records {
+        put_wire_record(&mut response, record);
+    }
+    if response.len() > MAX_FRAME_BYTES {
+        return Err(SourceError::OversizedRecord);
+    }
+    Ok(response)
+}
+
+#[cfg(feature = "sqlite")]
 fn history_error_code(error: HistorySourceError) -> u8 {
     match error {
         HistorySourceError::Unavailable => 2,
@@ -445,6 +514,7 @@ fn decode_history_error(code: u8) -> HistorySourceError {
 }
 
 /// Explicit local development credentials and reference-source identity.
+#[cfg(feature = "sqlite")]
 #[derive(Clone)]
 pub struct LoopbackConfig {
     /// Source SQLite path, created only if absent.
@@ -473,6 +543,7 @@ pub struct LoopbackConfig {
     pub write_token: Id,
 }
 
+#[cfg(feature = "sqlite")]
 impl LoopbackConfig {
     fn open_source(&self) -> Result<SqliteReferenceSource, FrameError> {
         SqliteReferenceSource::open(
@@ -524,6 +595,7 @@ impl LoopbackConfig {
     }
 }
 
+#[cfg(feature = "sqlite")]
 #[derive(Default)]
 struct ServerCounters {
     head_reads: AtomicU64,
@@ -540,6 +612,7 @@ struct ServerCounters {
 
 /// Loopback source server with one independent thread and SQLite handle per
 /// connection; a blocked receiver socket does not hold a source transaction.
+#[cfg(feature = "sqlite")]
 pub struct LoopbackServer {
     listener: TcpListener,
     config: Arc<LoopbackConfig>,
@@ -547,6 +620,7 @@ pub struct LoopbackServer {
     counters: Arc<ServerCounters>,
 }
 
+#[cfg(feature = "sqlite")]
 impl LoopbackServer {
     /// Binds only the IPv4 loopback address. Port zero requests an OS-chosen port.
     pub fn bind(port: u16, config: LoopbackConfig) -> io::Result<Self> {
@@ -586,6 +660,7 @@ impl LoopbackServer {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn serve_one(
     mut stream: TcpStream,
     config: &LoopbackConfig,
@@ -652,32 +727,11 @@ fn serve_one(
                 };
                 counters.page_reads.fetch_add(1, Ordering::Relaxed);
                 let result = config.open_source()?.page(&request);
-                let mut response = Vec::new();
-                match result {
-                    Ok(page) => {
-                        response.push(0);
-                        put_scope(&mut response, &page.request.scope);
-                        for value in [
-                            page.request.after,
-                            page.request.target,
-                            page.request.max_records as u64,
-                            page.request.max_payload_bytes as u64,
-                            page.request.max_record_bytes as u64,
-                        ] {
-                            response.extend_from_slice(&value.to_be_bytes());
-                        }
-                        response.push(page.records.len() as u8);
-                        for record in page.records {
-                            response.extend_from_slice(&record.position.to_be_bytes());
-                            put_id(&mut response, &record.id);
-                            put_scope(&mut response, &record.scope);
-                            response
-                                .extend_from_slice(&(record.payload.len() as u32).to_be_bytes());
-                            response.extend_from_slice(&record.payload);
-                        }
-                    }
-                    Err(error) => response.push(source_error_code(error)),
-                }
+                let response = match result {
+                    Ok(page) => encode_record_page(&request, page)
+                        .unwrap_or_else(|error| vec![source_error_code(error)]),
+                    Err(error) => vec![source_error_code(error)],
+                };
                 write_frame(&mut stream, &response)?;
             }
         }
@@ -1069,6 +1123,7 @@ fn serve_one(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn artifact_access(
     config: &LoopbackConfig,
     token: &Id,
@@ -1088,6 +1143,7 @@ fn artifact_access(
     Ok(true)
 }
 
+#[cfg(feature = "sqlite")]
 fn write_catalogue_frame(
     stream: &mut TcpStream,
     body: &[u8],
@@ -1110,6 +1166,7 @@ fn write_catalogue_frame(
     write_frame(stream, body)
 }
 
+#[cfg(feature = "sqlite")]
 fn catalogue_access(
     config: &LoopbackConfig,
     token: &Id,
@@ -1840,7 +1897,7 @@ impl RecordSource for LoopbackClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sqlite"))]
 mod tests {
     use super::*;
 
