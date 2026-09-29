@@ -12,7 +12,7 @@ authority until their migrations are implemented and verified.
 | Recent and older transcript | Tail/older ports, durable boundaries and loopback history lab | Nessa snapshot composition, phone projection and lifecycle integration |
 | Conversation catalogue | Current-entry revisions and finite passes over local SQLite, plus bounded development loopback transport | Nessa ownership query, revisions/tombstones, production transport and ownership-aware absence handling |
 | Device and command path | No production implementation | Pairing, authenticated remote link/relay, phone cache, durable command receipts and Stop |
-| Artifacts and recovery | No implementation | File manifests/content transfer and independently restorable backup/restore |
+| Artifacts and recovery | Pure [artifact manifest and availability contract](artifact-contract.md); no byte transfer, persistent cache or backup | File permissions, bounded content transfer and independently restorable backup/restore |
 
 **Delivery scope:** this document includes the later Nessa integration target. The independent core and example apps are delivered first through the [vertical-slice plan](../implementation-plan.md). Nessa storage, pairing and command integration are not prerequisites for the standalone core.
 

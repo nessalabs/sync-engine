@@ -13,6 +13,7 @@ transport = ["sqlite"]
 
 [dependencies]
 rusqlite = { version = "=0.32.1", features = ["bundled"], optional = true }
+sha2 = "=0.10.9"
 
 [[example]]
 name = "transcript_sqlite"
@@ -39,3 +40,6 @@ required-features = ["sqlite"]
 [[example]]
 name = "catalogue_network"
 required-features = ["transport"]
+
+[[example]]
+name = "artifact_contract"
