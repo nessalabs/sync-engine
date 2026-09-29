@@ -81,6 +81,7 @@ fn two_durable_receivers_complete_network_catalogue_passes() {
         LoopbackConfig {
             source_path: record_path.clone(),
             catalogue_source_path: Some(source_path.clone()),
+            artifact_source_path: None,
             catalogue_fault: None,
             origin: id("gateway"),
             stream: id("index"),

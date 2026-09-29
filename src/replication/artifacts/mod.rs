@@ -8,8 +8,11 @@ use sha2::{Digest, Sha256};
 
 use crate::replication::domain::{Id, Scope};
 
+mod transfer;
+pub use transfer::*;
+
 /// Stable artifact identity in one exact receiving scope.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ArtifactKey {
     /// Source, receiver, stream, incarnation, schema and access epoch.
     pub scope: Scope,

@@ -6,8 +6,9 @@ when connected, it fetches bounded changes from each receiver's saved progress.
 The library keeps payload meaning, authorization policy, scheduling, and agent
 execution in the host application.
 
-**Status:** seven reference slices are implemented and checked in this repository's
-CI. The crate is unpublished (`publish = false`). The loopback network adapter
+**Status:** seven record/catalogue slices and a reference artifact transfer
+are implemented and checked in this repository's CI. The crate is unpublished
+(`publish = false`). The loopback network adapter
 and example credentials are for local development. There is no Nessa gateway or
 mobile integration, production pairing, encrypted relay, or production service
 availability claim yet.
@@ -23,9 +24,11 @@ availability claim yet.
 | Long transcript history | Bounded recent tail, separate live and older-history positions, coalesced older reads, reset generations and deletion fences | `python3 scripts/verify-slice-5.py` |
 | Changing catalogues | Current entries with per-entry revisions, retained deletion markers and finite resumable passes | `python3 scripts/verify-slice-6.py` |
 | Networked catalogues | Bounded loopback head, manifest and payload reads; two persisted receivers, interruption/restart and wire accounting | `python3 scripts/verify-slice-7.py` |
+| Artifact bytes | On-demand 64 KiB chunks, durable staging, complete SHA-256 verification before publication, version/deletion fences and scope revocation | `python3 scripts/verify-artifact-transfer.py` |
 
 Each command runs from the repository root and exits nonzero on failure. CI runs
-all seven. The optional weak-link profiles are available with
+all seven numbered labs and the artifact transfer lab. Optional weak-link
+profiles are available with
 `python3 scripts/verify-slice-3.py --profiles`.
 
 ## How it fits together
@@ -102,11 +105,14 @@ agent. The [ADR](docs/adr/1-reusable-local-first-sync-engine.md) and
 direction; their unimplemented requirements are not guarantees of this crate.
 
 The [artifact manifest and availability contract](docs/design/artifact-contract.md)
-now has a small runnable example: `cargo run --locked --example artifact_contract`.
-It does not transfer or persist artifact bytes yet.
+has a small runnable example: `cargo run --locked --example artifact_contract`.
+The [transfer lab](docs/design/artifact-transfer.md) adds bounded loopback bytes
+and a persistent reference cache. Its development credentials and SQLite files
+do not provide production device trust, Nessa file permissions or backup.
 
-The next standalone feature is [artifact synchronization](https://github.com/nessalabs/sync-engine/issues/19). It has its own
-parent issue and linked contract, transfer, and Nessa adapter tasks. The Nessa
+The [artifact synchronization parent](https://github.com/nessalabs/sync-engine/issues/19)
+links the standalone contract and transfer work to the remaining Nessa file
+adapter. The Nessa
 product work is grouped under [linked-device reads](https://github.com/nessalabs/nessa-agent/issues/257),
 [pairing and connectivity](https://github.com/nessalabs/nessa-agent/issues/263),
 [remote commands](https://github.com/nessalabs/nessa-agent/issues/267), and
@@ -124,7 +130,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 cargo +1.85.0 check --locked --all-features --all-targets
 ```
 
-CI runs these checks plus the seven labs on source changes. A Markdown-only pull
+CI runs these checks plus the numbered labs and artifact examples on source
+changes. A Markdown-only pull
 request runs the path-classification test and skips Rust setup and checks.
 The repository has its own workflow and build cache; a Nessa integration would
 pin a reviewed core revision and test its own adapter. See

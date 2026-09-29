@@ -40,6 +40,7 @@ fn main() {
             let server = LoopbackServer::bind(args[3].parse().unwrap(), LoopbackConfig {
                 source_path: PathBuf::from(&args[2]).with_extension("records.db"),
                 catalogue_source_path: Some(PathBuf::from(&args[2])),
+                artifact_source_path: None,
                 catalogue_fault: fault,
                 origin: id("gateway"), stream: id("transcript-index"),
                 incarnation: id("first"), schema: id("opaque-v1"), access_epoch: id("epoch-1"),

@@ -11,6 +11,8 @@ pub(super) const SOURCE_APPLICATION_ID: i64 = 0x4e53_5353;
 pub(super) const REPLICA_APPLICATION_ID: i64 = 0x4e53_5352;
 pub(super) const CATALOGUE_SOURCE_APPLICATION_ID: i64 = 0x4e53_5343;
 pub(super) const CATALOGUE_REPLICA_APPLICATION_ID: i64 = 0x4e53_5344;
+pub(super) const ARTIFACT_SOURCE_APPLICATION_ID: i64 = 0x4e53_5345;
+pub(super) const ARTIFACT_CACHE_APPLICATION_ID: i64 = 0x4e53_5346;
 
 /// File open, schema, or identity refusal before any replication operation.
 #[derive(Debug)]
