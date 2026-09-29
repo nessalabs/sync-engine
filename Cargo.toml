@@ -26,4 +26,8 @@ required-features = ["transport"]
 name = "local_apps"
 required-features = ["transport"]
 
+[[example]]
+name = "history_lab"
+required-features = ["transport"]
+
 [workspace]

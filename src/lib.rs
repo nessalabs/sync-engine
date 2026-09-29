@@ -1,4 +1,5 @@
-//! Bounded, host-agnostic replication of immutable ordered records.
+//! Bounded, host-agnostic replication of immutable ordered records, including
+//! recent-tail bootstrap and separately tracked older-history coverage.
 //!
 //! A host supplies source, authorization, and atomic replica-store adapters. The
 //! library neither schedules work nor interprets record payloads.

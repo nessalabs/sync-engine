@@ -7,6 +7,9 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::replication::application::{ReplicaStore, StoreError};
 use crate::replication::domain::{Checkpoint, CommitPlan, Id, Record, Scope};
+use crate::replication::history::{
+    HistoryProgress, HistoryStore, HistoryStoreError, OlderPlan, TailPlan,
+};
 
 use super::{
     configure_connection, ensure_schema, open_connection, SqliteOpenError, REPLICA_APPLICATION_ID,
@@ -38,6 +41,18 @@ CREATE TABLE replica_records (
     FOREIGN KEY (receiver, origin, stream)
         REFERENCES replica_streams (receiver, origin, stream)
 ) WITHOUT ROWID;
+CREATE TABLE history_progress (
+    receiver TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    stream TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK (generation >= 0),
+    lower_bound INTEGER NOT NULL CHECK (lower_bound >= 1),
+    oldest_available INTEGER NOT NULL CHECK (oldest_available >= 1),
+    deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
+    PRIMARY KEY (receiver, origin, stream),
+    FOREIGN KEY (receiver, origin, stream)
+        REFERENCES replica_streams (receiver, origin, stream)
+) WITHOUT ROWID;
 ";
 
 /// One independently opened SQLite receiver handle. A second handle can apply
@@ -53,6 +68,19 @@ impl SqliteReplicaStore {
         ensure_schema(&mut conn, REPLICA_APPLICATION_ID, SCHEMA, |_| Ok(()))?;
         configure_connection(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Additive schema for receiver files created before history existed.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS history_progress (
+                receiver TEXT NOT NULL, origin TEXT NOT NULL, stream TEXT NOT NULL,
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                lower_bound INTEGER NOT NULL CHECK (lower_bound >= 1),
+                oldest_available INTEGER NOT NULL CHECK (oldest_available >= 1),
+                deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
+                PRIMARY KEY (receiver, origin, stream),
+                FOREIGN KEY (receiver, origin, stream)
+                    REFERENCES replica_streams (receiver, origin, stream)
+             ) WITHOUT ROWID;",
+        )?;
         Ok(Self { conn })
     }
 
@@ -245,6 +273,17 @@ impl ReplicaStore for SqliteReplicaStore {
 }
 
 fn saved_checkpoint(conn: &Connection, scope: &Scope) -> Result<Option<Checkpoint>, StoreError> {
+    let fenced: Option<i64> = conn
+        .query_row(
+            "SELECT deleted FROM history_progress WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| StoreError::Failed)?;
+    if fenced == Some(1) {
+        return Err(StoreError::Fenced);
+    }
     let saved: Option<(String, String, String, i64)> = conn
         .query_row(
             "SELECT incarnation, schema_id, access_epoch, position FROM replica_streams WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
@@ -332,4 +371,268 @@ fn has_conflicting_id(conn: &Connection, plan: &CommitPlan) -> Result<bool, Stor
         }
     }
     Ok(false)
+}
+
+type SavedHistoryRow = (String, String, String, i64, i64, i64, i64, i64);
+
+fn history_progress(
+    conn: &Connection,
+    scope: &Scope,
+) -> Result<Option<HistoryProgress>, HistoryStoreError> {
+    let saved: Option<SavedHistoryRow> = conn
+        .query_row(
+            "SELECT s.incarnation, s.schema_id, s.access_epoch, s.position,
+                    h.generation, h.lower_bound, h.oldest_available, h.deleted
+             FROM replica_streams s JOIN history_progress h
+               ON h.receiver = s.receiver AND h.origin = s.origin AND h.stream = s.stream
+             WHERE s.receiver = ?1 AND s.origin = ?2 AND s.stream = ?3",
+            params![
+                scope.receiver().as_str(),
+                scope.origin().as_str(),
+                scope.stream().as_str()
+            ],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| HistoryStoreError::Failed)?;
+    saved
+        .map(
+            |(incarnation, schema, access_epoch, live_head, generation, lower, oldest, deleted)| {
+                Ok(HistoryProgress {
+                    scope: Scope::new(
+                        scope.receiver().clone(),
+                        scope.origin().clone(),
+                        scope.stream().clone(),
+                        Id::new(incarnation).map_err(|_| HistoryStoreError::Failed)?,
+                        Id::new(schema).map_err(|_| HistoryStoreError::Failed)?,
+                        Id::new(access_epoch).map_err(|_| HistoryStoreError::Failed)?,
+                    ),
+                    generation: u64::try_from(generation).map_err(|_| HistoryStoreError::Failed)?,
+                    live_head: u64::try_from(live_head).map_err(|_| HistoryStoreError::Failed)?,
+                    lower_bound: u64::try_from(lower).map_err(|_| HistoryStoreError::Failed)?,
+                    oldest_available: u64::try_from(oldest)
+                        .map_err(|_| HistoryStoreError::Failed)?,
+                    deleted: deleted == 1,
+                })
+            },
+        )
+        .transpose()
+}
+
+fn history_insert_error(error: rusqlite::Error) -> HistoryStoreError {
+    if matches!(
+        error,
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ErrorCode::ConstraintViolation,
+                ..
+            },
+            _
+        )
+    ) {
+        HistoryStoreError::Conflict
+    } else {
+        HistoryStoreError::Failed
+    }
+}
+
+impl HistoryStore for SqliteReplicaStore {
+    fn history_progress(
+        &mut self,
+        scope: &Scope,
+    ) -> Result<Option<HistoryProgress>, HistoryStoreError> {
+        history_progress(&self.conn, scope)
+    }
+
+    fn install_tail(&mut self, plan: TailPlan) -> Result<HistoryProgress, HistoryStoreError> {
+        let snapshot = plan.into_snapshot();
+        let scope = &snapshot.request.scope;
+        let generation =
+            i64::try_from(snapshot.request.generation).map_err(|_| HistoryStoreError::Failed)?;
+        let head = i64::try_from(snapshot.watermark).map_err(|_| HistoryStoreError::Failed)?;
+        let lower = i64::try_from(snapshot.first).map_err(|_| HistoryStoreError::Failed)?;
+        let oldest =
+            i64::try_from(snapshot.oldest_available).map_err(|_| HistoryStoreError::Failed)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| HistoryStoreError::Failed)?;
+        if let Some(saved) = history_progress(&tx, scope)? {
+            if saved.deleted {
+                return Err(HistoryStoreError::Fenced);
+            }
+            if saved.scope != *scope {
+                return Err(HistoryStoreError::ResetRequired);
+            }
+            if snapshot.request.generation <= saved.generation
+                || snapshot.watermark < saved.live_head
+            {
+                return Err(HistoryStoreError::Stale);
+            }
+            tx.execute(
+                "DELETE FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
+                params![
+                    scope.receiver().as_str(),
+                    scope.origin().as_str(),
+                    scope.stream().as_str()
+                ],
+            )
+            .map_err(|_| HistoryStoreError::Failed)?;
+            tx.execute(
+                "UPDATE replica_streams SET position = ?1 WHERE receiver = ?2 AND origin = ?3 AND stream = ?4",
+                params![head, scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()],
+            )
+            .map_err(|_| HistoryStoreError::Failed)?;
+        } else {
+            let ordinary: Option<i64> = tx
+                .query_row(
+                    "SELECT position FROM replica_streams WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
+                    params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| HistoryStoreError::Failed)?;
+            if ordinary.is_some() {
+                return Err(HistoryStoreError::ResetRequired);
+            }
+            tx.execute(
+                "INSERT INTO replica_streams (receiver, origin, stream, incarnation, schema_id, access_epoch, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), head],
+            )
+            .map_err(history_insert_error)?;
+        }
+        for record in &snapshot.records {
+            tx.execute(
+                "INSERT INTO replica_records (receiver, origin, stream, position, record_id, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), i64::try_from(record.position).map_err(|_| HistoryStoreError::Failed)?, record.id.as_str(), record.payload],
+            )
+            .map_err(history_insert_error)?;
+        }
+        tx.execute(
+            "INSERT INTO history_progress (receiver, origin, stream, generation, lower_bound, oldest_available, deleted)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
+             ON CONFLICT(receiver, origin, stream) DO UPDATE SET generation = excluded.generation,
+               lower_bound = excluded.lower_bound, oldest_available = excluded.oldest_available, deleted = 0",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), generation, lower, oldest],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.commit().map_err(|_| HistoryStoreError::Uncertain)?;
+        Ok(HistoryProgress {
+            scope: scope.clone(),
+            generation: snapshot.request.generation,
+            live_head: snapshot.watermark,
+            lower_bound: snapshot.first,
+            oldest_available: snapshot.oldest_available,
+            deleted: false,
+        })
+    }
+
+    fn install_older(&mut self, plan: OlderPlan) -> Result<HistoryProgress, HistoryStoreError> {
+        let page = plan.into_page();
+        let scope = &page.request.scope;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| HistoryStoreError::Failed)?;
+        let saved = history_progress(&tx, scope)?.ok_or(HistoryStoreError::ResetRequired)?;
+        if saved.deleted {
+            return Err(HistoryStoreError::Fenced);
+        }
+        if saved.scope != *scope {
+            return Err(HistoryStoreError::ResetRequired);
+        }
+        if saved.generation != page.request.generation {
+            return Err(HistoryStoreError::Stale);
+        }
+        let first = page.records[0].position;
+        let last = page.records.last().ok_or(HistoryStoreError::Gap)?.position;
+        if last > saved.live_head || (first < saved.lower_bound && last < saved.lower_bound - 1) {
+            return Err(HistoryStoreError::Gap);
+        }
+        for record in &page.records {
+            let existing: Option<(String, Vec<u8>)> = tx
+                .query_row(
+                    "SELECT record_id, payload FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND position = ?4",
+                    params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), i64::try_from(record.position).map_err(|_| HistoryStoreError::Failed)?],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|_| HistoryStoreError::Failed)?;
+            if record.position >= saved.lower_bound {
+                match existing {
+                    Some((id, payload))
+                        if id == record.id.as_str() && payload == record.payload => {}
+                    _ => return Err(HistoryStoreError::Conflict),
+                }
+            } else if existing.is_some() {
+                return Err(HistoryStoreError::Conflict);
+            } else {
+                tx.execute(
+                    "INSERT INTO replica_records (receiver, origin, stream, position, record_id, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), i64::try_from(record.position).map_err(|_| HistoryStoreError::Failed)?, record.id.as_str(), record.payload],
+                )
+                .map_err(history_insert_error)?;
+            }
+        }
+        let lower = saved.lower_bound.min(first);
+        let oldest = saved.oldest_available.max(page.oldest_available);
+        tx.execute(
+            "UPDATE history_progress SET lower_bound = ?1, oldest_available = ?2
+             WHERE receiver = ?3 AND origin = ?4 AND stream = ?5 AND generation = ?6 AND deleted = 0",
+            params![i64::try_from(lower).map_err(|_| HistoryStoreError::Failed)?, i64::try_from(oldest).map_err(|_| HistoryStoreError::Failed)?, scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), i64::try_from(saved.generation).map_err(|_| HistoryStoreError::Failed)?],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.commit().map_err(|_| HistoryStoreError::Uncertain)?;
+        Ok(HistoryProgress {
+            lower_bound: lower,
+            oldest_available: oldest,
+            ..saved
+        })
+    }
+
+    fn fence_deletion(&mut self, scope: &Scope) -> Result<(), HistoryStoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| HistoryStoreError::Failed)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO replica_streams (receiver, origin, stream, incarnation, schema_id, access_epoch, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str()],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.execute(
+            "DELETE FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
+            params![
+                scope.receiver().as_str(),
+                scope.origin().as_str(),
+                scope.stream().as_str()
+            ],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.execute(
+            "UPDATE replica_streams SET position = 0 WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.execute(
+            "INSERT INTO history_progress (receiver, origin, stream, generation, lower_bound, oldest_available, deleted)
+             VALUES (?1, ?2, ?3, 0, 1, 1, 1)
+             ON CONFLICT(receiver, origin, stream) DO UPDATE SET lower_bound = 1,
+               oldest_available = 1, deleted = 1",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()],
+        )
+        .map_err(|_| HistoryStoreError::Failed)?;
+        tx.commit().map_err(|_| HistoryStoreError::Uncertain)
+    }
 }

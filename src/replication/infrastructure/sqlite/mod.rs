@@ -3,8 +3,9 @@
 //! local filesystem contract; this slice does not claim power-loss durability,
 //! backup consistency, or authenticated remote delivery.
 //!
-//! `source` implements bounded committed reads and append for the example.
-//! `replica` implements atomic apply/checkpoint and bounded cached reads.
+//! `source` implements bounded committed reads, recent tails, older pages and
+//! append for the example. `replica` implements atomic live apply/checkpoint,
+//! tail installation, older coverage and deletion fences, plus cached reads.
 //! `connection` owns file identity, opening policy, and schema setup. Each
 //! adapter owns its connection and closes it on drop; the domain and application
 //! layers import only their ports and never import SQLite.

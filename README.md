@@ -4,7 +4,7 @@ Reusable Rust replication for local-first applications, with independent release
 and CI. The core keeps app schemas, agent execution, permissions and UI frameworks
 in host adapters.
 
-**Current status: slices 1–4 implemented.** The default-feature core
+**Current status: slices 1–5 implemented.** The default-feature core
 has bounded record replication and an in-memory two-device lab. The optional
 `sqlite` feature adds a restartable receiver store and a file-backed reference
 source. The optional `transport` feature adds a loopback-only, development
@@ -16,6 +16,7 @@ server and network source adapter. Product integration remains a later slice.
 - [Component and sequence diagrams](docs/design/core-walkthrough.md)
 - [Loopback transport and recovery sequence](docs/design/loopback-transport.md)
 - [Transcript and task app sequence](docs/design/example-apps.md)
+- [Tail and older-history state table](docs/design/tail-history.md)
 - [Sync ADR](docs/adr/1-reusable-local-first-sync-engine.md)
 - [Detailed target contract and validation plan](docs/design/sync-engine.md)
 - [Contributing](CONTRIBUTING.md)
@@ -149,6 +150,31 @@ demonstration, not an authenticated public UI or offline command outbox.
 The view shows the time since the last network check separately from the time
 since the last applied change. An unchanged or failed check does not make old
 content look newly applied.
+
+## Slice 5 tail and older-history verification
+
+```sh
+python3 scripts/verify-slice-5.py
+```
+
+The runner starts an independent loopback source and receiver processes. A
+40-record transcript first transfers only its most recent five records. Its
+forward checkpoint remains separate from the lower boundary of saved older
+history. Fifty overlapping view requests combine into three bounded older-page
+reads; a fresh process resumes from the committed lower boundary. A delayed
+older reply cannot rewind a newer live head. Delayed snapshot and history
+replies are refused after a newer reset or deletion fence. A source pruning
+floor produces typed `ResetRequired` and leaves the partial cache intact.
+The JSON result reports payload and protocol bytes, request counts and both
+positions. CI runs this same command.
+
+The example source keeps physical fact rows after advancing its historical
+read floor, preserving immutable ID deduplication. The reference receiver
+saves tail records, two progress boundaries, reset generation and deletion
+fence transactionally. The host-facing `HistoryReadState` distinguishes
+unloaded, loading, partial, complete-empty, complete, failed, stale and
+deleted states. Large-history UI rendering, mobile background scheduling and
+production snapshot compatibility policy remain host work.
 
 ## Core checks
 

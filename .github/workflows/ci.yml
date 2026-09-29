@@ -76,6 +76,9 @@ jobs:
       - name: Slice 4 transcript and task apps
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-slice-4.py
+      - name: Slice 5 bounded tail and history
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-slice-5.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

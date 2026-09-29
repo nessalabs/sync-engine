@@ -8,5 +8,7 @@
 pub mod application;
 /// Pure identities, bounds, records, and commit-plan validation.
 pub mod domain;
+/// Bounded recent-tail and older-history contracts with separate progress.
+pub mod history;
 /// In-memory reference adapters for tests and the two-device lab.
 pub mod infrastructure;
