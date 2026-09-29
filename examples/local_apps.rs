@@ -81,6 +81,7 @@ impl App {
         Ok(LoopbackConfig {
             source_path,
             catalogue_source_path: None,
+            artifact_source_path: None,
             catalogue_fault: None,
             origin: self.origin(),
             stream: self.stream(),

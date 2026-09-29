@@ -2,8 +2,8 @@
 
 **Status:** the manifest, pure validation, SHA-256 identity and small status
 example are implemented under [issue #20](https://github.com/nessalabs/sync-engine/issues/20).
-Bounded byte transfer, persistent staging and a verified cache are [issue
-#21](https://github.com/nessalabs/sync-engine/issues/21). Nessa file access and
+The [bounded transfer reference](artifact-transfer.md) implements persistent
+staging under [issue #21](https://github.com/nessalabs/sync-engine/issues/21). Nessa file access and
 retention remain with [its adapter](https://github.com/nessalabs/nessa-agent/issues/273).
 
 An artifact is an opaque host-selected identity in one exact receiver scope. The
@@ -20,7 +20,7 @@ permissions or treat a receiver cache as a backup.
 | Host/source | Choose artifact IDs, revisions, retention and current grants. `ManifestSource` checks policy before returning one current manifest. `Missing` and `Unavailable` never mean deletion. |
 | Pure domain | `validate_manifest` checks exact request/scope, monotonic revision, same-revision identity and the retained deletion fence. `ContentIdentity` uses SHA-256 over complete bytes. |
 | Receiver host | `ArtifactCacheIndex` reports local metadata and candidate-byte presence without network I/O. It preserves a deletion fence across access-epoch resets. It verifies the actual bytes before calling them cached. |
-| Later transfer adapter | Read bounded chunks after current authorization, stage them under exact content identity, resume only matching progress, hash complete bytes, then atomically publish the verified cache entry. |
+| Reference transfer adapter | Read bounded chunks after current authorization, stage them under exact content identity, resume only matching progress, hash complete bytes, then atomically publish the verified cache entry. |
 
 `ArtifactCacheIndex.has_candidate_bytes` is a hint, not proof of content
 integrity. The small `availability` helper recomputes SHA-256 over an in-memory
@@ -60,7 +60,7 @@ sequenceDiagram
     else Bytes missing and gateway reachable
         V->>S: Request current manifest
         S-->>V: Revision and length plus SHA-256
-        Note over V,S: Later transfer slice requests bounded chunks on demand
+        Note over V,S: The transfer adapter requests bounded chunks on demand
     else Gateway unavailable
         V-->>V: Show cached metadata and unavailable bytes
     end
@@ -73,6 +73,6 @@ must give urgent work a chance between bounded chunks. A cache hit needs no
 remote content read, but policy refresh and head checks may still use network.
 
 Run `cargo run --locked --example artifact_contract` for the five-state example.
-The current module has no persistent artifact store, chunk transport, remote
-pairing, retention worker or backup mechanism; those claims require their own
-implementation evidence.
+The reference now has a persistent SQLite artifact cache and loopback chunk
+transport. It still has no remote pairing, host retention worker or backup
+mechanism; those claims require their own implementation evidence.

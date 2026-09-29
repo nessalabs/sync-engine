@@ -11,16 +11,20 @@
 //! layers import only their ports and never import SQLite.
 //! `catalogue` supplies separate latest-value source and receiver files for
 //! finite list passes; it does not share transcript history tables.
+//! `artifact` keeps current source bytes and a separate receiver staging cache.
 
+mod artifact;
 mod catalogue;
 mod connection;
 mod replica;
 mod source;
 
+pub use artifact::{SqliteArtifactCache, SqliteArtifactSource};
 pub use catalogue::{SqliteCatalogueSource, SqliteCatalogueStore};
 pub use connection::SqliteOpenError;
 use connection::{
-    configure_connection, ensure_schema, open_connection, CATALOGUE_REPLICA_APPLICATION_ID,
+    configure_connection, ensure_schema, open_connection, ARTIFACT_CACHE_APPLICATION_ID,
+    ARTIFACT_SOURCE_APPLICATION_ID, CATALOGUE_REPLICA_APPLICATION_ID,
     CATALOGUE_SOURCE_APPLICATION_ID, REPLICA_APPLICATION_ID, SOURCE_APPLICATION_ID,
 };
 pub use replica::SqliteReplicaStore;

@@ -1,6 +1,6 @@
 # Bounded artifact transfer
 
-**Status:** implementation in progress under [issue #21](https://github.com/nessalabs/sync-engine/issues/21).
+**Status:** bounded reference transfer implemented under [issue #21](https://github.com/nessalabs/sync-engine/issues/21).
 The [manifest contract](artifact-contract.md) owns identity, revision, digest,
 availability and deletion states. This document owns the additional transfer
 ordering. The host still owns file permission, retention and scheduling policy.
@@ -60,9 +60,29 @@ manifest or deletion has arrived. A deletion fence survives an access-epoch
 reset. Verification is over the complete staged byte sequence, not the digest
 reported by a candidate cache index.
 
-A reference process lab must use a source process and persisted receiver,
-interrupt and resume a multi-chunk artifact, change and delete during transfer,
-serve urgent record/control work between chunks, reject wrong bytes and stale
-grants, and report payload, repeated and protocol bytes. The lab is evidence
-for the reference adapter only. It does not make the receiver a backup or
-prove production network security, Nessa file authorization or mobile behavior.
+The reusable application calls are `transfer_one` and `publish_if_current`.
+The first commits at most one chunk from saved progress; the second obtains a
+fresh authorized manifest and installs a newer version or deletion before it
+asks the store to publish. Hosts still own when to call them and how to react
+to denied or unavailable scope checks. The reference CLI erases live cache
+bytes and fences an explicitly denied old access epoch.
+
+The process lab uses a source process and persisted receiver, interrupts and
+resumes a multi-chunk artifact, changes and deletes during transfer, serves an
+urgent record read between chunks, rejects wrong bytes and stale grants, and
+reports payload, repeated and protocol bytes. It is evidence for the reference
+adapter only. It does not make the receiver a backup or prove production
+network security, Nessa file authorization or mobile behavior.
+
+Run `python3 scripts/verify-artifact-transfer.py`. The lab uses a source
+process, separate SQLite cache, a 1 MiB artifact, one 64 KiB request per host
+step, process and connection restarts, a changed version, a deletion marker,
+wrong bytes, a narrowed access epoch and an urgent record-head read. It reports
+content, duplicate and protocol bytes. The SQLite adapter holds latest source
+bytes and receiver chunks in distinct files, verifies staged chunks before
+setting its durable `verified` marker, and rechecks the hash on a cached read.
+The `SqliteArtifactSource` storage adapter does not itself authorize callers;
+the loopback server checks the development credential and exact scope before
+each manifest and chunk read. A production adapter needs authenticated policy
+and transport at that boundary. This is a cache, not an independently
+restorable backup.

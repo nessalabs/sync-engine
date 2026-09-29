@@ -12,7 +12,7 @@ authority until their migrations are implemented and verified.
 | Recent and older transcript | Tail/older ports, durable boundaries and loopback history lab | Nessa snapshot composition, phone projection and lifecycle integration |
 | Conversation catalogue | Current-entry revisions and finite passes over local SQLite, plus bounded development loopback transport | Nessa ownership query, revisions/tombstones, production transport and ownership-aware absence handling |
 | Device and command path | No production implementation | Pairing, authenticated remote link/relay, phone cache, durable command receipts and Stop |
-| Artifacts and recovery | Pure [artifact manifest and availability contract](artifact-contract.md); no byte transfer, persistent cache or backup | File permissions, bounded content transfer and independently restorable backup/restore |
+| Artifacts and recovery | [Manifest contract](artifact-contract.md), bounded [loopback transfer](artifact-transfer.md) and persistent reference cache; no backup | Nessa file permissions, production transport and independently restorable backup/restore |
 
 **Delivery scope:** this document includes the later Nessa integration target. The independent core and example apps are delivered first through the [vertical-slice plan](../implementation-plan.md). Nessa storage, pairing and command integration are not prerequisites for the standalone core.
 
@@ -80,7 +80,7 @@ The first delivery uses one origin gateway, its current authorized metadata inde
 | Gateway command application | Phone prompt or Stop request. | Authorize against current policy, route to the conversation's execution owner, and ask its coordinator for admission/receipt. A reply and a copied record never dispatch work independently. |
 | Phone application | Draft, displayed transcript, cached conversation list, durable intent outbox, last-applied checkpoint. | Local cache and retry state only; no authority over agent state. |
 
-An open session means the owner reports a current agent state or an unfinished saved attempt. A provider process handle is not synced. On gateway restart, the SDK resolves uncertain work according to its recovery contract before advertising a current state. The first slice does not transfer file change events or content; a later artifact design must define manifests, content availability, permissions, and backup.
+An open session means the owner reports a current agent state or an unfinished saved attempt. A provider process handle is not synced. On gateway restart, the SDK resolves uncertain work according to its recovery contract before advertising a current state. The first Nessa delivery does not transfer file change events or content. The separate [artifact contract](artifact-contract.md) defines reference manifests and availability; Nessa permissions and backup remain product decisions.
 
 ## Protocol flow
 

@@ -14,7 +14,8 @@ A linked phone can read a home gateway's conversation list, saved transcript, an
 **Implementation status:** the independent core's seven [reference slices](../implementation-plan.md)
 are implemented and tested. They cover record replication, SQLite restart,
 loopback recovery, two example views, bounded history, local catalogue passes,
-and bounded loopback catalogue transport. This ADR remains **proposed for Nessa product integration**:
+and bounded loopback catalogue transport. A separate reference [artifact
+transfer](../design/artifact-transfer.md) now stages and verifies bytes. This ADR remains **proposed for Nessa product integration**:
 Nessa storage, pairing, authorization, command, mobile and backup contracts
 below are not implemented by the standalone crate. Catalogue pages use the
 loopback wire only in a separate development lab.

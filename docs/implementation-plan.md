@@ -39,6 +39,11 @@ implementations.** Slice 7 carries catalogue passes over the development
 loopback adapter. Pairing, remote command admission, encrypted relays, Nessa
 adapters and backups remain separate integration work.
 
+The separate [artifact contract](design/artifact-contract.md) and [bounded
+transfer lab](design/artifact-transfer.md) follow these record/catalogue slices.
+They establish a reference cache and loopback transfer, while Nessa file
+authorization and backup remain product work.
+
 ```mermaid
 flowchart LR
     S0["Repository scaffold"] --> S1["1. Two-device lab"]

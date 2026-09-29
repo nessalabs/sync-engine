@@ -43,3 +43,7 @@ required-features = ["transport"]
 
 [[example]]
 name = "artifact_contract"
+
+[[example]]
+name = "artifact_network"
+required-features = ["transport"]

@@ -2,7 +2,7 @@
 //! each request before opening the reference source. No public pairing, TLS,
 //! relay, or remote exposure is provided by this adapter.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -12,6 +12,12 @@ use std::thread;
 use std::time::Duration;
 
 use crate::replication::application::{Access, RecordSource, ScopeAuthorizer, SourceError};
+use crate::replication::artifacts::{
+    validate_chunk, ArtifactKey, ArtifactManifest, ArtifactState, ChunkReply, ChunkRequest,
+    ChunkSource, ChunkSourceError, ContentIdentity, ManifestReply as ArtifactManifestReply,
+    ManifestRequest as ArtifactManifestRequest, ManifestSource, ManifestSourceError, Sha256Digest,
+    MAX_CHUNK_BYTES,
+};
 use crate::replication::catalogue::{
     CataloguePass, CatalogueSource, CatalogueSourceError, EntryKey, ManifestEntry, ManifestPage,
     ManifestRequest, ResolvedEntry,
@@ -21,7 +27,7 @@ use crate::replication::history::{
     HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
 };
 
-use super::{SqliteCatalogueSource, SqliteReferenceSource};
+use super::{SqliteArtifactSource, SqliteCatalogueSource, SqliteReferenceSource};
 
 /// Maximum complete wire body, checked before allocating a read buffer.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -239,6 +245,49 @@ impl<'a> Decoder<'a> {
         })
     }
 
+    fn artifact_key(&mut self) -> Result<ArtifactKey, FrameError> {
+        Ok(ArtifactKey {
+            scope: self.scope()?,
+            id: self.id()?,
+        })
+    }
+
+    fn artifact_manifest(&mut self) -> Result<ArtifactManifest, FrameError> {
+        let key = self.artifact_key()?;
+        let revision = self.u64()?;
+        let state = match self.byte()? {
+            0 => {
+                let length = self.u64()?;
+                let hash: [u8; 32] = self
+                    .take(32)?
+                    .try_into()
+                    .map_err(|_| FrameError::Malformed)?;
+                ArtifactState::Live(ContentIdentity {
+                    length,
+                    digest: Sha256Digest(hash),
+                })
+            }
+            1 => ArtifactState::Deleted,
+            _ => return Err(FrameError::Malformed),
+        };
+        Ok(ArtifactManifest {
+            key,
+            revision,
+            state,
+        })
+    }
+
+    fn chunk_request(&mut self) -> Result<ChunkRequest, FrameError> {
+        let manifest = self.artifact_manifest()?;
+        let offset = self.u64()?;
+        let max_bytes = usize::try_from(self.u64()?).map_err(|_| FrameError::Malformed)?;
+        Ok(ChunkRequest {
+            manifest,
+            offset,
+            max_bytes,
+        })
+    }
+
     fn finish(self) -> Result<(), FrameError> {
         if self.offset == self.bytes.len() {
             Ok(())
@@ -271,6 +320,70 @@ fn put_manifest_entry(out: &mut Vec<u8>, entry: &ManifestEntry) {
     put_catalogue_key(out, &entry.key);
     out.extend_from_slice(&entry.revision.to_be_bytes());
     out.push(u8::from(entry.deleted));
+}
+
+fn put_artifact_key(out: &mut Vec<u8>, key: &ArtifactKey) {
+    put_scope(out, &key.scope);
+    put_id(out, &key.id);
+}
+
+fn put_artifact_manifest(out: &mut Vec<u8>, manifest: &ArtifactManifest) {
+    put_artifact_key(out, &manifest.key);
+    out.extend_from_slice(&manifest.revision.to_be_bytes());
+    match manifest.state {
+        ArtifactState::Live(content) => {
+            out.push(0);
+            out.extend_from_slice(&content.length.to_be_bytes());
+            out.extend_from_slice(&content.digest.0);
+        }
+        ArtifactState::Deleted => out.push(1),
+    }
+}
+
+fn put_chunk_request(out: &mut Vec<u8>, request: &ChunkRequest) {
+    put_artifact_manifest(out, &request.manifest);
+    out.extend_from_slice(&request.offset.to_be_bytes());
+    out.extend_from_slice(&(request.max_bytes as u64).to_be_bytes());
+}
+
+fn manifest_source_error_code(error: ManifestSourceError) -> u8 {
+    match error {
+        ManifestSourceError::Unavailable => 2,
+        ManifestSourceError::Denied => 1,
+        ManifestSourceError::ScopeChanged => 3,
+        ManifestSourceError::Missing => 4,
+    }
+}
+
+fn decode_manifest_source_error(code: u8) -> ManifestSourceError {
+    match code {
+        1 => ManifestSourceError::Denied,
+        3 => ManifestSourceError::ScopeChanged,
+        4 => ManifestSourceError::Missing,
+        _ => ManifestSourceError::Unavailable,
+    }
+}
+
+fn chunk_source_error_code(error: ChunkSourceError) -> u8 {
+    match error {
+        ChunkSourceError::Unavailable => 2,
+        ChunkSourceError::Denied => 1,
+        ChunkSourceError::ScopeChanged => 3,
+        ChunkSourceError::VersionChanged => 4,
+        ChunkSourceError::Deleted => 5,
+        ChunkSourceError::InvalidRequest => 6,
+    }
+}
+
+fn decode_chunk_source_error(code: u8) -> ChunkSourceError {
+    match code {
+        1 => ChunkSourceError::Denied,
+        3 => ChunkSourceError::ScopeChanged,
+        4 => ChunkSourceError::VersionChanged,
+        5 => ChunkSourceError::Deleted,
+        6 => ChunkSourceError::InvalidRequest,
+        _ => ChunkSourceError::Unavailable,
+    }
 }
 
 fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
@@ -338,6 +451,8 @@ pub struct LoopbackConfig {
     pub source_path: PathBuf,
     /// Optional, separate current-value catalogue SQLite source file.
     pub catalogue_source_path: Option<PathBuf>,
+    /// Optional separate artifact-source SQLite file for the local lab.
+    pub artifact_source_path: Option<PathBuf>,
     /// Optional one-shot development fault; never a production transport mode.
     pub catalogue_fault: Option<CatalogueFault>,
     /// Exact source origin.
@@ -376,6 +491,21 @@ impl LoopbackConfig {
             .as_ref()
             .ok_or(FrameError::Malformed)?;
         SqliteCatalogueSource::open(
+            path,
+            self.origin.clone(),
+            self.stream.clone(),
+            self.incarnation.clone(),
+            self.schema.clone(),
+        )
+        .map_err(|_| FrameError::Malformed)
+    }
+
+    fn open_artifact_source(&self) -> Result<SqliteArtifactSource, FrameError> {
+        let path = self
+            .artifact_source_path
+            .as_ref()
+            .ok_or(FrameError::Malformed)?;
+        SqliteArtifactSource::open(
             path,
             self.origin.clone(),
             self.stream.clone(),
@@ -888,9 +1018,74 @@ fn serve_one(
             }
             write_frame(&mut stream, &response)?;
         }
+        15 => {
+            let key = input.artifact_key()?;
+            input.finish()?;
+            if !artifact_access(config, &token, &key.scope, counters, &mut stream)? {
+                return Ok(());
+            }
+            let mut response = Vec::new();
+            let request = ArtifactManifestRequest { key };
+            match config.open_artifact_source()?.manifest(&request) {
+                Ok(reply) => {
+                    response.push(0);
+                    put_artifact_key(&mut response, &reply.request.key);
+                    put_artifact_manifest(&mut response, &reply.manifest);
+                }
+                Err(error) => response.push(manifest_source_error_code(error)),
+            }
+            write_frame(&mut stream, &response)?;
+        }
+        16 => {
+            let request = input.chunk_request()?;
+            input.finish()?;
+            if !artifact_access(
+                config,
+                &token,
+                &request.manifest.key.scope,
+                counters,
+                &mut stream,
+            )? {
+                return Ok(());
+            }
+            if request.max_bytes == 0 || request.max_bytes > MAX_CHUNK_BYTES {
+                write_frame(&mut stream, &[6])?;
+                return Ok(());
+            }
+            let mut response = Vec::new();
+            match config.open_artifact_source()?.chunk(&request) {
+                Ok(reply) => {
+                    response.push(0);
+                    put_chunk_request(&mut response, &reply.request);
+                    response.extend_from_slice(&(reply.bytes.len() as u32).to_be_bytes());
+                    response.extend_from_slice(&reply.bytes);
+                }
+                Err(error) => response.push(chunk_source_error_code(error)),
+            }
+            write_frame(&mut stream, &response)?;
+        }
         _ => return Err(FrameError::Malformed),
     }
     Ok(())
+}
+
+fn artifact_access(
+    config: &LoopbackConfig,
+    token: &Id,
+    scope: &Scope,
+    counters: &ServerCounters,
+    stream: &mut TcpStream,
+) -> Result<bool, FrameError> {
+    if *token != config.read_token
+        || !config.matches(scope)
+        || !config.allowed_receivers.contains(scope.receiver())
+        || config.artifact_source_path.is_none()
+    {
+        counters.refused_reads.fetch_add(1, Ordering::Relaxed);
+        write_frame(stream, &[1])?;
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn write_catalogue_frame(
@@ -953,6 +1148,10 @@ pub struct WireCounters {
     pub catalogue_payload_bytes: u64,
     /// Repeated catalogue payload bytes observed by this client process.
     pub catalogue_duplicate_bytes: u64,
+    /// Artifact content bytes received in complete chunks, including repeats.
+    pub artifact_payload_bytes: u64,
+    /// Repeated artifact chunk bytes observed by this client process.
+    pub artifact_duplicate_bytes: u64,
 }
 
 /// One local receiver's bounded network source. This adapter uses a new TCP
@@ -963,6 +1162,7 @@ pub struct LoopbackClient {
     counters: WireCounters,
     seen_positions: HashMap<Scope, u64>,
     seen_catalogue_revisions: HashMap<(Scope, Id), u64>,
+    seen_artifact_chunks: HashSet<(ArtifactKey, u64, u64)>,
 }
 
 impl LoopbackClient {
@@ -980,6 +1180,7 @@ impl LoopbackClient {
             counters: WireCounters::default(),
             seen_positions: HashMap::new(),
             seen_catalogue_revisions: HashMap::new(),
+            seen_artifact_chunks: HashSet::new(),
         })
     }
 
@@ -1274,6 +1475,102 @@ impl CatalogueSource for LoopbackClient {
         }
         self.seen_catalogue_revisions.insert(key, manifest.revision);
         Ok(ResolvedEntry { manifest, payload })
+    }
+}
+
+impl ManifestSource for LoopbackClient {
+    fn manifest(
+        &mut self,
+        request: &ArtifactManifestRequest,
+    ) -> Result<ArtifactManifestReply, ManifestSourceError> {
+        let mut body = vec![15];
+        put_id(&mut body, &self.token);
+        put_artifact_key(&mut body, &request.key);
+        let response = self
+            .exchange(&body)
+            .map_err(|_| ManifestSourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| ManifestSourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_manifest_source_error(code));
+        }
+        let echoed = ArtifactManifestRequest {
+            key: decoder
+                .artifact_key()
+                .map_err(|_| ManifestSourceError::Unavailable)?,
+        };
+        let manifest = decoder
+            .artifact_manifest()
+            .map_err(|_| ManifestSourceError::Unavailable)?;
+        decoder
+            .finish()
+            .map_err(|_| ManifestSourceError::Unavailable)?;
+        let reply = ArtifactManifestReply {
+            request: echoed,
+            manifest,
+        };
+        crate::replication::artifacts::validate_manifest(request, &reply, None)
+            .map_err(|_| ManifestSourceError::ScopeChanged)?;
+        Ok(reply)
+    }
+}
+
+impl ChunkSource for LoopbackClient {
+    fn chunk(&mut self, request: &ChunkRequest) -> Result<ChunkReply, ChunkSourceError> {
+        if request.max_bytes == 0 || request.max_bytes > MAX_CHUNK_BYTES {
+            return Err(ChunkSourceError::InvalidRequest);
+        }
+        let mut body = vec![16];
+        put_id(&mut body, &self.token);
+        put_chunk_request(&mut body, request);
+        let response = self
+            .exchange(&body)
+            .map_err(|_| ChunkSourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder.byte().map_err(|_| ChunkSourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_chunk_source_error(code));
+        }
+        let echoed = decoder
+            .chunk_request()
+            .map_err(|_| ChunkSourceError::Unavailable)?;
+        if echoed != *request {
+            return Err(ChunkSourceError::VersionChanged);
+        }
+        let length = u32::from_be_bytes(
+            decoder
+                .take(4)
+                .map_err(|_| ChunkSourceError::Unavailable)?
+                .try_into()
+                .map_err(|_| ChunkSourceError::Unavailable)?,
+        ) as usize;
+        if length > MAX_CHUNK_BYTES {
+            return Err(ChunkSourceError::InvalidRequest);
+        }
+        let bytes = decoder
+            .take(length)
+            .map_err(|_| ChunkSourceError::Unavailable)?
+            .to_vec();
+        decoder
+            .finish()
+            .map_err(|_| ChunkSourceError::Unavailable)?;
+        let reply = ChunkReply {
+            request: echoed,
+            bytes,
+        };
+        validate_chunk(request, &reply).map_err(|_| ChunkSourceError::InvalidRequest)?;
+        self.counters.artifact_payload_bytes += length as u64;
+        self.counters.protocol_bytes = self.counters.protocol_bytes.saturating_sub(length as u64);
+        if !self.seen_artifact_chunks.insert((
+            request.manifest.key.clone(),
+            request.manifest.revision,
+            request.offset,
+        )) {
+            self.counters.artifact_duplicate_bytes += length as u64;
+        }
+        Ok(reply)
     }
 }
 
@@ -1598,6 +1895,7 @@ mod tests {
         let config = LoopbackConfig {
             source_path: PathBuf::from("unused.db"),
             catalogue_source_path: None,
+            artifact_source_path: None,
             catalogue_fault: None,
             origin: value("origin"),
             stream: value("stream"),
@@ -1635,7 +1933,7 @@ mod tests {
         response.extend_from_slice(&0_u16.to_be_bytes());
         let mut client = fake_reply(response);
         assert_eq!(
-            client.manifest(&request),
+            CatalogueSource::manifest(&mut client, &request),
             Err(CatalogueSourceError::IdentityChanged)
         );
     }
@@ -1711,5 +2009,43 @@ mod tests {
             client.resolve(&pass, &id("item"), 128),
             Err(CatalogueSourceError::IdentityChanged)
         );
+    }
+
+    #[test]
+    fn artifact_wire_rejects_foreign_manifest_and_chunk_echoes() {
+        let key = ArtifactKey {
+            scope: test_scope(),
+            id: id("artifact"),
+        };
+        let manifest = ArtifactManifest {
+            key: key.clone(),
+            revision: 1,
+            state: ArtifactState::Live(ContentIdentity::of(b"four")),
+        };
+        let request = ArtifactManifestRequest { key: key.clone() };
+        let mut manifest_reply = vec![0];
+        put_artifact_key(&mut manifest_reply, &request.key);
+        let mut foreign = manifest.clone();
+        foreign.key.id = id("other");
+        put_artifact_manifest(&mut manifest_reply, &foreign);
+        let mut client = fake_reply(manifest_reply);
+        assert_eq!(
+            ManifestSource::manifest(&mut client, &request),
+            Err(ManifestSourceError::ScopeChanged)
+        );
+
+        let chunk = ChunkRequest {
+            manifest,
+            offset: 0,
+            max_bytes: 4,
+        };
+        let mut chunk_reply = vec![0];
+        let mut stale = chunk.clone();
+        stale.manifest.revision = 2;
+        put_chunk_request(&mut chunk_reply, &stale);
+        chunk_reply.extend_from_slice(&4_u32.to_be_bytes());
+        chunk_reply.extend_from_slice(b"four");
+        let mut client = fake_reply(chunk_reply);
+        assert_eq!(client.chunk(&chunk), Err(ChunkSourceError::VersionChanged));
     }
 }
