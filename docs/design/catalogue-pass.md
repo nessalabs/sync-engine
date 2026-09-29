@@ -1,0 +1,66 @@
+# Slice 6: finite catalogue passes
+
+## Decision
+
+A catalogue stores the latest value for each stable entry identity. It is not a
+history stream. The source assigns an immutable creation revision and advances a
+single durable revision for every visible change, including deletion. Deletion
+retains a marker at the original creation key and permanently fences content for
+that identity.
+
+A receiver pass starts after completed revision `C`, captures boundary `H`, and
+pages by `(creationRevision, entryId)` through entries created by `H` and
+changed after `C`. Page values can be newer than `H`. Edits behind the cursor
+and creations above `H` wait for the next pass. The receiver saves the page
+cursor only after all selected entry payloads are resolved and the page commits.
+The final page alone advances completed revision to `H`. A fresh head check
+then discovers any newer work. One source transaction covers each metadata
+page; none spans network exchange.
+
+```mermaid
+sequenceDiagram
+    participant V as Catalogue view
+    participant R as Receiver
+    participant S as Authorized source
+    participant D as Durable cache
+    V->>R: Open list after completed revision C
+    R->>S: Read head and capture H
+    R->>D: Save pass C,H and generation
+    loop Until final page
+        R->>S: Manifest page after stable cursor
+        S-->>R: IDs and current revisions
+        R->>D: Read cached revisions
+        R->>S: Resolve changed payloads
+        S-->>R: Latest values or deletion markers
+        R->>D: Atomically save entries and cursor
+    end
+    D-->>V: Completed revision H
+    R->>S: Check current head
+    Note over R,S: Newer changes run in a new finite pass
+```
+
+## State and ordering contract
+
+| Event | Required result |
+| --- | --- |
+| Source head equals completed revision | No payload reads and no pass restart. |
+| Mutation while a pass runs | Preserve `C,H,cursor`; finish the pass. A later pass can pick up revisions above `H`. |
+| Earlier entry changes after its key was passed | Next pass selects it because its current revision exceeds `H`. |
+| Manifest changes before payload read | Resolve the latest authorized value or deletion marker; commit neither entry nor cursor on unavailable or unexplained absence. |
+| Payload changes after resolution | A later pass detects the higher revision. A stale response cannot overwrite a newer cached revision. |
+| Payload read or cache transaction fails | Keep the previous durable cursor and completed revision; restart retries the page. |
+| Interrupted pass | Resume exact `C,H,cursor,generation`; do not capture a new boundary. |
+| Final page commits | Advance completed revision to `H` in that same transaction, then check head. |
+| Old pass/reset response arrives | Exact scope, incarnation, epoch and generation compare refuses it. |
+| Authorized deletion arrives | Save a retained marker and content fence; no later content response restores that identity. |
+| Scope/incarnation changes | Explicit reset removes old live cached values, retains deletion markers, and advances generation. Old epoch pages cannot commit into the new scope. |
+| Partial pass omits an entry | Infer nothing about that entry. Full reset starts from an erased live cache, so the reference adapter never interprets absence as deletion. |
+
+The reference SQLite adapter supplies one current row per ID plus retained
+deletion markers. The host owns entry schema, authorization policy, scheduling,
+and meaning of absence. The adapter never keeps per-receiver payload history on
+the source. The local store keeps only current entry values and pass progress.
+When integrating with a product that must retain live values across a full
+reset, the host must implement the ownership-aware post-pass absence lookup in
+the wider sync contract. This reference adapter chooses an eager privacy wipe
+on scope change and has no cached live values to classify after that reset.
