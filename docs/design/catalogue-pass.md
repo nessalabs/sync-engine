@@ -15,8 +15,16 @@ and creations above `H` wait for the next pass. The receiver saves the page
 cursor only after all selected entry payloads are resolved and the page commits.
 The final page alone advances completed revision to `H`. A fresh head check
 then discovers any newer work. One source transaction covers each metadata
-page. This reference catalogue adapter uses separate local SQLite files; it
-does not yet exchange pages over the loopback network adapter.
+page. The slice 6 lab uses separate local SQLite files. Slice 7 carries the
+same source operations over a bounded loopback adapter, with per-read credential
+and scope checks; each source SQLite read finishes before the network write.
+
+`python3 scripts/verify-slice-7.py` starts a source process and two persisted
+receivers for a 620-entry pass. It resumes after a receiver restart, edits and
+deletes entries during a pass, injects dropped and truncated replies, and reports
+manifest, payload, duplicate and protocol bytes. A local `show` reads only the
+receiver database. The reference tokens and loopback socket are not production
+pairing, encryption or remote connectivity.
 
 ```mermaid
 sequenceDiagram

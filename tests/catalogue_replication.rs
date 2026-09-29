@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nessa_sync::replication::application::Access;
 use nessa_sync::replication::catalogue::{
     apply_next_page, begin_or_resume, reset_catalogue, validate_manifest, CatalogueError,
-    CataloguePagePlan, CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError,
-    CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry,
+    CataloguePagePlan, CataloguePass, CatalogueSource, CatalogueSourceError, CatalogueStore,
+    CatalogueStoreError, CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
@@ -278,11 +278,11 @@ fn changed_and_deleted_payloads_resolve_at_latest_revision_before_page_commit() 
         }
         fn resolve(
             &mut self,
-            scope: &Scope,
+            pass: &CataloguePass,
             entry_id: &Id,
             limit: usize,
         ) -> Result<ResolvedEntry, CatalogueSourceError> {
-            self.0.resolve(scope, entry_id, limit)
+            self.0.resolve(pass, entry_id, limit)
         }
     }
     let dir = Directory::new();
@@ -345,7 +345,7 @@ fn interrupted_page_restarts_at_saved_cursor_and_stale_reset_cannot_restore_cont
     let resolved: Vec<_> = page
         .entries
         .iter()
-        .map(|entry| src.resolve(&old_scope, &entry.key.id, 1024).unwrap())
+        .map(|entry| src.resolve(&resumed, &entry.key.id, 1024).unwrap())
         .collect();
     let stale = CataloguePagePlan {
         pass: resumed.clone(),

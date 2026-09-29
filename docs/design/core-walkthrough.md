@@ -1,6 +1,6 @@
 # How the reference sync core works
 
-These diagrams explain the six implemented reference slices. They simplify
+These diagrams explain the seven implemented reference slices. They simplify
 details in the code; the [implementation plan](../implementation-plan.md) and
 slice-specific design notes identify the runnable evidence. The [product target
 contract](sync-engine.md) also describes Nessa integration that this library
@@ -257,7 +257,8 @@ coverage guarantee, not a snapshot of every value at one instant. The detailed
 catalogue design governs stable ordering, payload races, auth epochs and deletion
 fences. The reference reset wipes old live values before the new pass; Nessa's
 ownership-aware absence classification remains a product target. Catalogue
-pages in the current example use local SQLite ports, not the loopback wire.
+pages in the slice 6 example use local SQLite ports; slice 7 carries them over
+the bounded loopback wire.
 A partial page never proves that an unseen entry was deleted.
 
 ## First-slice transition and verification map

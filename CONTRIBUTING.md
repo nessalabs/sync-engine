@@ -53,7 +53,7 @@ The `verify` job is the stable pull-request check. For pull requests
 containing only Markdown changes, it runs the path-classification tests and skips
 Rust setup and checks. A pull request that changes source, scripts, Cargo files,
 workflow files, or other non-Markdown files runs formatting, Clippy, tests,
-doctests, all six slice labs, Rustdoc, and MSRV. Renames inspect both old and new
+doctests, all seven slice labs, Rustdoc, and MSRV. Renames inspect both old and new
 paths. Pushes to `main` and manual runs always run those Rust checks to refresh
 the shared cache and verify the committed branch. If a Rust source starts embedding
 Markdown, update the classifier and its tests before relying on this fast path.

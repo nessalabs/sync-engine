@@ -11,13 +11,13 @@ A linked phone can read a home gateway's conversation list, saved transcript, an
 - **Contract:** [sync engine design](../design/sync-engine.md)
 - **Related:** [0008 — agent execution](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0008-agent-client-api.md), [0009 — event-stream integration](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0009-reusable-event-stream-crate.md), [0011 — authorized conversation delivery](https://github.com/nessalabs/nessa-agent/blob/main/docs/adr/todo/0011-nessa-session-protocol-and-authorities.md)
 
-**Implementation status:** the independent core's six [reference slices](../implementation-plan.md)
-are implemented, tested and closed. They cover record replication, SQLite
-restart, loopback recovery, two example views, bounded history and local
-catalogue passes. This ADR remains **proposed for Nessa product integration**:
+**Implementation status:** the independent core's seven [reference slices](../implementation-plan.md)
+are implemented and tested. They cover record replication, SQLite restart,
+loopback recovery, two example views, bounded history, local catalogue passes,
+and bounded loopback catalogue transport. This ADR remains **proposed for Nessa product integration**:
 Nessa storage, pairing, authorization, command, mobile and backup contracts
-below are not implemented by the standalone crate. In particular, catalogue
-pages do not yet use the loopback wire.
+below are not implemented by the standalone crate. Catalogue pages use the
+loopback wire only in a separate development lab.
 
 ## Context
 
@@ -92,7 +92,7 @@ The engine requires bounded data and durable progress regardless of transport. I
 Phones can render cached conversations immediately and catch up transcript streams by applied position; per-entry catalogue revisions avoid repeatedly transferring unchanged list content. Gateway conversation and agent work continues through phone, sync-worker or relay failure; a canonical-store or authorization failure instead refuses new acceptance. The reusable crate can serve other agent products through their adapters. The cost is an ADR 0009 migration, catalogue revision fields and resumable pass state, device identity and key lifecycle, cache/restore semantics, and weak-network testing. The first release must show last-applied state and an explicit unavailable, unknown, or unresolved command outcome when the home gateway cannot be reached. The companion contract defines degraded modes and a proposed, unverified 99.99% eligible-interaction objective. Files, offline relay catch-up, automatic offline command execution, and transfer of a running agent to another gateway require separate decisions.
 
 **Agreement and validation:** bounded catalogue passes and notification-driven
-catch-up with recovery checks are the selected direction. The six reference
+catch-up with recovery checks are the selected direction. The seven reference
 slices have executable tests and CI evidence; the [product validation
 plan](../design/sync-engine.md#validation-before-acceptance) still has Nessa
 storage, security, phone, command and recovery work. The ADR stays proposed

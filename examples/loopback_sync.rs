@@ -133,6 +133,8 @@ fn run() -> Result<(), AnyError> {
                 port,
                 LoopbackConfig {
                     source_path: PathBuf::from(&args[2]),
+                    catalogue_source_path: None,
+                    catalogue_fault: None,
                     origin: id("example-origin"),
                     stream: id("transcript"),
                     incarnation: id("first"),
