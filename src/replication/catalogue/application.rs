@@ -5,7 +5,8 @@ use crate::replication::domain::{Id, Scope};
 
 use super::{
     validate_manifest, validate_resolved, CataloguePagePlan, CataloguePass, CatalogueProgress,
-    CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry,
+    CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
+    MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 
 /// Source refusal before receiver progress changes.
@@ -172,9 +173,9 @@ where
     D: CatalogueStore,
 {
     if max_entries == 0
-        || max_entries > 256
+        || max_entries > MAX_CATALOGUE_ENTRIES
         || max_payload_bytes == 0
-        || max_payload_bytes > 1024 * 1024
+        || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES
     {
         return Err(CatalogueError::Validation(
             CatalogueValidationError::InvalidRequest,
@@ -186,7 +187,8 @@ where
         max_entries,
     };
     let page = source.manifest(&request).map_err(CatalogueError::Source)?;
-    validate_manifest(&request, &page, 256).map_err(CatalogueError::Validation)?;
+    validate_manifest(&request, &page, MAX_CATALOGUE_ENTRIES)
+        .map_err(CatalogueError::Validation)?;
     let mut resolved = Vec::new();
     let mut unchanged = Vec::new();
     let mut total_bytes = 0usize;

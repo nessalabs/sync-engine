@@ -2,6 +2,11 @@
 
 use crate::replication::domain::{Id, Scope};
 
+/// Maximum manifest entries in one catalogue page.
+pub const MAX_CATALOGUE_ENTRIES: usize = 256;
+/// Maximum combined resolved payload bytes in one catalogue page.
+pub const MAX_CATALOGUE_PAYLOAD_BYTES: usize = 1024 * 1024;
+
 /// Immutable key used to page current entries in creation order.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EntryKey {
@@ -120,6 +125,7 @@ pub fn validate_manifest(
     max_entries: usize,
 ) -> Result<(), CatalogueValidationError> {
     if request.max_entries == 0
+        || request.max_entries > MAX_CATALOGUE_ENTRIES
         || request.max_entries > max_entries
         || request.pass.boundary <= request.pass.completed
         || request.pass.generation == 0

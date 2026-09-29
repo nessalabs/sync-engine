@@ -19,6 +19,12 @@ page. The slice 6 lab uses separate local SQLite files. Slice 7 carries the
 same source operations over a bounded loopback adapter, with per-read credential
 and scope checks; each source SQLite read finishes before the network write.
 
+The public `replication::catalogue::MAX_CATALOGUE_ENTRIES` ceiling is 256
+manifest entries per request. `MAX_CATALOGUE_PAYLOAD_BYTES` is 1 MiB of
+combined resolved payload per page. Hosts can use these values to reject
+requests before reading their stores; each request may select smaller limits.
+The reference loopback transport uses smaller limits to fit its wire frames.
+
 `python3 scripts/verify-slice-7.py` starts a source process and two persisted
 receivers for a 620-entry pass. It resumes after a receiver restart, edits and
 deletes entries during a pass, injects dropped and truncated replies, and reports

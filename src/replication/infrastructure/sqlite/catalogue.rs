@@ -9,7 +9,8 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use crate::replication::catalogue::{
     validate_manifest, validate_resolved, CataloguePagePlan, CataloguePass, CatalogueProgress,
     CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError, EntryKey,
-    ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry,
+    ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
+    MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use crate::replication::domain::{Id, Scope};
 
@@ -17,9 +18,6 @@ use super::{
     configure_connection, ensure_schema, open_connection, SqliteOpenError,
     CATALOGUE_REPLICA_APPLICATION_ID, CATALOGUE_SOURCE_APPLICATION_ID,
 };
-
-const MAX_ENTRIES: usize = 256;
-const MAX_PAYLOAD: usize = 1024 * 1024;
 
 const SOURCE_SCHEMA: &str = "
 CREATE TABLE catalogue_source_meta (
@@ -137,7 +135,7 @@ impl SqliteCatalogueSource {
 
     /// Replaces one current value and advances the global revision atomically.
     pub fn upsert(&mut self, entry_id: &Id, payload: &[u8]) -> Result<u64, CatalogueStoreError> {
-        if payload.len() > MAX_PAYLOAD {
+        if payload.len() > MAX_CATALOGUE_PAYLOAD_BYTES {
             return Err(CatalogueStoreError::Failed);
         }
         let tx = self
@@ -275,7 +273,7 @@ impl CatalogueSource for SqliteCatalogueSource {
             return Err(CatalogueSourceError::IdentityChanged);
         }
         if request.max_entries == 0
-            || request.max_entries > MAX_ENTRIES
+            || request.max_entries > MAX_CATALOGUE_ENTRIES
             || request.pass.boundary <= request.pass.completed
         {
             return Err(CatalogueSourceError::InvalidRequest);
@@ -358,7 +356,7 @@ impl CatalogueSource for SqliteCatalogueSource {
         if !self.matches(&pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
-        if max_payload_bytes == 0 || max_payload_bytes > MAX_PAYLOAD {
+        if max_payload_bytes == 0 || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
             return Err(CatalogueSourceError::InvalidRequest);
         }
         let tx = self
@@ -622,7 +620,12 @@ impl CatalogueStore for SqliteCatalogueStore {
     ) -> Result<CatalogueProgress, CatalogueStoreError> {
         if plan.manifest.request.pass != plan.pass
             || plan.final_page == plan.manifest.has_more
-            || validate_manifest(&plan.manifest.request, &plan.manifest, MAX_ENTRIES).is_err()
+            || validate_manifest(
+                &plan.manifest.request,
+                &plan.manifest,
+                MAX_CATALOGUE_ENTRIES,
+            )
+            .is_err()
         {
             return Err(CatalogueStoreError::Conflict);
         }
@@ -645,11 +648,11 @@ impl CatalogueStore for SqliteCatalogueStore {
                 .unchanged
                 .iter()
                 .find(|entry| entry.key.id == manifest.key.id);
-            if resolved.is_some() == unchanged.is_some() || index >= MAX_ENTRIES {
+            if resolved.is_some() == unchanged.is_some() || index >= MAX_CATALOGUE_ENTRIES {
                 return Err(CatalogueStoreError::Conflict);
             }
             if let Some(value) = resolved {
-                if validate_resolved(manifest, value, MAX_PAYLOAD).is_err() {
+                if validate_resolved(manifest, value, MAX_CATALOGUE_PAYLOAD_BYTES).is_err() {
                     return Err(CatalogueStoreError::Conflict);
                 }
             } else if unchanged != Some(manifest) {
@@ -660,7 +663,7 @@ impl CatalogueStore for SqliteCatalogueStore {
             sum.checked_add(entry.payload.len())
                 .ok_or(CatalogueStoreError::Conflict)
         })?;
-        if total_bytes > MAX_PAYLOAD {
+        if total_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
             return Err(CatalogueStoreError::Conflict);
         }
         let tx = self

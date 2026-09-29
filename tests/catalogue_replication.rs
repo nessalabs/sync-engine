@@ -9,6 +9,7 @@ use nessa_sync::replication::catalogue::{
     apply_next_page, begin_or_resume, reset_catalogue, validate_manifest, CatalogueError,
     CataloguePagePlan, CataloguePass, CatalogueSource, CatalogueSourceError, CatalogueStore,
     CatalogueStoreError, CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry,
+    MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
@@ -83,6 +84,109 @@ fn run_pass(
         }
     }
     boundary
+}
+
+#[test]
+fn public_catalogue_bounds_accept_the_boundary_and_reject_over_bound_requests() {
+    let dir = Directory::new();
+    let mut src = source(dir.path("source.db"));
+    let mut dst = SqliteCatalogueStore::open(dir.path("receiver.db")).unwrap();
+    let selected = scope("epoch-1");
+    for number in 0..MAX_CATALOGUE_ENTRIES {
+        src.upsert(&id(&format!("item-{number:03}")), b"x").unwrap();
+    }
+    let mut auth = MemoryAuthorizer::allowed(selected.clone());
+    let pass = begin_or_resume(&selected, &mut auth, &mut src, &mut dst)
+        .unwrap()
+        .unwrap();
+    let request = ManifestRequest {
+        pass: pass.clone(),
+        max_entries: MAX_CATALOGUE_ENTRIES,
+    };
+    let page = src.manifest(&request).unwrap();
+    assert_eq!(page.entries.len(), MAX_CATALOGUE_ENTRIES);
+    assert_eq!(validate_manifest(&request, &page, usize::MAX), Ok(()));
+    let over = ManifestRequest {
+        max_entries: MAX_CATALOGUE_ENTRIES + 1,
+        ..request
+    };
+    let over_page = ManifestPage {
+        request: over.clone(),
+        ..page
+    };
+    assert_eq!(
+        validate_manifest(&over, &over_page, usize::MAX),
+        Err(CatalogueValidationError::InvalidRequest)
+    );
+    assert_eq!(
+        apply_next_page(
+            &pass,
+            MAX_CATALOGUE_ENTRIES + 1,
+            MAX_CATALOGUE_PAYLOAD_BYTES,
+            &mut auth,
+            &mut src,
+            &mut dst,
+        ),
+        Err(CatalogueError::Validation(
+            CatalogueValidationError::InvalidRequest
+        ))
+    );
+    assert_eq!(
+        dst.progress(&selected).unwrap().unwrap().active,
+        Some(pass.clone())
+    );
+    let done = apply_next_page(
+        &pass,
+        MAX_CATALOGUE_ENTRIES,
+        MAX_CATALOGUE_PAYLOAD_BYTES,
+        &mut auth,
+        &mut src,
+        &mut dst,
+    )
+    .unwrap();
+    assert!(done.active.is_none());
+    assert_eq!(dst.count(&selected).unwrap(), MAX_CATALOGUE_ENTRIES as u64);
+
+    let payload = vec![b'x'; MAX_CATALOGUE_PAYLOAD_BYTES];
+    src.upsert(&id("large"), &payload).unwrap();
+    let pass = begin_or_resume(&selected, &mut auth, &mut src, &mut dst)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        apply_next_page(
+            &pass,
+            1,
+            MAX_CATALOGUE_PAYLOAD_BYTES + 1,
+            &mut auth,
+            &mut src,
+            &mut dst,
+        ),
+        Err(CatalogueError::Validation(
+            CatalogueValidationError::InvalidRequest
+        ))
+    );
+    assert_eq!(
+        dst.progress(&selected).unwrap().unwrap().active,
+        Some(pass.clone())
+    );
+    let next = apply_next_page(
+        &pass,
+        1,
+        MAX_CATALOGUE_PAYLOAD_BYTES,
+        &mut auth,
+        &mut src,
+        &mut dst,
+    )
+    .unwrap();
+    assert!(next.active.is_none());
+    assert_eq!(
+        dst.cached_entry(&selected, &id("large"))
+            .unwrap()
+            .unwrap()
+            .payload
+            .len(),
+        MAX_CATALOGUE_PAYLOAD_BYTES
+    );
 }
 
 #[test]
