@@ -85,6 +85,9 @@ jobs:
       - name: Slice 7 catalogue over loopback transport
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-slice-7.py
+      - name: Artifact manifest and availability example
+        if: steps.changes.outputs.rust != 'false'
+        run: cargo run --locked --example artifact_contract
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

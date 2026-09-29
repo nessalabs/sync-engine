@@ -101,6 +101,10 @@ agent. The [ADR](docs/adr/1-reusable-local-first-sync-engine.md) and
 [product target contract](docs/design/sync-engine.md) describe that broader
 direction; their unimplemented requirements are not guarantees of this crate.
 
+The [artifact manifest and availability contract](docs/design/artifact-contract.md)
+now has a small runnable example: `cargo run --locked --example artifact_contract`.
+It does not transfer or persist artifact bytes yet.
+
 The next standalone feature is [artifact synchronization](https://github.com/nessalabs/sync-engine/issues/19). It has its own
 parent issue and linked contract, transfer, and Nessa adapter tasks. The Nessa
 product work is grouped under [linked-device reads](https://github.com/nessalabs/nessa-agent/issues/257),
