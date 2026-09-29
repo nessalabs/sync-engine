@@ -73,6 +73,9 @@ jobs:
       - name: Slice 3 loopback and fault lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-slice-3.py
+      - name: Slice 4 transcript and task apps
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-slice-4.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:
