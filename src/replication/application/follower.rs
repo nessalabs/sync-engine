@@ -65,6 +65,8 @@ pub enum StoreError {
     },
     /// A record ID was previously committed with a different meaning.
     ConflictingRecord,
+    /// This receiver/source stream has a durable deletion fence.
+    Fenced,
 }
 
 /// Replica store. `apply` must compare scope and position inside one atomic operation,

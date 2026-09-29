@@ -13,6 +13,9 @@ use std::time::Duration;
 
 use crate::replication::application::{Access, RecordSource, ScopeAuthorizer, SourceError};
 use crate::replication::domain::{Id, Page, PageRequest, Record, Scope};
+use crate::replication::history::{
+    HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
+};
 
 use super::SqliteReferenceSource;
 
@@ -82,6 +85,26 @@ fn put_scope(out: &mut Vec<u8>, scope: &Scope) {
     }
 }
 
+fn put_history_limits(
+    out: &mut Vec<u8>,
+    generation: u64,
+    count: usize,
+    bytes: usize,
+    record: usize,
+) {
+    for value in [generation, count as u64, bytes as u64, record as u64] {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+}
+
+fn put_wire_record(out: &mut Vec<u8>, record: &Record) {
+    out.extend_from_slice(&record.position.to_be_bytes());
+    put_id(out, &record.id);
+    put_scope(out, &record.scope);
+    out.extend_from_slice(&(record.payload.len() as u32).to_be_bytes());
+    out.extend_from_slice(&record.payload);
+}
+
 struct Decoder<'a> {
     bytes: &'a [u8],
     offset: usize,
@@ -131,6 +154,36 @@ impl<'a> Decoder<'a> {
         ))
     }
 
+    fn history_limits(&mut self) -> Result<(u64, usize, usize, usize), FrameError> {
+        Ok((
+            self.u64()?,
+            usize::try_from(self.u64()?).map_err(|_| FrameError::Malformed)?,
+            usize::try_from(self.u64()?).map_err(|_| FrameError::Malformed)?,
+            usize::try_from(self.u64()?).map_err(|_| FrameError::Malformed)?,
+        ))
+    }
+
+    fn wire_record(&mut self, max_record_bytes: usize) -> Result<Record, FrameError> {
+        let position = self.u64()?;
+        let id = self.id()?;
+        let scope = self.scope()?;
+        let len = u32::from_be_bytes(
+            self.take(4)?
+                .try_into()
+                .map_err(|_| FrameError::Malformed)?,
+        ) as usize;
+        if len > max_record_bytes {
+            return Err(FrameError::TooLarge);
+        }
+        let payload = self.take(len)?.to_vec();
+        Ok(Record {
+            position,
+            id,
+            scope,
+            payload,
+        })
+    }
+
     fn finish(self) -> Result<(), FrameError> {
         if self.offset == self.bytes.len() {
             Ok(())
@@ -157,6 +210,26 @@ fn decode_source_error(code: u8) -> SourceError {
         5 => SourceError::IdentityChanged,
         6 => SourceError::OversizedRecord,
         _ => SourceError::Unavailable,
+    }
+}
+
+fn history_error_code(error: HistorySourceError) -> u8 {
+    match error {
+        HistorySourceError::Unavailable => 2,
+        HistorySourceError::ResetRequired => 3,
+        HistorySourceError::InvalidRequest => 4,
+        HistorySourceError::IdentityChanged => 5,
+        HistorySourceError::OversizedRecord => 6,
+    }
+}
+
+fn decode_history_error(code: u8) -> HistorySourceError {
+    match code {
+        3 => HistorySourceError::ResetRequired,
+        4 => HistorySourceError::InvalidRequest,
+        5 => HistorySourceError::IdentityChanged,
+        6 => HistorySourceError::OversizedRecord,
+        _ => HistorySourceError::Unavailable,
     }
 }
 
@@ -209,6 +282,9 @@ struct ServerCounters {
     head_reads: AtomicU64,
     page_reads: AtomicU64,
     refused_reads: AtomicU64,
+    tail_reads: AtomicU64,
+    older_reads: AtomicU64,
+    history_payload_bytes: AtomicU64,
 }
 
 /// Loopback source server with one independent thread and SQLite handle per
@@ -437,6 +513,144 @@ fn serve_one(
             }
             write_frame(&mut stream, &response)?;
         }
+        7 | 8 => {
+            let scope = input.scope()?;
+            if token != config.read_token
+                || !config.matches(&scope)
+                || !config.allowed_receivers.contains(scope.receiver())
+            {
+                counters.refused_reads.fetch_add(1, Ordering::Relaxed);
+                write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            let before = if operation == 8 {
+                Some(input.u64()?)
+            } else {
+                None
+            };
+            let (generation, count, bytes, record_bytes) = input.history_limits()?;
+            input.finish()?;
+            if generation == 0
+                || count == 0
+                || count > MAX_PAGE_RECORDS
+                || bytes == 0
+                || bytes > MAX_PAGE_PAYLOAD
+                || record_bytes == 0
+                || record_bytes > MAX_PAGE_PAYLOAD
+            {
+                write_frame(&mut stream, &[4])?;
+                return Ok(());
+            }
+            let mut source = config.open_source()?;
+            let mut response = Vec::new();
+            if let Some(before) = before {
+                counters.older_reads.fetch_add(1, Ordering::Relaxed);
+                let request = OlderRequest {
+                    scope,
+                    generation,
+                    before,
+                    max_records: count,
+                    max_payload_bytes: bytes,
+                    max_record_bytes: record_bytes,
+                };
+                match source.older(&request) {
+                    Ok(page) => {
+                        response.push(0);
+                        put_scope(&mut response, &page.request.scope);
+                        response.extend_from_slice(&page.request.before.to_be_bytes());
+                        put_history_limits(
+                            &mut response,
+                            page.request.generation,
+                            page.request.max_records,
+                            page.request.max_payload_bytes,
+                            page.request.max_record_bytes,
+                        );
+                        response.extend_from_slice(&page.oldest_available.to_be_bytes());
+                        response.push(page.records.len() as u8);
+                        for record in &page.records {
+                            put_wire_record(&mut response, record);
+                        }
+                        counters.history_payload_bytes.fetch_add(
+                            page.records
+                                .iter()
+                                .map(|record| record.payload.len() as u64)
+                                .sum(),
+                            Ordering::Relaxed,
+                        );
+                    }
+                    Err(error) => response.push(history_error_code(error)),
+                }
+            } else {
+                counters.tail_reads.fetch_add(1, Ordering::Relaxed);
+                let request = TailRequest {
+                    scope,
+                    generation,
+                    max_records: count,
+                    max_payload_bytes: bytes,
+                    max_record_bytes: record_bytes,
+                };
+                match source.tail(&request) {
+                    Ok(snapshot) => {
+                        response.push(0);
+                        put_scope(&mut response, &snapshot.request.scope);
+                        put_history_limits(
+                            &mut response,
+                            snapshot.request.generation,
+                            snapshot.request.max_records,
+                            snapshot.request.max_payload_bytes,
+                            snapshot.request.max_record_bytes,
+                        );
+                        for value in [
+                            snapshot.watermark,
+                            snapshot.first,
+                            snapshot.oldest_available,
+                        ] {
+                            response.extend_from_slice(&value.to_be_bytes());
+                        }
+                        response.push(snapshot.records.len() as u8);
+                        for record in &snapshot.records {
+                            put_wire_record(&mut response, record);
+                        }
+                        counters.history_payload_bytes.fetch_add(
+                            snapshot
+                                .records
+                                .iter()
+                                .map(|record| record.payload.len() as u64)
+                                .sum(),
+                            Ordering::Relaxed,
+                        );
+                    }
+                    Err(error) => response.push(history_error_code(error)),
+                }
+            }
+            write_frame(&mut stream, &response)?;
+        }
+        9 => {
+            input.finish()?;
+            if token != config.write_token {
+                write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            let mut response = vec![0];
+            for value in [
+                &counters.tail_reads,
+                &counters.older_reads,
+                &counters.history_payload_bytes,
+            ] {
+                response.extend_from_slice(&value.load(Ordering::Relaxed).to_be_bytes());
+            }
+            write_frame(&mut stream, &response)?;
+        }
+        10 => {
+            let position = input.u64()?;
+            input.finish()?;
+            if token != config.write_token {
+                write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            let result = config.open_source()?.prune_through(position);
+            write_frame(&mut stream, &[if result.is_ok() { 0 } else { 2 }])?;
+        }
         _ => return Err(FrameError::Malformed),
     }
     Ok(())
@@ -551,6 +765,183 @@ impl LoopbackClient {
         let result = (decoder.u64()?, decoder.u64()?, decoder.u64()?);
         decoder.finish()?;
         Ok(result)
+    }
+
+    /// Reads development history-request and payload counters.
+    pub fn history_counters(&mut self) -> Result<(u64, u64, u64), FrameError> {
+        let mut request = vec![9];
+        put_id(&mut request, &self.token);
+        let response = self.exchange(&request)?;
+        let mut decoder = Decoder::new(&response);
+        if decoder.byte()? != 0 {
+            return Err(FrameError::Malformed);
+        }
+        let result = (decoder.u64()?, decoder.u64()?, decoder.u64()?);
+        decoder.finish()?;
+        Ok(result)
+    }
+
+    /// Advances the development source's historical floor. Physical records
+    /// remain for immutable ID deduplication; only reads below the floor stop.
+    pub fn prune_through(&mut self, position: u64) -> Result<(), FrameError> {
+        let mut request = vec![10];
+        put_id(&mut request, &self.token);
+        request.extend_from_slice(&position.to_be_bytes());
+        if self.exchange(&request)? == [0] {
+            Ok(())
+        } else {
+            Err(FrameError::Malformed)
+        }
+    }
+}
+
+fn decode_history_records(
+    decoder: &mut Decoder<'_>,
+    max_records: usize,
+    max_payload_bytes: usize,
+    max_record_bytes: usize,
+) -> Result<(Vec<Record>, usize), HistorySourceError> {
+    let count = decoder
+        .byte()
+        .map_err(|_| HistorySourceError::Unavailable)? as usize;
+    if count > max_records {
+        return Err(HistorySourceError::InvalidRequest);
+    }
+    let mut records = Vec::with_capacity(count);
+    let mut bytes = 0_usize;
+    for _ in 0..count {
+        let record = decoder
+            .wire_record(max_record_bytes)
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        bytes = bytes
+            .checked_add(record.payload.len())
+            .ok_or(HistorySourceError::InvalidRequest)?;
+        if bytes > max_payload_bytes {
+            return Err(HistorySourceError::InvalidRequest);
+        }
+        records.push(record);
+    }
+    Ok((records, bytes))
+}
+
+impl HistorySource for LoopbackClient {
+    fn tail(&mut self, request: &TailRequest) -> Result<TailSnapshot, HistorySourceError> {
+        if request.max_records > MAX_PAGE_RECORDS
+            || request.max_payload_bytes > MAX_PAGE_PAYLOAD
+            || request.max_record_bytes > MAX_PAGE_PAYLOAD
+        {
+            return Err(HistorySourceError::InvalidRequest);
+        }
+        let mut body = self.request(7, &request.scope);
+        put_history_limits(
+            &mut body,
+            request.generation,
+            request.max_records,
+            request.max_payload_bytes,
+            request.max_record_bytes,
+        );
+        let response = self
+            .exchange(&body)
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_history_error(code));
+        }
+        let scope = decoder
+            .scope()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let (generation, max_records, max_payload_bytes, max_record_bytes) = decoder
+            .history_limits()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let watermark = decoder.u64().map_err(|_| HistorySourceError::Unavailable)?;
+        let first = decoder.u64().map_err(|_| HistorySourceError::Unavailable)?;
+        let oldest_available = decoder.u64().map_err(|_| HistorySourceError::Unavailable)?;
+        let (records, bytes) = decode_history_records(
+            &mut decoder,
+            request.max_records,
+            request.max_payload_bytes,
+            request.max_record_bytes,
+        )?;
+        decoder
+            .finish()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        self.counters.payload_bytes += bytes as u64;
+        self.counters.protocol_bytes = self.counters.protocol_bytes.saturating_sub(bytes as u64);
+        Ok(TailSnapshot {
+            request: TailRequest {
+                scope,
+                generation,
+                max_records,
+                max_payload_bytes,
+                max_record_bytes,
+            },
+            watermark,
+            first,
+            oldest_available,
+            records,
+        })
+    }
+
+    fn older(&mut self, request: &OlderRequest) -> Result<OlderPage, HistorySourceError> {
+        if request.max_records > MAX_PAGE_RECORDS
+            || request.max_payload_bytes > MAX_PAGE_PAYLOAD
+            || request.max_record_bytes > MAX_PAGE_PAYLOAD
+        {
+            return Err(HistorySourceError::InvalidRequest);
+        }
+        let mut body = self.request(8, &request.scope);
+        body.extend_from_slice(&request.before.to_be_bytes());
+        put_history_limits(
+            &mut body,
+            request.generation,
+            request.max_records,
+            request.max_payload_bytes,
+            request.max_record_bytes,
+        );
+        let response = self
+            .exchange(&body)
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let mut decoder = Decoder::new(&response);
+        let code = decoder
+            .byte()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        if code != 0 {
+            return Err(decode_history_error(code));
+        }
+        let scope = decoder
+            .scope()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let before = decoder.u64().map_err(|_| HistorySourceError::Unavailable)?;
+        let (generation, max_records, max_payload_bytes, max_record_bytes) = decoder
+            .history_limits()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        let oldest_available = decoder.u64().map_err(|_| HistorySourceError::Unavailable)?;
+        let (records, bytes) = decode_history_records(
+            &mut decoder,
+            request.max_records,
+            request.max_payload_bytes,
+            request.max_record_bytes,
+        )?;
+        decoder
+            .finish()
+            .map_err(|_| HistorySourceError::Unavailable)?;
+        self.counters.payload_bytes += bytes as u64;
+        self.counters.protocol_bytes = self.counters.protocol_bytes.saturating_sub(bytes as u64);
+        Ok(OlderPage {
+            request: OlderRequest {
+                scope,
+                generation,
+                before,
+                max_records,
+                max_payload_bytes,
+                max_record_bytes,
+            },
+            oldest_available,
+            records,
+        })
     }
 }
 
