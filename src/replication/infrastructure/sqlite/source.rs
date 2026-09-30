@@ -6,7 +6,9 @@ use std::path::Path;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::replication::application::{RecordSource, SourceError, StoreError};
-use crate::replication::domain::{Id, Page, PageRequest, Record, Scope};
+use crate::replication::domain::{
+    validate_page_request, Id, Limits, Page, PageRequest, Record, Scope,
+};
 use crate::replication::history::{
     HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
 };
@@ -270,13 +272,12 @@ impl RecordSource for SqliteReferenceSource {
         if !self.matches(&request.scope) {
             return Err(SourceError::IdentityChanged);
         }
-        if request.max_records == 0
-            || request.max_payload_bytes == 0
-            || request.max_record_bytes == 0
-            || request.after >= request.target
-        {
-            return Err(SourceError::InvalidRequest);
-        }
+        // Generic admissibility has one domain owner. These adapters preserve
+        // their existing representable request budgets; physical limits below
+        // may return a smaller page without imposing a receiver policy.
+        let limits = Limits::new(usize::MAX, usize::MAX, usize::MAX)
+            .map_err(|_| SourceError::InvalidRequest)?;
+        validate_page_request(request, limits).map_err(|_| SourceError::InvalidRequest)?;
         let after = i64::try_from(request.after).map_err(|_| SourceError::InvalidRequest)?;
         let target = i64::try_from(request.target).map_err(|_| SourceError::InvalidRequest)?;
         let limit = i64::try_from(request.max_records.min(MAX_PAGE_RECORDS))

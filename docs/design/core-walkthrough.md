@@ -271,6 +271,7 @@ the [product target design](sync-engine.md).
 | Trigger | Core/application response | Persistent result or assertion |
 | --- | --- | --- |
 | New receiver | Check source head, capture a bounded target | Separate checkpoint starts at zero |
+| Host receives an invalid record range or configured request budget | `validate_page_request` refuses before source access; receiver validation and reference forward sources consume the same pure validator | Typed `InvalidRange`; checkpoint correlation remains with receiver page validation |
 | Valid page | Validate correlation, then commit one plan | Records and checkpoint appear together |
 | Gap or out-of-order record | Return typed refusal before apply | Previous data/progress unchanged |
 | Wrong origin, incarnation, schema, receiver or epoch | Reject the response | No cross-scope apply |

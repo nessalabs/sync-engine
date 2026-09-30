@@ -43,6 +43,12 @@ flowchart LR
     D --> V["Host projection and local view"]
 ```
 
+A source adapter can call pure `validate_page_request(request, limits)` before
+external reads. This checks the generic range and configured request budgets;
+`validate_page` consumes the same rule and additionally checks the receiver
+checkpoint and returned records. Physical source identity, current authority,
+and wire framing remain host responsibilities.
+
 The host calls `begin_pass` and drives bounded record pages. The source assigns
 committed positions; each receiver saves its own checkpoint with the applied
 records. A wake hint only asks the host to check again. Lost hints are recovered

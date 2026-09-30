@@ -970,3 +970,9 @@ fn mid_pass_epoch_change_refuses_next_page_before_source_read() {
     assert_eq!(store.records(&pass_scope).unwrap(), saved_records);
     assert_eq!(auth.observed_scopes.last(), Some(&pass_scope));
 }
+
+#[path = "replication/domain/page_request.rs"]
+mod page_request;
+
+#[path = "replication/infrastructure/memory_request.rs"]
+mod memory_request_contract;

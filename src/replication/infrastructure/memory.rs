@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use crate::replication::application::{
     Access, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, StoreError,
 };
-use crate::replication::domain::{Checkpoint, CommitPlan, Id, Page, PageRequest, Record, Scope};
+use crate::replication::domain::{
+    validate_page_request, Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Record, Scope,
+};
 
 /// A canonical source fact before receiver-specific delivery scope is attached.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,12 +94,13 @@ impl RecordSource for MemorySource {
         {
             return Err(SourceError::IdentityChanged);
         }
-        if request.max_records == 0
-            || request.max_payload_bytes == 0
-            || request.max_record_bytes == 0
-            || request.after >= request.target
-            || request.target > self.committed_head()
-        {
+        // Generic admissibility has one domain owner. These adapters preserve
+        // their existing representable request budgets; physical limits below
+        // may return a smaller page without imposing a receiver policy.
+        let limits = Limits::new(usize::MAX, usize::MAX, usize::MAX)
+            .map_err(|_| SourceError::InvalidRequest)?;
+        validate_page_request(request, limits).map_err(|_| SourceError::InvalidRequest)?;
+        if request.target > self.committed_head() {
             return Err(SourceError::InvalidRequest);
         }
         let start = usize::try_from(request.after).map_err(|_| SourceError::InvalidRequest)?;
