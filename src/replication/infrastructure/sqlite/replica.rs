@@ -12,8 +12,11 @@ use crate::replication::history::{
 };
 
 use super::{
-    configure_connection, ensure_schema, open_connection, SqliteOpenError, REPLICA_APPLICATION_ID,
+    configure_connection, ensure_schema, open_connection, read_record_row, SqliteOpenError,
+    MAX_STORED_ID_BYTES, REPLICA_APPLICATION_ID,
 };
+
+pub(super) const REPLICA_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?7, length(payload) FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND position > ?4 AND position <= ?5 ORDER BY position LIMIT ?6";
 
 const MAX_READ_RECORDS: usize = 256;
 const MAX_READ_BYTES: usize = 1024 * 1024;
@@ -121,9 +124,9 @@ impl SqliteReplicaStore {
         if u64::try_from(after).map_err(|_| StoreError::Failed)? >= saved_position {
             return Ok(Vec::new());
         }
-        let metadata: Vec<(i64, i64, i64)> = {
+        let metadata: Vec<(i64, bool, i64)> = {
             let mut statement = tx
-                .prepare("SELECT position, length(record_id), length(payload) FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND position > ?4 AND position <= ?5 ORDER BY position LIMIT ?6")
+                .prepare(REPLICA_RECORD_METADATA_SQL)
                 .map_err(|_| StoreError::Failed)?;
             let rows = statement
                 .query_map(
@@ -133,7 +136,8 @@ impl SqliteReplicaStore {
                         scope.stream().as_str(),
                         after,
                         i64::try_from(saved_position).map_err(|_| StoreError::Failed)?,
-                        limit
+                        limit,
+                        MAX_STORED_ID_BYTES
                     ],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
@@ -148,13 +152,13 @@ impl SqliteReplicaStore {
         let mut records = Vec::with_capacity(metadata.len());
         let mut bytes = 0usize;
         let mut expected = after;
-        for (position, id_bytes, payload_bytes) in metadata {
+        for (position, storage_fits, payload_bytes) in metadata {
             expected = expected.checked_add(1).ok_or(StoreError::Failed)?;
             if position != expected {
                 return Err(StoreError::Failed);
             }
             let len = usize::try_from(payload_bytes).map_err(|_| StoreError::Failed)?;
-            if !(1..=128).contains(&id_bytes) || len > MAX_READ_BYTES {
+            if !storage_fits || len > MAX_READ_BYTES {
                 return Err(StoreError::Failed);
             }
             let next = bytes.checked_add(len).ok_or(StoreError::Failed)?;
@@ -164,19 +168,20 @@ impl SqliteReplicaStore {
                 }
                 break;
             }
-            let (raw_id, payload): (String, Vec<u8>) = tx
+            let (id, payload) = tx
                 .query_row(
                     "SELECT record_id, payload FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND position = ?4",
                     params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), position],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    read_record_row,
                 )
+                .map_err(|_| StoreError::Failed)?
                 .map_err(|_| StoreError::Failed)?;
             if payload.len() != len {
                 return Err(StoreError::Failed);
             }
             records.push(Record {
                 position: u64::try_from(position).map_err(|_| StoreError::Failed)?,
-                id: Id::new(raw_id).map_err(|_| StoreError::Failed)?,
+                id,
                 scope: scope.clone(),
                 payload,
             });

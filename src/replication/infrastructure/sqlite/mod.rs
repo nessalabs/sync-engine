@@ -9,6 +9,9 @@
 //! `connection` owns file identity, opening policy, and schema setup. Each
 //! adapter owns its connection and closes it on drop; the domain and application
 //! layers import only their ports and never import SQLite.
+//! `record_rows` owns borrowed record decoding after storage/payload preflight;
+//! the core walkthrough representation/bounds table describes accepted encodings
+//! and conversion accounting. `id_preflight_tests` checks those acquisition rows.
 //! `catalogue` supplies separate latest-value source and receiver files for
 //! finite list passes; it does not share transcript history tables.
 //! `artifact` keeps current source bytes and a separate receiver staging cache.
@@ -16,6 +19,7 @@
 mod artifact;
 mod catalogue;
 mod connection;
+mod record_rows;
 mod replica;
 mod source;
 
@@ -27,5 +31,10 @@ use connection::{
     ARTIFACT_SOURCE_APPLICATION_ID, CATALOGUE_REPLICA_APPLICATION_ID,
     CATALOGUE_SOURCE_APPLICATION_ID, REPLICA_APPLICATION_ID, SOURCE_APPLICATION_ID,
 };
+use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::SqliteReplicaStore;
 pub use source::SqliteReferenceSource;
+
+#[cfg(test)]
+#[path = "../../../../tests/replication/infrastructure/id_preflight.rs"]
+mod id_preflight_tests;

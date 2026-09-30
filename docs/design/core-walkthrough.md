@@ -261,6 +261,49 @@ pages in the slice 6 example use local SQLite ports; slice 7 carries them over
 the bounded loopback wire.
 A partial page never proves that an unseen entry was deleted.
 
+## SQLite record representation and bounds
+
+The reference record adapters accept UTF-8, UTF-16le and UTF-16be databases.
+`Id::new` owns admissibility of the returned UTF-8 text and its compact retained
+representation. SQLite owns the stored representation and its conversion buffer;
+stored bytes are not the domain's UTF-8 bytes. This table governs forward source,
+recent tail, older history and cached-replica reads. `id_preflight_tests` exercises
+its rows through real files in each encoding, including reopened handles.
+
+One private adapter envelope, `MAX_STORED_ID_BYTES = 2 * MAX_ID_BYTES`, permits
+valid UTF-16 ASCII without introducing a second semantic ID limit. Direct
+`octet_length(record_id)` consumes that envelope as a query parameter and counts
+complete storage bytes, including text after NUL. The metadata pass checks this
+bound and existing payload budgets before the row decoder. The same read snapshot
+holds through acquisition. `record_rows::read_record_row` borrows SQLite's returned
+UTF-8 text, asks `Id::new` once, then copies payload only after ID acceptance. It
+creates no Rust `String` intermediate or SQL blankness validator.
+
+| Stored input | Metadata decision | Borrowed-text decision | Retention and result |
+| --- | --- | --- | --- |
+| Exact-byte ASCII in UTF-8 | Storage fits the derived envelope | `Id::new` accepts the unchanged text | Bounded ID, then bounded payload |
+| Exact-byte ASCII in UTF-16le or UTF-16be | Twice the UTF-8 bytes fits the envelope | SQLite converts; `Id::new` accepts | Same accepted identity after reopen |
+| Exact-byte multibyte or embedded-NUL text in any encoding | Complete storage bytes fit | Complete returned UTF-8 text passes its owner | Preserve identity, then copy payload |
+| Storage exceeds the envelope, even with an oversized payload | Refuse before row decoding | No UTF-8 materialization requested | Typed unavailable/failed; progress unchanged |
+| Storage fits but returned UTF-8 exceeds `MAX_ID_BYTES`, with fitting payload | Admit bounded storage conversion | `Id::new` refuses before retention | No retained ID or payload copy |
+| Empty/whitespace text, wrong SQLite type, or invalid returned UTF-8, with fitting payload | Admit bounded storage | Type/UTF-8 boundary or `Id::new` refuses | No retained ID or payload copy |
+| Storage fits but payload exceeds its requested, physical or remaining-page budget | Refuse or end an already-nonempty page before row decoding | No semantic claim about undecoded ID text | No retained ID or payload copy |
+
+Malformed UTF-16 sequences retain SQLite's decoding behavior: reject invalid
+returned UTF-8/type, and otherwise let `Id::new` decide the returned text. The
+adapter does not add physical Unicode canonicality rules or narrow accepted files.
+
+The storage envelope also bounds conversion allocation before `get_ref` calls
+SQLite's UTF-8 text API. In the pinned bundled SQLite 3.46 converter,
+`sqlite3VdbeMemTranslate` requests at most `2*n + 1` bytes for conversion from
+`n` UTF-16 storage bytes. The envelope therefore bounds that requested conversion
+buffer at `4*MAX_ID_BYTES + 1`; raw row storage and terminators need at most
+`2*MAX_ID_BYTES + 2`, and an accepted retained ID needs at most `MAX_ID_BYTES`.
+These bounds account for row text buffers, separately from allocator overhead and
+SQLite's fixed statement/page-cache memory. Direct `octet_length` avoids record-ID text
+transcoding during metadata and permits SQLite's length opcode to skip overflow
+value loading. They are not a whole-database memory or hardware-I/O claim.
+
 ## First-slice transition and verification map
 
 These rows summarize record-delivery evidence from slices 1–3. History and
@@ -271,6 +314,8 @@ the [product target design](sync-engine.md).
 | Trigger | Core/application response | Persistent result or assertion |
 | --- | --- | --- |
 | New receiver | Check source head, capture a bounded target | Separate checkpoint starts at zero |
+| Host supplies an oversized borrowed identifier or an owned value with spare capacity | `Id::new` checks `MAX_ID_BYTES` before scanning blanks or allocating retained text | Oversized input is refused; accepted identity retains unchanged text in compact immutable storage |
+| SQLite record read encounters stored identity text | Follow the [representation/bounds table](#sqlite-record-representation-and-bounds) | `id_preflight_tests` enforce encoding acceptance, storage/semantic/payload refusal ordering and acquisition bounds |
 | Host receives an invalid record range or configured request budget | `validate_page_request` refuses before source access; receiver validation and reference forward sources consume the same pure validator | Typed `InvalidRange`; checkpoint correlation remains with receiver page validation |
 | Valid page | Validate correlation, then commit one plan | Records and checkpoint appear together |
 | Gap or out-of-order record | Return typed refusal before apply | Previous data/progress unchanged |

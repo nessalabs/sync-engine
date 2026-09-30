@@ -96,6 +96,9 @@ jobs:
       - name: Bounded artifact transfer process lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-artifact-transfer.py
+      - name: Machine-readable owner wire contract
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-wire-contract.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

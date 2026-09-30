@@ -14,8 +14,13 @@ use crate::replication::history::{
 };
 
 use super::{
-    configure_connection, ensure_schema, open_connection, SqliteOpenError, SOURCE_APPLICATION_ID,
+    configure_connection, ensure_schema, open_connection, read_record_row, SqliteOpenError,
+    MAX_STORED_ID_BYTES, SOURCE_APPLICATION_ID,
 };
+
+pub(super) const FORWARD_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3";
+
+pub(super) const HISTORY_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position >= ?1 AND position < ?2 ORDER BY position DESC LIMIT ?3";
 
 const MAX_PAGE_RECORDS: usize = 256;
 const MAX_PAGE_BYTES: usize = 1024 * 1024;
@@ -310,12 +315,12 @@ impl RecordSource for SqliteReferenceSource {
         if target > head {
             return Err(SourceError::InvalidRequest);
         }
-        let metadata: Vec<(i64, i64, i64)> = {
+        let metadata: Vec<(i64, bool, i64)> = {
             let mut statement = tx
-                .prepare("SELECT position, length(record_id), length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3")
+                .prepare(FORWARD_RECORD_METADATA_SQL)
                 .map_err(|_| SourceError::Unavailable)?;
             let rows = statement
-                .query_map(params![after, target, limit], |row| {
+                .query_map(params![after, target, limit, MAX_STORED_ID_BYTES], |row| {
                     Ok((row.get(0)?, row.get(1)?, row.get(2)?))
                 })
                 .map_err(|_| SourceError::Unavailable)?
@@ -329,13 +334,13 @@ impl RecordSource for SqliteReferenceSource {
         let mut records = Vec::with_capacity(metadata.len());
         let mut bytes = 0usize;
         let mut expected = after;
-        for (position, id_bytes, payload_bytes) in metadata {
+        for (position, storage_fits, payload_bytes) in metadata {
             expected = expected.checked_add(1).ok_or(SourceError::Unavailable)?;
             if position != expected {
                 return Err(SourceError::Pruned);
             }
             let len = usize::try_from(payload_bytes).map_err(|_| SourceError::Unavailable)?;
-            if !(1..=128).contains(&id_bytes) {
+            if !storage_fits {
                 return Err(SourceError::Unavailable);
             }
             let next = bytes.checked_add(len).ok_or(SourceError::OversizedRecord)?;
@@ -345,19 +350,20 @@ impl RecordSource for SqliteReferenceSource {
                 }
                 break;
             }
-            let (raw_id, payload): (String, Vec<u8>) = tx
+            let (id, payload) = tx
                 .query_row(
                     "SELECT record_id, payload FROM source_records WHERE position = ?1",
                     [position],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    read_record_row,
                 )
+                .map_err(|_| SourceError::Unavailable)?
                 .map_err(|_| SourceError::Unavailable)?;
             if payload.len() != len {
                 return Err(SourceError::Unavailable);
             }
             records.push(Record {
                 position: u64::try_from(position).map_err(|_| SourceError::Unavailable)?,
-                id: Id::new(raw_id).map_err(|_| SourceError::Unavailable)?,
+                id,
                 scope: request.scope.clone(),
                 payload,
             });
@@ -411,16 +417,17 @@ fn read_backward(
     {
         return Err(HistorySourceError::InvalidRequest);
     }
-    let metadata: Vec<(i64, i64, i64)> = {
+    let metadata: Vec<(i64, bool, i64)> = {
         let mut statement = tx
-            .prepare("SELECT position, length(record_id), length(payload) FROM source_records WHERE position >= ?1 AND position < ?2 ORDER BY position DESC LIMIT ?3")
+            .prepare(HISTORY_RECORD_METADATA_SQL)
             .map_err(|_| HistorySourceError::Unavailable)?;
         let rows = statement
             .query_map(
                 params![
                     i64::try_from(oldest).map_err(|_| HistorySourceError::InvalidRequest)?,
                     i64::try_from(before).map_err(|_| HistorySourceError::InvalidRequest)?,
-                    i64::try_from(max_records).map_err(|_| HistorySourceError::InvalidRequest)?
+                    i64::try_from(max_records).map_err(|_| HistorySourceError::InvalidRequest)?,
+                    MAX_STORED_ID_BYTES
                 ],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -434,11 +441,11 @@ fn read_backward(
         .ok_or(HistorySourceError::InvalidRequest)?;
     let mut bytes = 0_usize;
     let mut records = Vec::new();
-    for (position, id_bytes, payload_bytes) in metadata {
+    for (position, storage_fits, payload_bytes) in metadata {
         if u64::try_from(position).ok() != Some(expected) {
             return Err(HistorySourceError::ResetRequired);
         }
-        if !(1..=128).contains(&id_bytes) {
+        if !storage_fits {
             return Err(HistorySourceError::Unavailable);
         }
         let len = usize::try_from(payload_bytes).map_err(|_| HistorySourceError::Unavailable)?;
@@ -451,19 +458,20 @@ fn read_backward(
             }
             break;
         }
-        let (raw_id, payload): (String, Vec<u8>) = tx
+        let (id, payload) = tx
             .query_row(
                 "SELECT record_id, payload FROM source_records WHERE position = ?1",
                 [position],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                read_record_row,
             )
+            .map_err(|_| HistorySourceError::Unavailable)?
             .map_err(|_| HistorySourceError::Unavailable)?;
         if payload.len() != len {
             return Err(HistorySourceError::Unavailable);
         }
         records.push(Record {
             position: expected,
-            id: Id::new(raw_id).map_err(|_| HistorySourceError::Unavailable)?,
+            id,
             scope: scope.clone(),
             payload,
         });

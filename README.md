@@ -64,6 +64,27 @@ are discovered by the next pass. The [walkthrough](docs/design/core-walkthrough.
 and [detailed slice notes](docs/implementation-plan.md) show the sequences and
 failure cases.
 
+## Generate host wire bounds
+
+`Id::new` borrows input for validation and retains accepted text in compact
+immutable storage. `MAX_ID_BYTES` owns the UTF-8 byte ceiling. SQLite record
+reads follow the [representation/bounds table](docs/design/core-walkthrough.md#sqlite-record-representation-and-bounds)
+for database encodings, borrowed text and payload acquisition.
+The existing catalogue request ceilings are `MAX_CATALOGUE_ENTRIES` and
+`MAX_CATALOGUE_PAYLOAD_BYTES` (decoded payload bytes). Hosts can consume the
+owner values without retyping them:
+
+```sh
+cargo run --locked --quiet --no-default-features --example wire_contract
+python3 scripts/verify-wire-contract.py
+```
+
+The first command writes one JSON object to stdout with flat keys
+`id_max_utf8_bytes`, `catalogue_max_entries`, and `catalogue_max_payload_bytes`.
+Generate and check host schemas against the export from their pinned core
+revision. A host can impose smaller physical or wire limits; this example
+publishes no generic record count or payload policy.
+
 ## Use the examples
 
 Start with the default-feature, two-receiver lab:
