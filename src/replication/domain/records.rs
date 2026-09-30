@@ -110,6 +110,17 @@ impl Scope {
     pub fn access_epoch(&self) -> &Id {
         &self.access_epoch
     }
+
+    /// Whether both scopes name the same receiver, origin and stream.
+    ///
+    /// Incarnation, schema and access epoch are deliberately excluded: an
+    /// explicit reset may replace those identities within one stable target.
+    /// This borrowed comparison establishes neither authority nor reset admission.
+    pub fn same_receiver_stream(&self, other: &Self) -> bool {
+        self.receiver == other.receiver
+            && self.origin == other.origin
+            && self.stream == other.stream
+    }
 }
 
 /// Untrusted source envelope in a dense stream. `validate_page` turns these DTOs

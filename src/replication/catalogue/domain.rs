@@ -3,6 +3,9 @@
 use crate::replication::domain::{Id, Scope};
 use std::collections::HashSet;
 
+mod progress;
+pub use progress::*;
+
 /// Maximum manifest entries in one catalogue page.
 pub const MAX_CATALOGUE_ENTRIES: usize = 256;
 /// Maximum combined resolved payload bytes in one catalogue page.
@@ -162,15 +165,23 @@ pub enum CatalogueValidationError {
 /// Checks the existing finite-pass relationships before a source effect.
 ///
 /// This pure borrowed check performs no I/O or mutation. It establishes an
-/// advancing captured boundary and nonzero receiver generation; it does not
-/// authorize the scope, read durable progress or validate cursor ordering.
+/// advancing captured boundary, nonzero receiver generation and a positive cursor
+/// creation within the boundary when present. It does not authorize the scope,
+/// read durable progress or validate ordering relative to manifest entries.
 /// Immutable requests may be checked concurrently.
 ///
 /// # Errors
 /// Returns [`CatalogueValidationError::InvalidRequest`] when the boundary does
-/// not advance completed progress or the generation is zero.
+/// not advance completed progress, the generation is zero or cursor creation is
+/// zero or exceeds the captured boundary.
 pub fn validate_catalogue_pass(pass: &CataloguePass) -> Result<(), CatalogueValidationError> {
-    if pass.boundary <= pass.completed || pass.generation == 0 {
+    if pass.boundary <= pass.completed
+        || pass.generation == 0
+        || pass
+            .cursor
+            .as_ref()
+            .is_some_and(|key| !key_is_in_boundary(key, pass.boundary))
+    {
         return Err(CatalogueValidationError::InvalidRequest);
     }
     Ok(())
@@ -207,7 +218,7 @@ pub fn validate_catalogue_pass(pass: &CataloguePass) -> Result<(), CatalogueVali
 ///
 /// # Errors
 /// Returns [`CatalogueValidationError::InvalidRequest`] for zero entry count,
-/// either exceeded entry ceiling, a non-advancing pass boundary or zero generation.
+/// either exceeded entry ceiling or a refusal from [`validate_catalogue_pass`].
 pub fn validate_manifest_request(
     request: &ManifestRequest,
     max_entries: usize,
@@ -240,8 +251,7 @@ pub fn validate_manifest(
     let mut previous = request.pass.cursor.as_ref();
     let mut identities = HashSet::with_capacity(page.entries.len());
     for entry in &page.entries {
-        if entry.key.creation == 0
-            || entry.key.creation > request.pass.boundary
+        if !key_is_in_boundary(&entry.key, request.pass.boundary)
             || entry.revision < entry.key.creation
             || entry.revision <= request.pass.completed
             || previous.is_some_and(|key| entry.key <= *key)
@@ -252,6 +262,10 @@ pub fn validate_manifest(
         previous = Some(&entry.key);
     }
     Ok(())
+}
+
+fn key_is_in_boundary(key: &EntryKey, boundary: u64) -> bool {
+    key.creation > 0 && key.creation <= boundary
 }
 
 /// Checks that two descriptors for one key describe a compatible revision order.

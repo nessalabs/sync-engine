@@ -7,6 +7,11 @@
 //! stores call `validate_catalogue_page_plan` before their durable comparisons.
 //! `validate_catalogue_revision_transition` owns descriptor compatibility across
 //! source resolution and coherent unchanged/replaced cached evidence.
+//! `validate_catalogue_progress` checks retained parent/active-pass agreement;
+//! `catalogue_progress_after_begin`, `catalogue_progress_after_page` and
+//! `catalogue_progress_after_reset` own planned progress replacements.
+//! Adapters retain coherent reads, actual CAS, cache effects and commit ownership;
+//! application callers correlate returned progress with the planned replacement.
 //! Application ports coordinate authorization,
 //! bounded source reads, and atomic local commits. Hosts supply scheduling and
 //! interpret opaque entry payloads.

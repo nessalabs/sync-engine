@@ -1022,6 +1022,14 @@ fn sqlite_manifest_request_refusal_precedes_metadata_and_preserves_read_evidence
     let mut generation = valid.clone();
     generation.pass.generation = 0;
     invalid.push(generation);
+    for creation in [0, 2] {
+        let mut request = valid.clone();
+        request.pass.cursor = Some(EntryKey {
+            creation,
+            id: id("cursor"),
+        });
+        invalid.push(request);
+    }
     for request in &invalid {
         assert_eq!(
             src.manifest(request),
@@ -1146,7 +1154,17 @@ fn invalid_resolve_pass_precedes_sqlite_metadata() {
         .unwrap()
         .execute_batch("DROP TABLE catalogue_source_entries")
         .unwrap();
-    for pass in [generation, equal, backward] {
+    let mut zero_cursor = valid.clone();
+    zero_cursor.cursor = Some(EntryKey {
+        creation: 0,
+        id: id("cursor"),
+    });
+    let mut beyond_cursor = valid.clone();
+    beyond_cursor.cursor = Some(EntryKey {
+        creation: 2,
+        id: id("cursor"),
+    });
+    for pass in [generation, equal, backward, zero_cursor, beyond_cursor] {
         assert_eq!(
             src.resolve(&pass, &entry, 1024),
             Err(CatalogueSourceError::InvalidRequest)
@@ -1157,4 +1175,73 @@ fn invalid_resolve_pass_precedes_sqlite_metadata() {
         src.resolve(&valid, &entry, 1024),
         Err(CatalogueSourceError::Unavailable)
     );
+}
+
+#[test]
+fn sqlite_retained_progress_is_validated_before_return() {
+    for creation in [0, 6] {
+        let dir = Directory::new();
+        let path = dir.path("corrupt-progress.db");
+        let mut store = SqliteCatalogueStore::open(&path).unwrap();
+        let selected = scope("epoch-1");
+        let original = store.begin(&selected, None, 5).unwrap();
+        Connection::open(&path)
+            .unwrap()
+            .execute(
+                "UPDATE catalogue_progress SET cursor_creation=?1, cursor_id='cursor'",
+                [creation],
+            )
+            .unwrap();
+        assert_eq!(store.progress(&selected), Err(CatalogueStoreError::Failed));
+        drop(store);
+        let mut reopened = SqliteCatalogueStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.progress(&selected),
+            Err(CatalogueStoreError::Failed)
+        );
+        let saved: i64 = Connection::open(&path)
+            .unwrap()
+            .query_row(
+                "SELECT cursor_creation FROM catalogue_progress",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(saved, creation);
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("UPDATE catalogue_progress SET cursor_creation=NULL, cursor_id=NULL")
+            .unwrap();
+        assert_eq!(reopened.progress(&selected).unwrap(), Some(original));
+    }
+}
+
+#[test]
+fn sqlite_receipts_match_planned_transition() {
+    let dir = Directory::new();
+    let mut store = SqliteCatalogueStore::open(dir.path("planned-progress.db")).unwrap();
+    let selected = scope("epoch-1");
+    let first = store.begin(&selected, None, 5).unwrap();
+    assert_eq!(first.generation, 1);
+    assert_eq!(first.active.as_ref().unwrap().boundary, 5);
+    let pass = first.active.clone().unwrap();
+    let page = ManifestPage {
+        request: ManifestRequest {
+            pass,
+            max_entries: 1,
+        },
+        entries: vec![],
+        has_more: false,
+    };
+    let completed = store
+        .apply_page(CataloguePagePlan::new(page, vec![], vec![]).unwrap())
+        .unwrap();
+    assert_eq!((completed.completed, completed.generation), (5, 1));
+    assert!(completed.active.is_none());
+    let reset = store.reset(&selected, completed).unwrap();
+    assert_eq!((reset.completed, reset.generation), (0, 2));
+    assert!(reset.active.is_none());
+    let next = store.begin(&selected, Some(reset), 9).unwrap();
+    assert_eq!((next.completed, next.generation), (0, 3));
+    assert_eq!(next.active.as_ref().unwrap().boundary, 9);
 }

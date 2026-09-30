@@ -7,7 +7,8 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::replication::catalogue::{
-    validate_catalogue_page_plan, validate_catalogue_pass, validate_catalogue_revision_transition,
+    catalogue_progress_after_begin, catalogue_progress_after_page, catalogue_progress_after_reset,
+    validate_catalogue_pass, validate_catalogue_progress, validate_catalogue_revision_transition,
     validate_manifest_request, CataloguePagePlan, CataloguePass, CatalogueProgress,
     CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError,
     CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
@@ -518,7 +519,7 @@ fn read_progress(
                 return Err(CatalogueStoreError::Failed);
             }
             let active = boundary
-                .map(|boundary| {
+                .map(|boundary| -> Result<CataloguePass, CatalogueStoreError> {
                     Ok(CataloguePass {
                         scope: saved_scope.clone(),
                         completed,
@@ -528,21 +529,14 @@ fn read_progress(
                     })
                 })
                 .transpose()?;
-            if generation == 0 && (completed != 0 || active.is_some()) {
-                return Err(CatalogueStoreError::Failed);
-            }
-            if active
-                .as_ref()
-                .is_some_and(|pass| pass.boundary <= completed)
-            {
-                return Err(CatalogueStoreError::Failed);
-            }
-            Ok(CatalogueProgress {
+            let progress = CatalogueProgress {
                 scope: saved_scope,
                 completed,
                 generation,
                 active,
-            })
+            };
+            validate_catalogue_progress(&progress).map_err(CatalogueStoreError::from)?;
+            Ok(progress)
         },
     )
     .transpose()
@@ -570,29 +564,20 @@ impl CatalogueStore for SqliteCatalogueStore {
         if current != expected {
             return Err(CatalogueStoreError::Stale);
         }
-        if current.as_ref().is_some_and(|saved| saved.scope != *scope) {
-            return Err(CatalogueStoreError::ResetRequired);
-        }
-        let completed = current.as_ref().map_or(0, |saved| saved.completed);
-        let confirmed_empty = current.is_none() && boundary == 0;
-        if (!confirmed_empty && boundary <= completed)
-            || current.as_ref().is_some_and(|saved| saved.active.is_some())
-        {
-            return Err(CatalogueStoreError::Stale);
-        }
-        let generation = current
+        let progress = catalogue_progress_after_begin(scope, current.as_ref(), boundary)
+            .map_err(CatalogueStoreError::from)?;
+        let active_boundary = progress
+            .active
             .as_ref()
-            .map_or(1, |saved| saved.generation.checked_add(1).unwrap_or(0));
-        if generation == 0 {
-            return Err(CatalogueStoreError::Failed);
-        }
+            .map(|pass| to_i64(pass.boundary))
+            .transpose()?;
         tx.execute("INSERT INTO catalogue_progress (receiver, origin, stream, incarnation, schema_id, access_epoch, completed, generation, active_boundary, cursor_creation, cursor_id)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)
             ON CONFLICT(receiver, origin, stream) DO UPDATE SET completed=excluded.completed, generation=excluded.generation, active_boundary=excluded.active_boundary, cursor_creation=NULL, cursor_id=NULL",
-            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), to_i64(completed)?, to_i64(generation)?, if confirmed_empty { None } else { Some(to_i64(boundary)?) }]
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), to_i64(progress.completed)?, to_i64(progress.generation)?, active_boundary]
         ).map_err(|_| CatalogueStoreError::Failed)?;
         tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
-        read_progress(&self.conn, scope)?.ok_or(CatalogueStoreError::Failed)
+        Ok(progress)
     }
 
     fn cached_revision(
@@ -616,7 +601,7 @@ impl CatalogueStore for SqliteCatalogueStore {
         &mut self,
         plan: CataloguePagePlan,
     ) -> Result<CatalogueProgress, CatalogueStoreError> {
-        validate_catalogue_page_plan(&plan).map_err(|_| CatalogueStoreError::Conflict)?;
+        let progress = catalogue_progress_after_page(&plan).map_err(CatalogueStoreError::from)?;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -680,25 +665,22 @@ impl CatalogueStore for SqliteCatalogueStore {
                 params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str(), to_i64(key.creation)?, to_i64(value.manifest.revision)?, i64::from(value.manifest.deleted), &value.payload]
             ).map_err(|_| CatalogueStoreError::Failed)?;
         }
-        let cursor_creation = if plan.final_page {
-            None
-        } else {
-            plan.next_cursor
-                .as_ref()
-                .map(|key| to_i64(key.creation))
-                .transpose()?
-        };
-        let cursor_id = if plan.final_page {
-            None
-        } else {
-            plan.next_cursor.as_ref().map(|key| key.id.as_str())
-        };
-        tx.execute("UPDATE catalogue_progress SET completed = ?4, active_boundary = ?5, cursor_creation = ?6, cursor_id = ?7
+        let cursor = progress
+            .active
+            .as_ref()
+            .and_then(|pass| pass.cursor.as_ref());
+        let cursor_creation = cursor.map(|key| to_i64(key.creation)).transpose()?;
+        let active_boundary = progress
+            .active
+            .as_ref()
+            .map(|pass| to_i64(pass.boundary))
+            .transpose()?;
+        tx.execute("UPDATE catalogue_progress SET completed = ?4, active_boundary = ?5, cursor_creation = ?6, cursor_id = ?7, generation = ?8
             WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
-            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), to_i64(if plan.final_page { plan.pass.boundary } else { plan.pass.completed })?, if plan.final_page { None } else { Some(to_i64(plan.pass.boundary)?) }, cursor_creation, cursor_id]
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), to_i64(progress.completed)?, active_boundary, cursor_creation, cursor.map(|key| key.id.as_str()), to_i64(progress.generation)?]
         ).map_err(|_| CatalogueStoreError::Failed)?;
         tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
-        read_progress(&self.conn, scope)?.ok_or(CatalogueStoreError::Failed)
+        Ok(progress)
     }
 
     fn reset(
@@ -706,12 +688,8 @@ impl CatalogueStore for SqliteCatalogueStore {
         scope: &Scope,
         expected: CatalogueProgress,
     ) -> Result<CatalogueProgress, CatalogueStoreError> {
-        if expected.scope.receiver() != scope.receiver()
-            || expected.scope.origin() != scope.origin()
-            || expected.scope.stream() != scope.stream()
-        {
-            return Err(CatalogueStoreError::ResetRequired);
-        }
+        let progress =
+            catalogue_progress_after_reset(scope, &expected).map_err(CatalogueStoreError::from)?;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -720,20 +698,16 @@ impl CatalogueStore for SqliteCatalogueStore {
         if current != expected {
             return Err(CatalogueStoreError::Stale);
         }
-        let generation = current
-            .generation
-            .checked_add(1)
-            .ok_or(CatalogueStoreError::Failed)?;
         tx.execute("DELETE FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND deleted = 0",
             params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()])
             .map_err(|_| CatalogueStoreError::Failed)?;
         tx.execute("UPDATE catalogue_progress SET incarnation = ?4, schema_id = ?5, access_epoch = ?6,
             completed = 0, generation = ?7, active_boundary = NULL, cursor_creation = NULL, cursor_id = NULL
             WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
-            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), to_i64(generation)?])
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), to_i64(progress.generation)?])
             .map_err(|_| CatalogueStoreError::Failed)?;
         tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
-        read_progress(&self.conn, scope)?.ok_or(CatalogueStoreError::Failed)
+        Ok(progress)
     }
 }
 
