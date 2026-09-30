@@ -225,14 +225,8 @@ where
         resolved.push(value);
     }
     authorize(&pass.scope, authorizer)?;
-    let plan = CataloguePagePlan {
-        pass: pass.clone(),
-        next_cursor: page.entries.last().map(|entry| entry.key.clone()),
-        final_page: !page.has_more,
-        entries: resolved,
-        unchanged,
-        manifest: page,
-    };
+    let plan =
+        CataloguePagePlan::new(page, resolved, unchanged).map_err(CatalogueError::Validation)?;
     store.apply_page(plan).map_err(CatalogueError::Store)
 }
 
