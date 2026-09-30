@@ -232,6 +232,27 @@ pub fn validate_manifest_request(
     validate_catalogue_pass(&request.pass)
 }
 
+/// Checks the numerical fields of one current catalogue descriptor.
+///
+/// This pure check borrows the descriptor and leaves it unchanged. Its [`Id`]
+/// already carries validated identity syntax. It establishes no page boundary,
+/// revision comparison, payload meaning, authorization or durable progress;
+/// those checks retain their respective owners. Independent or shared immutable
+/// descriptors may be checked concurrently, without resource ownership changes.
+/// `individual_entry_accepts_full_numeric_range` covers the accepted range and
+/// unchanged input; `individual_entry_refuses_invalid_numeric_evidence` covers
+/// refusal. Manifest validation consumes this same owner.
+///
+/// # Errors
+/// Returns [`CatalogueValidationError::InvalidOrder`] when creation is zero or
+/// the current revision precedes creation.
+pub fn validate_manifest_entry(entry: &ManifestEntry) -> Result<(), CatalogueValidationError> {
+    if !creation_is_positive(entry.key.creation) || entry.revision < entry.key.creation {
+        return Err(CatalogueValidationError::InvalidOrder);
+    }
+    Ok(())
+}
+
 /// Validates a bounded page before resolving any payloads.
 pub fn validate_manifest(
     request: &ManifestRequest,
@@ -251,8 +272,8 @@ pub fn validate_manifest(
     let mut previous = request.pass.cursor.as_ref();
     let mut identities = HashSet::with_capacity(page.entries.len());
     for entry in &page.entries {
+        validate_manifest_entry(entry)?;
         if !key_is_in_boundary(&entry.key, request.pass.boundary)
-            || entry.revision < entry.key.creation
             || entry.revision <= request.pass.completed
             || previous.is_some_and(|key| entry.key <= *key)
             || !identities.insert(&entry.key.id)
@@ -265,7 +286,11 @@ pub fn validate_manifest(
 }
 
 fn key_is_in_boundary(key: &EntryKey, boundary: u64) -> bool {
-    key.creation > 0 && key.creation <= boundary
+    creation_is_positive(key.creation) && key.creation <= boundary
+}
+
+fn creation_is_positive(creation: u64) -> bool {
+    creation > 0
 }
 
 /// Checks that two descriptors for one key describe a compatible revision order.
