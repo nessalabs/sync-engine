@@ -226,7 +226,8 @@ pub enum ValidationError {
     InvalidId,
     /// A configured bound was zero.
     InvalidLimits,
-    /// Request did not start at the saved position or ended before it.
+    /// Generic request range or budget was invalid, or its scope/start did not
+    /// match the saved receiver checkpoint.
     InvalidRange,
     /// Response echoed a different request, scope, epoch, or receiver.
     WrongRequest,
@@ -244,6 +245,40 @@ pub enum ValidationError {
     PositionOverflow,
 }
 
+/// Validates one request's range and configured count/decoded-byte ceilings.
+///
+/// Hosts can call this pure function before reading a source. `target` must be
+/// greater than `after`; each requested limit must be nonzero and no greater
+/// than its corresponding configured [`Limits`] value. A single-record ceiling
+/// may exceed the total page ceiling; [`validate_page`] checks returned payloads.
+/// This function performs no allocation, I/O, checkpoint comparison, response
+/// correlation, physical-tail lookup, or authorization. Source adapters retain
+/// responsibility for current authority, physical identity, framing and availability.
+///
+/// # Errors
+/// Returns [`ValidationError::InvalidRange`] for an invalid range or request budget.
+///
+/// ```
+/// use nessa_sync::replication::domain::{validate_page_request, Id, Limits, PageRequest, Scope};
+/// let id = |text| Id::new(text).unwrap();
+/// let scope = Scope::new(id("receiver"), id("origin"), id("stream"), id("first"), id("schema"), id("epoch"));
+/// let request = PageRequest { scope, after: 4, target: 7, max_records: 2, max_payload_bytes: 16, max_record_bytes: 16 };
+/// assert_eq!(validate_page_request(&request, Limits::new(2, 16, 16).unwrap()), Ok(()));
+/// ```
+pub fn validate_page_request(request: &PageRequest, limits: Limits) -> Result<(), ValidationError> {
+    if request.target <= request.after
+        || request.max_records == 0
+        || request.max_records > limits.max_records
+        || request.max_payload_bytes == 0
+        || request.max_payload_bytes > limits.max_payload_bytes
+        || request.max_record_bytes == 0
+        || request.max_record_bytes > limits.max_record_bytes
+    {
+        return Err(ValidationError::InvalidRange);
+    }
+    Ok(())
+}
+
 /// Validates correlation, density, and bounds, then builds an atomic commit plan.
 /// No I/O occurs. The store must still compare `expected` and check record-ID reuse.
 pub fn validate_page(
@@ -252,16 +287,8 @@ pub fn validate_page(
     page: Page,
     limits: Limits,
 ) -> Result<CommitPlan, ValidationError> {
-    if request.scope != expected.scope
-        || request.after != expected.position
-        || request.target <= request.after
-        || request.max_records == 0
-        || request.max_records > limits.max_records
-        || request.max_payload_bytes == 0
-        || request.max_payload_bytes > limits.max_payload_bytes
-        || request.max_record_bytes == 0
-        || request.max_record_bytes > limits.max_record_bytes
-    {
+    validate_page_request(request, limits)?;
+    if request.scope != expected.scope || request.after != expected.position {
         return Err(ValidationError::InvalidRange);
     }
     if page.request != *request {

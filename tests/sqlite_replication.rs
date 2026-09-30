@@ -454,3 +454,6 @@ fn one_new_record_reads_one_indexed_range_and_scope_change_retains_progress() {
         })
     );
 }
+
+#[path = "replication/infrastructure/request.rs"]
+mod request_contract;
