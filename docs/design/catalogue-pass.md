@@ -196,3 +196,24 @@ Store methods return that transaction's confirmed replacement rather than
 rereading a row that a competing transaction could already have advanced.
 No new schema, compatibility path, authorization state or scheduling policy is
 introduced.
+
+## Individual descriptor admission (#44)
+
+`validate_manifest_entry` publishes the existing numerical descriptor rule used
+by manifest validation. A host restoring one descriptor asks this owner before
+acquiring its payload rather than repeating the rule in a storage constraint or
+inventing a manifest/pass. The entry's `Id` retains its existing constructor
+owner. Descriptor admission establishes neither page coverage nor authority;
+revision comparisons and resolved payloads retain their existing validators.
+
+| Row | Input / relationship | Decision and required evidence |
+| --- | --- | --- |
+| E1 | Creation zero, with zero, ordinary or maximum revision | InvalidOrder; `individual_entry_refuses_invalid_numeric_evidence` |
+| E2 | Otherwise valid identity with revision before creation | InvalidOrder; same test |
+| E3 | Minimum and full-u64 creation/revision, live or deleted | Accept unchanged borrowed descriptor; `individual_entry_accepts_full_numeric_range` |
+| E4 | Invalid individual descriptor inside an otherwise valid manifest | Existing manifest InvalidOrder through the same owner; `manifest_consumes_individual_entry_admission` |
+| E5 | Zero or beyond-boundary cursor versus a valid boundary cursor | Existing pass/request owner still consumes the shared positive-creation decision; `public_cursor_validation_precedes_final_page_and_source` |
+
+This is a pure publication of an existing rule. It adds no schema, migration,
+reset, authorization decision, resource owner or scheduling state. The host keeps
+coherent acquisition, bounded decoding, durable scope/progress and commit effects.

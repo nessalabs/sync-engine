@@ -2,6 +2,8 @@
 //!
 //! `validate_catalogue_pass` owns finite-pass admissibility;
 //! `validate_manifest_request` consumes it before source I/O.
+//! `validate_manifest_entry` owns individual numerical descriptor admission;
+//! manifest validation and host restoration consume it without invented passes.
 //! The domain validates responses and complete public page-plan relationships.
 //! `CataloguePagePlan::new` derives continuation through that same owner;
 //! stores call `validate_catalogue_page_plan` before their durable comparisons.
