@@ -67,6 +67,40 @@ fn valid_mixed_coverage_and_newer_resolved_revision_are_accepted() {
 }
 
 #[test]
+fn revision_and_deletion_meaning_cannot_contradict_manifest() {
+    let valid = plan();
+    let mut same_revision_changed_deletion = valid.clone();
+    same_revision_changed_deletion.entries[0].manifest.deleted = true;
+    same_revision_changed_deletion.entries[0].payload.clear();
+    assert_eq!(
+        validate_catalogue_page_plan(&same_revision_changed_deletion),
+        Err(CatalogueValidationError::WrongPayload)
+    );
+    let mut deleted = valid.manifest.clone();
+    deleted.entries[0].deleted = true;
+    let mut resurrection = valid.entries.clone();
+    resurrection[0].manifest.revision += 1;
+    assert_eq!(
+        CataloguePagePlan::new(
+            deleted.clone(),
+            resurrection.clone(),
+            valid.unchanged.clone()
+        ),
+        Err(CatalogueValidationError::WrongPayload)
+    );
+    resurrection[0].manifest.deleted = true;
+    resurrection[0].payload.clear();
+    assert!(CataloguePagePlan::new(
+        deleted.clone(),
+        resurrection.clone(),
+        valid.unchanged.clone()
+    )
+    .is_ok());
+    resurrection[0].manifest.revision = deleted.entries[0].revision;
+    assert!(CataloguePagePlan::new(deleted, resurrection, valid.unchanged).is_ok());
+}
+
+#[test]
 fn pass_final_and_cursor_contradictions_are_refused() {
     let valid = plan();
     let mut invalid = valid.clone();

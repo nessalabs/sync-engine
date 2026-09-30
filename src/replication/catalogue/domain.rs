@@ -92,7 +92,8 @@ pub struct CataloguePagePlan {
     pub pass: CataloguePass,
     /// Exact validated manifest whose entries this plan resolves.
     pub manifest: ManifestPage,
-    /// Last key included by this page; none is valid only for an empty final page.
+    /// Continuation after this page: its last key, or the previous cursor for an
+    /// empty final page. None is valid when an empty final page has no prior cursor.
     pub next_cursor: Option<EntryKey>,
     /// Whether this page completes the captured pass.
     pub final_page: bool,
@@ -204,6 +205,9 @@ pub fn validate_resolved(
 ) -> Result<(), CatalogueValidationError> {
     if resolved.manifest.key != manifest.key
         || resolved.manifest.revision < manifest.revision
+        || (resolved.manifest.revision == manifest.revision
+            && resolved.manifest.deleted != manifest.deleted)
+        || (manifest.deleted && !resolved.manifest.deleted)
         || (resolved.manifest.deleted && !resolved.payload.is_empty())
     {
         return Err(CatalogueValidationError::WrongPayload);

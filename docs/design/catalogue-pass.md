@@ -73,6 +73,8 @@ sequenceDiagram
 | Public page plan contradicts its manifest, cursor, final flag or resolved/unchanged coverage | The pure `validate_catalogue_page_plan` owner refuses before a store transaction; the reference SQLite adapter consumes it. |
 | Empty final page follows a saved cursor | `CataloguePagePlan::new` retains that cursor and completes the fixed boundary; empty metadata does not rewind continuation. |
 | Manifest repeats an identity under a different stable key | `validate_manifest` refuses `InvalidOrder`; key ordering alone does not establish distinct identities. |
+| Resolved deletion bit differs at the manifest's same revision, or a deleted manifest resolves live at a newer revision | `validate_resolved` refuses `WrongPayload` before payload/cache effects; revision identifies immutable meaning and a deletion cannot resolve as content. |
+| Live manifest resolves at the same live revision, a newer live revision, or a newer deletion revision | `validate_resolved` accepts compatible current evidence; descriptor age does not prevent a newer authorized value. |
 
 `CataloguePagePlan::new` derives correlated plan fields and asks the same pure
 validator used by stores. Because the public DTO can subsequently be changed,

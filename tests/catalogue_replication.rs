@@ -467,6 +467,14 @@ fn contradictory_public_plan_leaves_real_cache_and_pass_unchanged() {
     invalid = valid.clone();
     invalid.entries[0].manifest.deleted = true;
     variants.push(invalid);
+    invalid = valid.clone();
+    invalid.entries[0].manifest.deleted = true;
+    invalid.entries[0].payload.clear();
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.manifest.entries[0].deleted = true;
+    invalid.entries[0].manifest.revision += 1;
+    variants.push(invalid);
     for invalid in variants {
         assert_eq!(dst.apply_page(invalid), Err(CatalogueStoreError::Conflict));
         assert_eq!(dst.progress(&selected).unwrap(), before);
