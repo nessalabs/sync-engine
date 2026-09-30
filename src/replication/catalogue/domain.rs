@@ -165,15 +165,23 @@ pub enum CatalogueValidationError {
 /// Checks the existing finite-pass relationships before a source effect.
 ///
 /// This pure borrowed check performs no I/O or mutation. It establishes an
-/// advancing captured boundary and nonzero receiver generation; it does not
-/// authorize the scope, read durable progress or validate cursor ordering.
+/// advancing captured boundary, nonzero receiver generation and a positive cursor
+/// creation within the boundary when present. It does not authorize the scope,
+/// read durable progress or validate ordering relative to manifest entries.
 /// Immutable requests may be checked concurrently.
 ///
 /// # Errors
 /// Returns [`CatalogueValidationError::InvalidRequest`] when the boundary does
-/// not advance completed progress or the generation is zero.
+/// not advance completed progress, the generation is zero or cursor creation is
+/// zero or exceeds the captured boundary.
 pub fn validate_catalogue_pass(pass: &CataloguePass) -> Result<(), CatalogueValidationError> {
-    if pass.boundary <= pass.completed || pass.generation == 0 {
+    if pass.boundary <= pass.completed
+        || pass.generation == 0
+        || pass
+            .cursor
+            .as_ref()
+            .is_some_and(|key| !key_is_in_boundary(key, pass.boundary))
+    {
         return Err(CatalogueValidationError::InvalidRequest);
     }
     Ok(())
@@ -210,7 +218,7 @@ pub fn validate_catalogue_pass(pass: &CataloguePass) -> Result<(), CatalogueVali
 ///
 /// # Errors
 /// Returns [`CatalogueValidationError::InvalidRequest`] for zero entry count,
-/// either exceeded entry ceiling, a non-advancing pass boundary or zero generation.
+/// either exceeded entry ceiling or a refusal from [`validate_catalogue_pass`].
 pub fn validate_manifest_request(
     request: &ManifestRequest,
     max_entries: usize,

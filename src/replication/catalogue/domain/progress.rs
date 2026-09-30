@@ -9,8 +9,8 @@
 #![deny(missing_docs)]
 
 use super::{
-    key_is_in_boundary, validate_catalogue_page_plan, validate_catalogue_pass, CataloguePagePlan,
-    CataloguePass, CatalogueProgress, CatalogueValidationError,
+    validate_catalogue_page_plan, validate_catalogue_pass, CataloguePagePlan, CataloguePass,
+    CatalogueProgress, CatalogueValidationError,
 };
 use crate::replication::domain::Scope;
 
@@ -49,10 +49,6 @@ pub fn validate_catalogue_progress(
             || pass.completed != progress.completed
             || pass.generation != progress.generation
             || validate_catalogue_pass(pass).is_err()
-            || pass
-                .cursor
-                .as_ref()
-                .is_some_and(|key| !key_is_in_boundary(key, pass.boundary))
         {
             return Err(CatalogueProgressError::InvalidProgress);
         }

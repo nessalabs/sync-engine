@@ -1022,6 +1022,14 @@ fn sqlite_manifest_request_refusal_precedes_metadata_and_preserves_read_evidence
     let mut generation = valid.clone();
     generation.pass.generation = 0;
     invalid.push(generation);
+    for creation in [0, 2] {
+        let mut request = valid.clone();
+        request.pass.cursor = Some(EntryKey {
+            creation,
+            id: id("cursor"),
+        });
+        invalid.push(request);
+    }
     for request in &invalid {
         assert_eq!(
             src.manifest(request),
@@ -1146,7 +1154,17 @@ fn invalid_resolve_pass_precedes_sqlite_metadata() {
         .unwrap()
         .execute_batch("DROP TABLE catalogue_source_entries")
         .unwrap();
-    for pass in [generation, equal, backward] {
+    let mut zero_cursor = valid.clone();
+    zero_cursor.cursor = Some(EntryKey {
+        creation: 0,
+        id: id("cursor"),
+    });
+    let mut beyond_cursor = valid.clone();
+    beyond_cursor.cursor = Some(EntryKey {
+        creation: 2,
+        id: id("cursor"),
+    });
+    for pass in [generation, equal, backward, zero_cursor, beyond_cursor] {
         assert_eq!(
             src.resolve(&pass, &entry, 1024),
             Err(CatalogueSourceError::InvalidRequest)

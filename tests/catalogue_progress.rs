@@ -3,10 +3,11 @@ use nessa_sync::replication::{
     catalogue::{
         apply_next_page, begin_or_resume, catalogue_progress_after_begin,
         catalogue_progress_after_page, catalogue_progress_after_reset, reset_catalogue,
-        validate_catalogue_progress, CatalogueError, CataloguePagePlan, CataloguePass,
-        CatalogueProgress, CatalogueProgressError, CatalogueSource, CatalogueSourceError,
-        CatalogueStore, CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestEntry,
-        ManifestPage, ManifestRequest, ResolvedEntry,
+        validate_catalogue_pass, validate_catalogue_progress, validate_manifest_request,
+        CatalogueError, CataloguePagePlan, CataloguePass, CatalogueProgress,
+        CatalogueProgressError, CatalogueSource, CatalogueSourceError, CatalogueStore,
+        CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage,
+        ManifestRequest, ResolvedEntry,
     },
     domain::{Id, Scope},
 };
@@ -449,5 +450,72 @@ fn store_return_is_correlated_with_each_planned_transition() {
             assert_eq!(reset.unwrap().scope, changed_scope(5));
         }
         assert_eq!(store.writes, 3);
+    }
+}
+
+#[test]
+fn public_cursor_validation_precedes_final_page_and_source() {
+    for creation in [0, 6, 1, 5] {
+        let mut pass = active().active.unwrap();
+        pass.cursor = Some(EntryKey {
+            creation,
+            id: id("cursor"),
+        });
+        let request = ManifestRequest {
+            pass: pass.clone(),
+            max_entries: 1,
+        };
+        let page = ManifestPage {
+            request: request.clone(),
+            entries: vec![],
+            has_more: false,
+        };
+        let original = request.clone();
+        let plan = CataloguePagePlan {
+            pass: pass.clone(),
+            manifest: page.clone(),
+            entries: vec![],
+            unchanged: vec![],
+            next_cursor: pass.cursor.clone(),
+            final_page: true,
+        };
+        let mut authority = Authority(0);
+        let mut source = Source { reads: 0 };
+        let mut store = Store {
+            saved: Some(active()),
+            writes: 0,
+            wrong_return: false,
+        };
+        if creation == 0 || creation == 6 {
+            let invalid = CatalogueValidationError::InvalidRequest;
+            assert_eq!(validate_catalogue_pass(&pass), Err(invalid.clone()));
+            assert_eq!(validate_manifest_request(&request, 1), Err(invalid.clone()));
+            assert_eq!(
+                CataloguePagePlan::new(page, vec![], vec![]),
+                Err(invalid.clone())
+            );
+            assert_eq!(
+                catalogue_progress_after_page(&plan),
+                Err(CatalogueProgressError::InvalidPage(invalid.clone()))
+            );
+            assert_eq!(
+                apply_next_page(&pass, 1, 1, &mut authority, &mut source, &mut store),
+                Err(CatalogueError::Validation(invalid))
+            );
+            assert_eq!((authority.0, source.reads, store.writes), (0, 0, 0));
+        } else {
+            assert_eq!(validate_catalogue_pass(&pass), Ok(()));
+            assert_eq!(validate_manifest_request(&request, 1), Ok(()));
+            assert_eq!(CataloguePagePlan::new(page, vec![], vec![]).unwrap(), plan);
+            let completed = catalogue_progress_after_page(&plan).unwrap();
+            assert_eq!(completed.completed, 5);
+            assert!(completed.active.is_none());
+            assert_eq!(
+                apply_next_page(&pass, 1, 1, &mut authority, &mut source, &mut store).unwrap(),
+                completed
+            );
+            assert_eq!((authority.0, source.reads, store.writes), (2, 1, 1));
+        }
+        assert_eq!(request, original);
     }
 }

@@ -58,7 +58,7 @@ sequenceDiagram
 
 | Event | Required result |
 | --- | --- |
-| Manifest or resolve has zero generation or non-advancing boundary | Pure `validate_catalogue_pass` owns these pass relationships; request, source and wire consumers ask it before effects. |
+| Manifest or resolve has zero generation, non-advancing boundary or a cursor outside the positive captured range | Pure `validate_catalogue_pass` owns these pass relationships; request, source and wire consumers ask it before effects. |
 | Loopback request fits the core ceiling but exceeds its smaller wire count ceiling | Manifest request owner consumes the transport's published local ceiling; checked usize conversion precedes validation. |
 | Application receives an inadmissible actual manifest request | Request owner refuses before authorization/source; payload budget remains a distinct application decision. |
 | Invalid resolve pass accompanies unavailable SQLite metadata | Pass owner refuses before metadata; valid pass still encounters real metadata failure. No fabricated manifest/page. |
@@ -162,8 +162,9 @@ Authorization, coherent reads, entry presence/payload checks, effects, audit and
 commit uncertainty remain adapter/application responsibilities.
 
 `validate_catalogue_progress` checks parent/active scope, completed revision and
-generation together, consuming the existing pass owner. Its active cursor uses
-the same positive creation-within-boundary rule as manifest keys. Generation zero
+generation together, consuming the existing pass owner. The pass owner also checks
+cursor creation is positive and within its captured boundary, using the same
+key-range predicate as manifest entries. Generation zero
 remains admissible only for empty, inactive initial progress. `Scope` publishes
 the receiver/origin/stream identity comparison used for reset targets; changed
 incarnation, schema or epoch is distinct from changing that stable target.
@@ -179,6 +180,7 @@ The following rows map the contract to its regression evidence.
 | G3 | Active pass, equal/backward head, changed exact scope, or exhausted generation | Refuse before construction; adapter CAS still compares actual current/expected; `progress_begin_refuses_conflicting_state` |
 | G4 | Active scope/completed/generation contradicts otherwise valid parent | InvalidProgress before resumption or source work; `progress_validates_enclosing_evidence`, `custom_progress_refusal_has_no_source_effects` |
 | G5 | Active cursor creation zero or beyond fixed boundary | InvalidProgress through shared key-range owner; do not resume a cursor that skips the admitted range; same tests |
+| G5a | Public pass has cursor creation zero or beyond boundary, including a final empty page | Pass owner refuses direct pass/request/plan/result and application before authorization/source/store; SQLite refuses before missing metadata and preserves counters; valid None/one/boundary cursors remain accepted; `public_cursor_validation_precedes_final_page_and_source`, `sqlite_manifest_request_refusal_precedes_metadata_and_preserves_read_evidence`, `invalid_resolve_pass_precedes_sqlite_metadata` |
 | G6 | Initial generation zero with completed data or active pass | InvalidProgress; empty inactive zero-generation remains accepted; `progress_validates_enclosing_evidence` |
 | G7 | Valid continuation page or empty/nonempty final page | Derive exact scope/completed/generation/cursor from the validated page plan; `page_progress_matches_validated_plan` |
 | G8 | Edited plan fields or returned store progress differs from the planned result | Typed refusal without accepting false progress; `page_progress_refuses_edited_plan`, `store_return_is_correlated_with_each_planned_transition` |
