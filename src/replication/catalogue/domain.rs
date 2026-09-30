@@ -3,6 +3,9 @@
 use crate::replication::domain::{Id, Scope};
 use std::collections::HashSet;
 
+mod progress;
+pub use progress::*;
+
 /// Maximum manifest entries in one catalogue page.
 pub const MAX_CATALOGUE_ENTRIES: usize = 256;
 /// Maximum combined resolved payload bytes in one catalogue page.
@@ -240,8 +243,7 @@ pub fn validate_manifest(
     let mut previous = request.pass.cursor.as_ref();
     let mut identities = HashSet::with_capacity(page.entries.len());
     for entry in &page.entries {
-        if entry.key.creation == 0
-            || entry.key.creation > request.pass.boundary
+        if !key_is_in_boundary(&entry.key, request.pass.boundary)
             || entry.revision < entry.key.creation
             || entry.revision <= request.pass.completed
             || previous.is_some_and(|key| entry.key <= *key)
@@ -252,6 +254,10 @@ pub fn validate_manifest(
         previous = Some(&entry.key);
     }
     Ok(())
+}
+
+fn key_is_in_boundary(key: &EntryKey, boundary: u64) -> bool {
+    key.creation > 0 && key.creation <= boundary
 }
 
 /// Checks that two descriptors for one key describe a compatible revision order.

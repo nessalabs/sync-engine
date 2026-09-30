@@ -149,3 +149,48 @@ identity, durable pass correlation or cursor/entry ordering. Those relationships
 remain with their existing owners. `catalogue_request_validation` exercises the
 same owner directly and through response validation, including exact ceilings,
 large revision values and refusal precedence. No fabricated page is needed.
+
+## Published progress transitions (#42)
+
+The private Nessa cache must save catalogue deletion, transcript cleanup and pass
+progress in one transaction. It cannot use the reference receiver's separate
+connection. Pass construction and progress relationships therefore move from the
+reference SQLite adapter into pure catalogue owners before that cache is built.
+Adapters read current progress and compare it with expected progress inside their
+transaction; the owners validate retained evidence and construct the next value.
+Authorization, coherent reads, entry presence/payload checks, effects, audit and
+commit uncertainty remain adapter/application responsibilities.
+
+`validate_catalogue_progress` checks parent/active scope, completed revision and
+generation together, consuming the existing pass owner. Its active cursor uses
+the same positive creation-within-boundary rule as manifest keys. Generation zero
+remains admissible only for empty, inactive initial progress. `Scope` publishes
+the receiver/origin/stream identity comparison used for reset targets; changed
+incarnation, schema or epoch is distinct from changing that stable target.
+Begin, page-result and reset helpers borrow their inputs and return replacements;
+they do not establish a durable compare-and-swap or fabricate source evidence.
+
+The following rows map the contract to its regression evidence.
+
+| Row | Retained evidence / input | Pure decision and required evidence |
+| --- | --- | --- |
+| G1 | No progress, head zero | Confirm empty at generation one with no active pass; `progress_begin_preserves_empty_and_finite_passes` |
+| G2 | No progress or inactive matching scope, head advances | Retain completed revision, increment generation and capture fixed boundary with no cursor; same test |
+| G3 | Active pass, equal/backward head, changed exact scope, or exhausted generation | Refuse before construction; adapter CAS still compares actual current/expected; `progress_begin_refuses_conflicting_state` |
+| G4 | Active scope/completed/generation contradicts otherwise valid parent | InvalidProgress before resumption or source work; `progress_validates_enclosing_evidence`, `custom_progress_refusal_has_no_source_effects` |
+| G5 | Active cursor creation zero or beyond fixed boundary | InvalidProgress through shared key-range owner; do not resume a cursor that skips the admitted range; same tests |
+| G6 | Initial generation zero with completed data or active pass | InvalidProgress; empty inactive zero-generation remains accepted; `progress_validates_enclosing_evidence` |
+| G7 | Valid continuation page or empty/nonempty final page | Derive exact scope/completed/generation/cursor from the validated page plan; `page_progress_matches_validated_plan` |
+| G8 | Edited plan fields or returned store progress differs from the planned result | Typed refusal without accepting false progress; `page_progress_refuses_edited_plan`, `store_return_is_correlated_with_each_planned_transition` |
+| G9 | Explicit reset within same receiver/origin/stream | Zero completed progress and clear active pass at next generation; retain physical tombstones; `progress_reset_preserves_target_and_generation` |
+| G10 | Reset changes stable target, invalid retained progress or exhausted generation | Refuse before replacement; same test |
+| G11 | SQLite stale expected progress, failed write/commit or reopen followed by retry | Preserve existing Stale/Uncertain/rollback semantics while consuming the pure decisions; `interrupted_page_restarts_at_saved_cursor_and_stale_reset_cannot_restore_content`, `sqlite_retained_progress_is_validated_before_return`, `sqlite_receipts_match_planned_transition` |
+
+Physical progress readers validate the reconstructed enclosing value before
+returning it. Application resumption validates custom-store progress too; a
+well-formed child pass alone cannot establish its relationship with its parent.
+Successful store returns are correlated with the helper's exact planned result.
+Store methods return that transaction's confirmed replacement rather than
+rereading a row that a competing transaction could already have advanced.
+No new schema, compatibility path, authorization state or scheduling policy is
+introduced.

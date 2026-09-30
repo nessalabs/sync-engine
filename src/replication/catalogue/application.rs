@@ -4,9 +4,11 @@ use crate::replication::application::{Access, ScopeAuthorizer};
 use crate::replication::domain::{Id, Scope};
 
 use super::{
-    validate_manifest, validate_manifest_request, validate_resolved, CataloguePagePlan,
-    CataloguePass, CatalogueProgress, CatalogueValidationError, ManifestPage, ManifestRequest,
-    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
+    catalogue_progress_after_begin, catalogue_progress_after_page, catalogue_progress_after_reset,
+    validate_catalogue_progress, validate_manifest, validate_manifest_request, validate_resolved,
+    CataloguePagePlan, CataloguePass, CatalogueProgress, CatalogueProgressError,
+    CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
+    MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 
 /// Source refusal before receiver progress changes.
@@ -37,6 +39,18 @@ pub enum CatalogueStoreError {
     Fenced,
     /// Same revision carried different content or identity.
     Conflict,
+}
+
+impl From<CatalogueProgressError> for CatalogueStoreError {
+    fn from(error: CatalogueProgressError) -> Self {
+        match error {
+            CatalogueProgressError::WrongScope => Self::ResetRequired,
+            CatalogueProgressError::Stale => Self::Stale,
+            CatalogueProgressError::InvalidPage(_) => Self::Conflict,
+            CatalogueProgressError::InvalidProgress
+            | CatalogueProgressError::GenerationExhausted => Self::Failed,
+        }
+    }
 }
 
 /// End-to-end refusal with source and store errors preserved.
@@ -78,6 +92,7 @@ pub trait CatalogueStore {
     fn progress(&mut self, scope: &Scope)
         -> Result<Option<CatalogueProgress>, CatalogueStoreError>;
     /// Starts a pass only if current progress still equals `expected`.
+    /// Returns the exact confirmed planned replacement, not a later row reread.
     fn begin(
         &mut self,
         scope: &Scope,
@@ -90,13 +105,15 @@ pub trait CatalogueStore {
         scope: &Scope,
         id: &Id,
     ) -> Result<Option<u64>, CatalogueStoreError>;
-    /// Saves resolved entries and continuation in one transaction.
+    /// Saves resolved entries and continuation in one transaction, returning
+    /// the exact confirmed planned progress from that transaction.
     fn apply_page(
         &mut self,
         plan: CataloguePagePlan,
     ) -> Result<CatalogueProgress, CatalogueStoreError>;
     /// Explicitly replaces an incompatible scope, retaining permanent deletion
     /// markers but erasing previously authorized live values and pass state.
+    /// Returns the original confirmed reset progress even if a later pass begins.
     fn reset(
         &mut self,
         scope: &Scope,
@@ -129,6 +146,9 @@ where
     authorize(scope, authorizer)?;
     let saved = store.progress(scope).map_err(CatalogueError::Store)?;
     if let Some(progress) = &saved {
+        validate_catalogue_progress(progress)
+            .map_err(CatalogueStoreError::from)
+            .map_err(CatalogueError::Store)?;
         if progress.scope != *scope {
             return Err(CatalogueError::Store(CatalogueStoreError::ResetRequired));
         }
@@ -143,17 +163,41 @@ where
     }
     if head == completed && saved.is_none() {
         authorize(scope, authorizer)?;
-        store.begin(scope, None, 0).map_err(CatalogueError::Store)?;
+        begin_checked(scope, None, 0, store)?;
         return Ok(None);
     }
     if head == completed {
         return Ok(None);
     }
     authorize(scope, authorizer)?;
-    store
-        .begin(scope, saved, head)
-        .map_err(CatalogueError::Store)
-        .map(|progress| progress.active)
+    begin_checked(scope, saved, head, store).map(|progress| progress.active)
+}
+
+fn begin_checked<D: CatalogueStore>(
+    scope: &Scope,
+    expected: Option<CatalogueProgress>,
+    boundary: u64,
+    store: &mut D,
+) -> Result<CatalogueProgress, CatalogueError> {
+    let planned = catalogue_progress_after_begin(scope, expected.as_ref(), boundary)
+        .map_err(CatalogueStoreError::from)
+        .map_err(CatalogueError::Store)?;
+    let returned = store
+        .begin(scope, expected, boundary)
+        .map_err(CatalogueError::Store)?;
+    correlate_progress(planned, returned)
+}
+
+fn correlate_progress(
+    planned: CatalogueProgress,
+    returned: CatalogueProgress,
+) -> Result<CatalogueProgress, CatalogueError> {
+    if returned != planned {
+        return Err(CatalogueError::Validation(
+            CatalogueValidationError::WrongRequest,
+        ));
+    }
+    Ok(returned)
 }
 
 /// Resolves and commits exactly one bounded page. A failed payload read does
@@ -225,7 +269,11 @@ where
     authorize(&pass.scope, authorizer)?;
     let plan =
         CataloguePagePlan::new(page, resolved, unchanged).map_err(CatalogueError::Validation)?;
-    store.apply_page(plan).map_err(CatalogueError::Store)
+    let planned = catalogue_progress_after_page(&plan)
+        .map_err(CatalogueStoreError::from)
+        .map_err(CatalogueError::Store)?;
+    let returned = store.apply_page(plan).map_err(CatalogueError::Store)?;
+    correlate_progress(planned, returned)
 }
 
 /// Explicitly resets an incompatible cache under the new currently authorized
@@ -237,5 +285,11 @@ pub fn reset_catalogue<A: ScopeAuthorizer, D: CatalogueStore>(
     store: &mut D,
 ) -> Result<CatalogueProgress, CatalogueError> {
     authorize(scope, authorizer)?;
-    store.reset(scope, expected).map_err(CatalogueError::Store)
+    let planned = catalogue_progress_after_reset(scope, &expected)
+        .map_err(CatalogueStoreError::from)
+        .map_err(CatalogueError::Store)?;
+    let returned = store
+        .reset(scope, expected)
+        .map_err(CatalogueError::Store)?;
+    correlate_progress(planned, returned)
 }
