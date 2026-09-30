@@ -8,8 +8,8 @@ use nessa_sync::replication::application::Access;
 use nessa_sync::replication::catalogue::{
     apply_next_page, begin_or_resume, reset_catalogue, validate_manifest, CatalogueError,
     CataloguePagePlan, CataloguePass, CatalogueSource, CatalogueSourceError, CatalogueStore,
-    CatalogueStoreError, CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry,
-    MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
+    CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestPage, ManifestRequest,
+    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
@@ -359,6 +359,129 @@ fn malformed_manifest_and_unresolved_page_cannot_advance_progress() {
     );
     assert_eq!(dst.progress(&selected).unwrap().unwrap().active, Some(pass));
     assert_eq!(dst.count(&selected).unwrap(), 0);
+}
+
+#[test]
+fn empty_final_page_after_saved_cursor_completes_without_rewinding_it() {
+    struct EmptyFinalSource;
+    impl CatalogueSource for EmptyFinalSource {
+        fn head(&mut self, _: &Scope) -> Result<u64, CatalogueSourceError> {
+            panic!("continuing a saved pass does not recapture head")
+        }
+        fn manifest(
+            &mut self,
+            request: &ManifestRequest,
+        ) -> Result<ManifestPage, CatalogueSourceError> {
+            Ok(ManifestPage {
+                request: request.clone(),
+                entries: vec![],
+                has_more: false,
+            })
+        }
+        fn resolve(
+            &mut self,
+            _: &CataloguePass,
+            _: &Id,
+            _: usize,
+        ) -> Result<ResolvedEntry, CatalogueSourceError> {
+            panic!("an empty manifest resolves no payload")
+        }
+    }
+    let dir = Directory::new();
+    let mut src = source(dir.path("source.db"));
+    src.upsert(&id("a"), b"a").unwrap();
+    src.upsert(&id("b"), b"b").unwrap();
+    let selected = scope("epoch-1");
+    let path = dir.path("receiver.db");
+    let mut dst = SqliteCatalogueStore::open(&path).unwrap();
+    let mut auth = MemoryAuthorizer::allowed(selected.clone());
+    let pass = begin_or_resume(&selected, &mut auth, &mut src, &mut dst)
+        .unwrap()
+        .unwrap();
+    let progress = apply_next_page(&pass, 1, 1024, &mut auth, &mut src, &mut dst).unwrap();
+    let continued = progress.active.unwrap();
+    assert_eq!(
+        continued.cursor,
+        Some(EntryKey {
+            creation: 1,
+            id: id("a")
+        })
+    );
+    drop(dst);
+    let mut reopened = SqliteCatalogueStore::open(&path).unwrap();
+    let completed = apply_next_page(
+        &continued,
+        1,
+        1024,
+        &mut auth,
+        &mut EmptyFinalSource,
+        &mut reopened,
+    )
+    .unwrap();
+    assert_eq!(completed.completed, continued.boundary);
+    assert_eq!(completed.generation, continued.generation);
+    assert_eq!(completed.active, None);
+    assert_eq!(reopened.count(&selected).unwrap(), 1);
+    assert_eq!(
+        reopened
+            .cached_entry(&selected, &id("a"))
+            .unwrap()
+            .unwrap()
+            .payload,
+        b"a"
+    );
+}
+
+#[test]
+fn contradictory_public_plan_leaves_real_cache_and_pass_unchanged() {
+    let dir = Directory::new();
+    let mut src = source(dir.path("source.db"));
+    let mut dst = SqliteCatalogueStore::open(dir.path("receiver.db")).unwrap();
+    let selected = scope("epoch-1");
+    src.upsert(&id("a"), b"value").unwrap();
+    let mut auth = MemoryAuthorizer::allowed(selected.clone());
+    let pass = begin_or_resume(&selected, &mut auth, &mut src, &mut dst)
+        .unwrap()
+        .unwrap();
+    let before = dst.progress(&selected).unwrap();
+    let request = ManifestRequest {
+        pass: pass.clone(),
+        max_entries: 1,
+    };
+    let manifest = src.manifest(&request).unwrap();
+    let entry = src.resolve(&pass, &id("a"), 1024).unwrap();
+    let valid = CataloguePagePlan::new(manifest, vec![entry], vec![]).unwrap();
+    let mut variants = vec![];
+    let mut invalid = valid.clone();
+    invalid.next_cursor = None;
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.final_page = false;
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.pass.generation += 1;
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.entries[0].manifest.key.id = id("foreign");
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.entries[0].manifest.deleted = true;
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.entries[0].manifest.deleted = true;
+    invalid.entries[0].payload.clear();
+    variants.push(invalid);
+    invalid = valid.clone();
+    invalid.manifest.entries[0].deleted = true;
+    invalid.entries[0].manifest.revision += 1;
+    variants.push(invalid);
+    for invalid in variants {
+        assert_eq!(dst.apply_page(invalid), Err(CatalogueStoreError::Conflict));
+        assert_eq!(dst.progress(&selected).unwrap(), before);
+        assert_eq!(dst.count(&selected).unwrap(), 0);
+    }
+    dst.apply_page(valid).unwrap();
+    assert_eq!(dst.count(&selected).unwrap(), 1);
 }
 
 #[test]

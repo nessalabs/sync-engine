@@ -1,6 +1,7 @@
 //! Pure catalogue identity, page, and pass validation.
 
 use crate::replication::domain::{Id, Scope};
+use std::collections::HashSet;
 
 /// Maximum manifest entries in one catalogue page.
 pub const MAX_CATALOGUE_ENTRIES: usize = 256;
@@ -91,7 +92,8 @@ pub struct CataloguePagePlan {
     pub pass: CataloguePass,
     /// Exact validated manifest whose entries this plan resolves.
     pub manifest: ManifestPage,
-    /// Last key included by this page; none is valid only for an empty final page.
+    /// Continuation after this page: its last key, or the previous cursor for an
+    /// empty final page. None is valid when an empty final page has no prior cursor.
     pub next_cursor: Option<EntryKey>,
     /// Whether this page completes the captured pass.
     pub final_page: bool,
@@ -99,6 +101,43 @@ pub struct CataloguePagePlan {
     pub entries: Vec<ResolvedEntry>,
     /// Metadata-only entries already stored at this revision or newer.
     pub unchanged: Vec<ManifestEntry>,
+}
+
+impl CataloguePagePlan {
+    /// Constructs correlated continuation fields and validates this page plan.
+    ///
+    /// This pure operation performs no I/O. Payloads remain opaque and all
+    /// input vectors move into the returned plan. Store adapters still validate
+    /// the public DTO before effects and compare durable pass/cache evidence
+    /// inside their transaction; construction establishes no authority or commit.
+    /// An empty final page retains the request's previous cursor.
+    ///
+    /// # Errors
+    /// Returns [`CatalogueValidationError`] for contradictory coverage,
+    /// correlations, ordering or the published catalogue page ceilings.
+    pub fn new(
+        manifest: ManifestPage,
+        entries: Vec<ResolvedEntry>,
+        unchanged: Vec<ManifestEntry>,
+    ) -> Result<Self, CatalogueValidationError> {
+        let plan = Self {
+            pass: manifest.request.pass.clone(),
+            next_cursor: page_cursor(&manifest),
+            final_page: !manifest.has_more,
+            manifest,
+            entries,
+            unchanged,
+        };
+        validate_catalogue_page_plan(&plan)?;
+        Ok(plan)
+    }
+}
+
+fn page_cursor(manifest: &ManifestPage) -> Option<EntryKey> {
+    manifest.entries.last().map_or_else(
+        || manifest.request.pass.cursor.clone(),
+        |entry| Some(entry.key.clone()),
+    )
 }
 
 /// Pure validation refusal, before any store effect.
@@ -142,12 +181,14 @@ pub fn validate_manifest(
         return Err(CatalogueValidationError::NoProgress);
     }
     let mut previous = request.pass.cursor.as_ref();
+    let mut identities = HashSet::with_capacity(page.entries.len());
     for entry in &page.entries {
         if entry.key.creation == 0
             || entry.key.creation > request.pass.boundary
             || entry.revision < entry.key.creation
             || entry.revision <= request.pass.completed
             || previous.is_some_and(|key| entry.key <= *key)
+            || !identities.insert(&entry.key.id)
         {
             return Err(CatalogueValidationError::InvalidOrder);
         }
@@ -164,11 +205,73 @@ pub fn validate_resolved(
 ) -> Result<(), CatalogueValidationError> {
     if resolved.manifest.key != manifest.key
         || resolved.manifest.revision < manifest.revision
+        || (resolved.manifest.revision == manifest.revision
+            && resolved.manifest.deleted != manifest.deleted)
+        || (manifest.deleted && !resolved.manifest.deleted)
         || (resolved.manifest.deleted && !resolved.payload.is_empty())
     {
         return Err(CatalogueValidationError::WrongPayload);
     }
     if resolved.payload.len() > max_payload_bytes {
+        return Err(CatalogueValidationError::BoundsExceeded);
+    }
+    Ok(())
+}
+
+/// Validates the cross-field structure of one public catalogue commit plan.
+///
+/// This pure, bounded operation checks the manifest/pass correlation, stable
+/// continuation, final-page meaning, exact resolved/unchanged coverage and the
+/// published entry/payload ceilings. It reads no storage, grants no authority,
+/// and does not validate host payload schemas. A store calls it before effects,
+/// then checks durable scope/pass generation, unchanged cache revisions and
+/// deletion fences in its own atomic transaction. The public DTO is mutable;
+/// a prior successful validation is not evidence for a subsequently edited plan.
+///
+/// # Errors
+/// Returns [`CatalogueValidationError::WrongRequest`] for contradicted
+/// correlation/continuation, [`CatalogueValidationError::WrongPayload`] for
+/// contradicted entry coverage, or the manifest/budget validation error.
+pub fn validate_catalogue_page_plan(
+    plan: &CataloguePagePlan,
+) -> Result<(), CatalogueValidationError> {
+    if plan.manifest.request.pass != plan.pass
+        || plan.final_page == plan.manifest.has_more
+        || plan.next_cursor != page_cursor(&plan.manifest)
+    {
+        return Err(CatalogueValidationError::WrongRequest);
+    }
+    validate_manifest(
+        &plan.manifest.request,
+        &plan.manifest,
+        MAX_CATALOGUE_ENTRIES,
+    )?;
+    if plan.entries.len().checked_add(plan.unchanged.len()) != Some(plan.manifest.entries.len()) {
+        return Err(CatalogueValidationError::WrongPayload);
+    }
+    for manifest in &plan.manifest.entries {
+        let resolved = plan
+            .entries
+            .iter()
+            .find(|entry| entry.manifest.key.id == manifest.key.id);
+        let unchanged = plan
+            .unchanged
+            .iter()
+            .find(|entry| entry.key.id == manifest.key.id);
+        if resolved.is_some() == unchanged.is_some() {
+            return Err(CatalogueValidationError::WrongPayload);
+        }
+        if let Some(value) = resolved {
+            validate_resolved(manifest, value, MAX_CATALOGUE_PAYLOAD_BYTES)?;
+        } else if unchanged != Some(manifest) {
+            return Err(CatalogueValidationError::WrongPayload);
+        }
+    }
+    let total = plan.entries.iter().try_fold(0usize, |sum, entry| {
+        sum.checked_add(entry.payload.len())
+            .ok_or(CatalogueValidationError::BoundsExceeded)
+    })?;
+    if total > MAX_CATALOGUE_PAYLOAD_BYTES {
         return Err(CatalogueValidationError::BoundsExceeded);
     }
     Ok(())

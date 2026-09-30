@@ -1,6 +1,9 @@
 //! Current-value catalogue replication with finite, resumable passes.
 //!
-//! The domain validates responses. Application ports coordinate authorization,
+//! The domain validates responses and complete public page-plan relationships.
+//! `CataloguePagePlan::new` derives continuation through that same owner;
+//! stores call `validate_catalogue_page_plan` before their durable comparisons.
+//! Application ports coordinate authorization,
 //! bounded source reads, and atomic local commits. Hosts supply scheduling and
 //! interpret opaque entry payloads.
 //! `MAX_CATALOGUE_ENTRIES` and `MAX_CATALOGUE_PAYLOAD_BYTES` are the core

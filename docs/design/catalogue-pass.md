@@ -70,6 +70,21 @@ sequenceDiagram
 | Authorized deletion arrives | Save a retained marker and content fence; no later content response restores that identity. |
 | Scope/incarnation changes | Explicit reset removes old live cached values, retains deletion markers, and advances generation. Old epoch pages cannot commit into the new scope. |
 | Partial pass omits an entry | Infer nothing about that entry. Full reset starts from an erased live cache, so the reference adapter never interprets absence as deletion. |
+| Public page plan contradicts its manifest, cursor, final flag or resolved/unchanged coverage | The pure `validate_catalogue_page_plan` owner refuses before a store transaction; the reference SQLite adapter consumes it. |
+| Empty final page follows a saved cursor | `CataloguePagePlan::new` retains that cursor and completes the fixed boundary; empty metadata does not rewind continuation. |
+| Manifest repeats an identity under a different stable key | `validate_manifest` refuses `InvalidOrder`; key ordering alone does not establish distinct identities. |
+| Resolved deletion bit differs at the manifest's same revision, or a deleted manifest resolves live at a newer revision | `validate_resolved` refuses `WrongPayload` before payload/cache effects; revision identifies immutable meaning and a deletion cannot resolve as content. |
+| Live manifest resolves at the same live revision, a newer live revision, or a newer deletion revision | `validate_resolved` accepts compatible current evidence; descriptor age does not prevent a newer authorized value. |
+
+`CataloguePagePlan::new` derives correlated plan fields and asks the same pure
+validator used by stores. Because the public DTO can subsequently be changed,
+a store calls `validate_catalogue_page_plan` before effects. This validator owns
+structural correlation and the published page ceilings. It does not read durable
+progress, establish that an unchanged entry is actually cached, authorize a
+scope, or enforce retained deletion; those decisions belong to the store and
+host ports. `catalogue_plan_validation` tests the public combinations, and
+`catalogue_replication` exercises refusal without durable changes and an empty
+final-page continuation through the real SQLite adapter.
 
 The reference SQLite adapter supplies one current row per ID plus retained
 deletion markers. The host owns entry schema, authorization policy, scheduling,

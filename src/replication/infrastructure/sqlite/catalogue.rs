@@ -7,7 +7,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::replication::catalogue::{
-    validate_manifest, validate_resolved, CataloguePagePlan, CataloguePass, CatalogueProgress,
+    validate_catalogue_page_plan, CataloguePagePlan, CataloguePass, CatalogueProgress,
     CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError, EntryKey,
     ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
     MAX_CATALOGUE_PAYLOAD_BYTES,
@@ -618,54 +618,7 @@ impl CatalogueStore for SqliteCatalogueStore {
         &mut self,
         plan: CataloguePagePlan,
     ) -> Result<CatalogueProgress, CatalogueStoreError> {
-        if plan.manifest.request.pass != plan.pass
-            || plan.final_page == plan.manifest.has_more
-            || validate_manifest(
-                &plan.manifest.request,
-                &plan.manifest,
-                MAX_CATALOGUE_ENTRIES,
-            )
-            .is_err()
-        {
-            return Err(CatalogueStoreError::Conflict);
-        }
-        let expected_cursor = plan
-            .manifest
-            .entries
-            .last()
-            .map_or_else(|| plan.pass.cursor.clone(), |entry| Some(entry.key.clone()));
-        if plan.next_cursor != expected_cursor
-            || plan.entries.len() + plan.unchanged.len() != plan.manifest.entries.len()
-        {
-            return Err(CatalogueStoreError::Conflict);
-        }
-        for (index, manifest) in plan.manifest.entries.iter().enumerate() {
-            let resolved = plan
-                .entries
-                .iter()
-                .find(|entry| entry.manifest.key.id == manifest.key.id);
-            let unchanged = plan
-                .unchanged
-                .iter()
-                .find(|entry| entry.key.id == manifest.key.id);
-            if resolved.is_some() == unchanged.is_some() || index >= MAX_CATALOGUE_ENTRIES {
-                return Err(CatalogueStoreError::Conflict);
-            }
-            if let Some(value) = resolved {
-                if validate_resolved(manifest, value, MAX_CATALOGUE_PAYLOAD_BYTES).is_err() {
-                    return Err(CatalogueStoreError::Conflict);
-                }
-            } else if unchanged != Some(manifest) {
-                return Err(CatalogueStoreError::Conflict);
-            }
-        }
-        let total_bytes = plan.entries.iter().try_fold(0usize, |sum, entry| {
-            sum.checked_add(entry.payload.len())
-                .ok_or(CatalogueStoreError::Conflict)
-        })?;
-        if total_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
-            return Err(CatalogueStoreError::Conflict);
-        }
+        validate_catalogue_page_plan(&plan).map_err(|_| CatalogueStoreError::Conflict)?;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
