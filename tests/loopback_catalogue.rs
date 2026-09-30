@@ -5,7 +5,8 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nessa_sync::replication::catalogue::{
-    apply_next_page, begin_or_resume, CatalogueSource, CatalogueStore,
+    apply_next_page, begin_or_resume, CataloguePass, CatalogueSource, CatalogueSourceError,
+    CatalogueStore, ManifestRequest,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
@@ -101,6 +102,28 @@ fn two_durable_receivers_complete_network_catalogue_passes() {
     thread::spawn(move || server.serve().unwrap());
     let mut a = LoopbackClient::new(addr, id("read")).unwrap();
     let mut b = LoopbackClient::new(addr, id("read")).unwrap();
+    let pass = CataloguePass {
+        scope: scope("a"),
+        completed: 0,
+        boundary: 620,
+        cursor: None,
+        generation: 1,
+    };
+    let valid_request = ManifestRequest {
+        pass,
+        max_entries: 40,
+    };
+    assert_eq!(a.manifest(&valid_request).unwrap().entries.len(), 40);
+    let bytes = a.counters().protocol_bytes;
+    let over_request = ManifestRequest {
+        max_entries: usize::MAX,
+        ..valid_request
+    };
+    assert_eq!(
+        a.manifest(&over_request),
+        Err(CatalogueSourceError::InvalidRequest)
+    );
+    assert_eq!(a.counters().protocol_bytes, bytes);
     let mut a_store = SqliteCatalogueStore::open(&a_path).unwrap();
     let mut b_store = SqliteCatalogueStore::open(&b_path).unwrap();
     complete(&scope("a"), &mut a, &mut a_store, 1);

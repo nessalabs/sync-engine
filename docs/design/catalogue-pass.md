@@ -58,6 +58,14 @@ sequenceDiagram
 
 | Event | Required result |
 | --- | --- |
+| Manifest or resolve has zero generation or non-advancing boundary | Pure `validate_catalogue_pass` owns these pass relationships; request, source and wire consumers ask it before effects. |
+| Loopback request fits the core ceiling but exceeds its smaller wire count ceiling | Manifest request owner consumes the transport's published local ceiling; checked usize conversion precedes validation. |
+| Application receives an inadmissible actual manifest request | Request owner refuses before authorization/source; payload budget remains a distinct application decision. |
+| Invalid resolve pass accompanies unavailable SQLite metadata | Pass owner refuses before metadata; valid pass still encounters real metadata failure. No fabricated manifest/page. |
+| Reference SQLite source receives zero generation or another inadmissible manifest request | Source consumes `validate_manifest_request` before its metadata transaction and maps refusal to `CatalogueSourceError::InvalidRequest`; exact source identity remains adapter-owned. Valid requests still read unchanged descriptors. |
+| Host checks a manifest request before source I/O | Pure `validate_manifest_request` owns nonzero entry count, core/caller entry ceilings, advancing boundary and nonzero generation; it borrows the request without payload, allocation or effects. |
+| Invalid request accompanies a contradictory response | `validate_manifest` consumes the request owner first and preserves typed `InvalidRequest` precedence; response correlation/order remains its responsibility. |
+| Request fits the published ceiling but exceeds the caller's smaller ceiling | Request owner refuses `InvalidRequest`; an exact fitting count is accepted. |
 | Source head equals completed revision | No payload reads and no pass restart. |
 | Mutation while a pass runs | Preserve `C,H,cursor`; finish the pass. A later pass can pick up revisions above `H`. |
 | Earlier entry changes after its key was passed | Next pass selects it because its current revision exceeds `H`. |
@@ -94,3 +102,10 @@ When integrating with a product that must retain live values across a full
 reset, the host must implement the ownership-aware post-pass absence lookup in
 the wider sync contract. This reference adapter chooses an eager privacy wipe
 on scope change and has no cached live values to classify after that reset.
+
+The [issue39](https://github.com/nessalabs/sync-engine/issues/39) request-only owner is published for host adapters that validate before metadata
+access. It establishes request admissibility, not authorization, physical source
+identity, durable pass correlation or cursor/entry ordering. Those relationships
+remain with their existing owners. `catalogue_request_validation` exercises the
+same owner directly and through response validation, including exact ceilings,
+large revision values and refusal precedence. No fabricated page is needed.
