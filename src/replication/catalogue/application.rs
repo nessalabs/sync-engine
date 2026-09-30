@@ -4,9 +4,9 @@ use crate::replication::application::{Access, ScopeAuthorizer};
 use crate::replication::domain::{Id, Scope};
 
 use super::{
-    validate_manifest, validate_resolved, CataloguePagePlan, CataloguePass, CatalogueProgress,
-    CatalogueValidationError, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
-    MAX_CATALOGUE_PAYLOAD_BYTES,
+    validate_manifest, validate_manifest_request, validate_resolved, CataloguePagePlan,
+    CataloguePass, CatalogueProgress, CatalogueValidationError, ManifestPage, ManifestRequest,
+    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 
 /// Source refusal before receiver progress changes.
@@ -172,20 +172,18 @@ where
     S: CatalogueSource,
     D: CatalogueStore,
 {
-    if max_entries == 0
-        || max_entries > MAX_CATALOGUE_ENTRIES
-        || max_payload_bytes == 0
-        || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES
-    {
+    if max_payload_bytes == 0 || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
         return Err(CatalogueError::Validation(
             CatalogueValidationError::InvalidRequest,
         ));
     }
-    authorize(&pass.scope, authorizer)?;
     let request = ManifestRequest {
         pass: pass.clone(),
         max_entries,
     };
+    validate_manifest_request(&request, MAX_CATALOGUE_ENTRIES)
+        .map_err(CatalogueError::Validation)?;
+    authorize(&pass.scope, authorizer)?;
     let page = source.manifest(&request).map_err(CatalogueError::Source)?;
     validate_manifest(&request, &page, MAX_CATALOGUE_ENTRIES)
         .map_err(CatalogueError::Validation)?;

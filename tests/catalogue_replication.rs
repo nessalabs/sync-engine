@@ -1,10 +1,11 @@
 #![cfg(feature = "sqlite")]
 
+use rusqlite::Connection;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use nessa_sync::replication::application::Access;
+use nessa_sync::replication::application::{Access, ScopeAuthorizer};
 use nessa_sync::replication::catalogue::{
     apply_next_page, begin_or_resume, reset_catalogue, validate_manifest, CatalogueError,
     CataloguePagePlan, CataloguePass, CatalogueSource, CatalogueSourceError, CatalogueStore,
@@ -978,5 +979,182 @@ fn resolved_cache_orders_newer_values_and_rejects_foreign_creation_and_payload_c
     assert_eq!(
         store.cached_entry(&selected, &id("retained")).unwrap(),
         Some(retained)
+    );
+}
+
+#[test]
+fn sqlite_manifest_request_refusal_precedes_metadata_and_preserves_read_evidence() {
+    let dir = Directory::new();
+    let path = dir.path("request-source.db");
+    let mut src = source(path.clone());
+    src.upsert(&id("entry"), b"value").unwrap();
+    let valid = ManifestRequest {
+        pass: CataloguePass {
+            scope: scope("epoch-1"),
+            completed: 0,
+            boundary: 1,
+            cursor: None,
+            generation: 1,
+        },
+        max_entries: MAX_CATALOGUE_ENTRIES,
+    };
+    let page = src.manifest(&valid).unwrap();
+    assert_eq!(page.entries.len(), 1);
+    assert_eq!(
+        validate_manifest(&valid, &page, MAX_CATALOGUE_ENTRIES),
+        Ok(())
+    );
+    let reads = src.manifest_reads();
+    let bytes = src.manifest_bytes();
+    let mut invalid = Vec::new();
+    let mut zero = valid.clone();
+    zero.max_entries = 0;
+    invalid.push(zero);
+    let mut over = valid.clone();
+    over.max_entries += 1;
+    invalid.push(over);
+    let mut equal = valid.clone();
+    equal.pass.completed = 1;
+    invalid.push(equal);
+    let mut backward = valid.clone();
+    backward.pass.completed = 2;
+    invalid.push(backward);
+    let mut generation = valid.clone();
+    generation.pass.generation = 0;
+    invalid.push(generation);
+    for request in &invalid {
+        assert_eq!(
+            src.manifest(request),
+            Err(CatalogueSourceError::InvalidRequest)
+        );
+        assert_eq!((src.manifest_reads(), src.manifest_bytes()), (reads, bytes));
+    }
+    assert_eq!(src.manifest(&valid).unwrap(), page);
+    let reads = src.manifest_reads();
+    let bytes = src.manifest_bytes();
+    // A real missing metadata table distinguishes early owner refusal from a
+    // metadata read: an admissible request below must encounter Unavailable.
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TABLE catalogue_source_meta")
+        .unwrap();
+    for request in &invalid {
+        assert_eq!(
+            src.manifest(request),
+            Err(CatalogueSourceError::InvalidRequest)
+        );
+        assert_eq!((src.manifest_reads(), src.manifest_bytes()), (reads, bytes));
+    }
+    assert_eq!(src.manifest(&valid), Err(CatalogueSourceError::Unavailable));
+    assert_eq!((src.manifest_reads(), src.manifest_bytes()), (reads, bytes));
+}
+
+#[test]
+fn invalid_manifest_request_precedes_application_authorization_and_source() {
+    struct CountingAuthority(usize);
+    impl ScopeAuthorizer for CountingAuthority {
+        fn authorize(&mut self, scope: &Scope) -> Access {
+            self.0 += 1;
+            Access::Allowed(scope.clone())
+        }
+    }
+    struct NoRead;
+    impl CatalogueSource for NoRead {
+        fn head(&mut self, _: &Scope) -> Result<u64, CatalogueSourceError> {
+            panic!("unexpected head");
+        }
+        fn manifest(&mut self, _: &ManifestRequest) -> Result<ManifestPage, CatalogueSourceError> {
+            panic!("unexpected manifest");
+        }
+        fn resolve(
+            &mut self,
+            _: &CataloguePass,
+            _: &Id,
+            _: usize,
+        ) -> Result<ResolvedEntry, CatalogueSourceError> {
+            panic!("unexpected resolve");
+        }
+    }
+    let dir = Directory::new();
+    let mut store = SqliteCatalogueStore::open(dir.path("preflight-receiver.db")).unwrap();
+    let mut authority = CountingAuthority(0);
+    let valid = CataloguePass {
+        scope: scope("epoch-1"),
+        completed: 0,
+        boundary: 1,
+        cursor: None,
+        generation: 1,
+    };
+    let mut generation = valid.clone();
+    generation.generation = 0;
+    let mut equal = valid.clone();
+    equal.completed = 1;
+    let mut backward = valid.clone();
+    backward.completed = 2;
+    for (pass, count) in [
+        (&valid, 0),
+        (&valid, MAX_CATALOGUE_ENTRIES + 1),
+        (&generation, 1),
+        (&equal, 1),
+        (&backward, 1),
+    ] {
+        assert_eq!(
+            apply_next_page(pass, count, 1024, &mut authority, &mut NoRead, &mut store),
+            Err(CatalogueError::Validation(
+                CatalogueValidationError::InvalidRequest
+            ))
+        );
+    }
+    assert_eq!(authority.0, 0);
+    assert_eq!(store.progress(&valid.scope).unwrap(), None);
+    let mut source = source(dir.path("preflight-source.db"));
+    source.upsert(&id("entry"), b"value").unwrap();
+    let mut pass_authority = MemoryAuthorizer::allowed(valid.scope.clone());
+    let pass = begin_or_resume(&valid.scope, &mut pass_authority, &mut source, &mut store)
+        .unwrap()
+        .unwrap();
+    let completed =
+        apply_next_page(&pass, 1, 1024, &mut authority, &mut source, &mut store).unwrap();
+    assert_eq!(completed.completed, 1);
+    assert_eq!(authority.0, 3);
+}
+
+#[test]
+fn invalid_resolve_pass_precedes_sqlite_metadata() {
+    let dir = Directory::new();
+    let path = dir.path("resolve-source.db");
+    let mut src = source(path.clone());
+    let entry = id("entry");
+    src.upsert(&entry, b"value").unwrap();
+    let valid = CataloguePass {
+        scope: scope("epoch-1"),
+        completed: 0,
+        boundary: 1,
+        cursor: None,
+        generation: 1,
+    };
+    assert_eq!(src.resolve(&valid, &entry, 1024).unwrap().payload, b"value");
+    let reads = src.resolve_reads();
+    let bytes = src.payload_bytes();
+    let mut generation = valid.clone();
+    generation.generation = 0;
+    let mut equal = valid.clone();
+    equal.completed = 1;
+    let mut backward = valid.clone();
+    backward.completed = 2;
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TABLE catalogue_source_entries")
+        .unwrap();
+    for pass in [generation, equal, backward] {
+        assert_eq!(
+            src.resolve(&pass, &entry, 1024),
+            Err(CatalogueSourceError::InvalidRequest)
+        );
+        assert_eq!((src.resolve_reads(), src.payload_bytes()), (reads, bytes));
+    }
+    assert_eq!(
+        src.resolve(&valid, &entry, 1024),
+        Err(CatalogueSourceError::Unavailable)
     );
 }
