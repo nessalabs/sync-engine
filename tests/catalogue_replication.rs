@@ -9,8 +9,8 @@ use nessa_sync::replication::application::{Access, ScopeAuthorizer};
 use nessa_sync::replication::catalogue::{
     apply_next_page, begin_or_resume, reset_catalogue, validate_manifest, CatalogueError,
     CataloguePagePlan, CataloguePass, CatalogueSource, CatalogueSourceError, CatalogueStore,
-    CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestPage, ManifestRequest,
-    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
+    CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage,
+    ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
@@ -706,6 +706,280 @@ fn failed_page_transaction_rolls_back_values_and_cursor_before_restart() {
     let done = apply_next_page(&pass, 2, 1024, &mut auth, &mut src, &mut restarted).unwrap();
     assert_eq!(done.completed, 2);
     assert_eq!(restarted.count(&selected).unwrap(), 2);
+}
+
+/// A current value can be newer than the pass boundary. The next pass compares
+/// its coherent saved descriptor with incoming metadata from that same identity.
+fn retained_cache(path: &PathBuf, deleted: bool) -> (SqliteCatalogueStore, Scope, ResolvedEntry) {
+    let selected = scope("epoch-1");
+    let mut store = SqliteCatalogueStore::open(path).unwrap();
+    let pass = store.begin(&selected, None, 1).unwrap().active.unwrap();
+    let manifest = ManifestEntry {
+        key: EntryKey {
+            creation: 1,
+            id: id("retained"),
+        },
+        revision: 3,
+        deleted,
+    };
+    let value = ResolvedEntry {
+        manifest: manifest.clone(),
+        payload: if deleted {
+            vec![]
+        } else {
+            b"current-content".to_vec()
+        },
+    };
+    let page = ManifestPage {
+        request: ManifestRequest {
+            pass,
+            max_entries: 1,
+        },
+        entries: vec![manifest],
+        has_more: false,
+    };
+    store
+        .apply_page(CataloguePagePlan::new(page, vec![value.clone()], vec![]).unwrap())
+        .unwrap();
+    (store, selected, value)
+}
+
+#[test]
+fn cached_descriptor_comparisons_preserve_revision_meaning() {
+    for resolved_mode in [false, true] {
+        for (name, cached_deleted, incoming_revision, incoming_deleted, expected) in [
+            (
+                "live-same-deleted",
+                false,
+                3,
+                true,
+                Err(CatalogueStoreError::Conflict),
+            ),
+            (
+                "live-newer-deleted",
+                false,
+                2,
+                true,
+                Err(CatalogueStoreError::Fenced),
+            ),
+            (
+                "deleted-same-live",
+                true,
+                3,
+                false,
+                Err(CatalogueStoreError::Conflict),
+            ),
+            ("deleted-newer-live", true, 2, false, Ok(())),
+            ("live-newer-live", false, 2, false, Ok(())),
+            ("deleted-newer-deleted", true, 2, true, Ok(())),
+            ("live-same-live", false, 3, false, Ok(())),
+            ("deleted-same-deleted", true, 3, true, Ok(())),
+        ] {
+            let dir = Directory::new();
+            let path = dir.path("receiver.db");
+            let (mut store, selected, retained) = retained_cache(&path, cached_deleted);
+            let initial = store.progress(&selected).unwrap();
+            let progress = store.begin(&selected, initial, 3).unwrap();
+            let incoming = ManifestEntry {
+                revision: incoming_revision,
+                deleted: incoming_deleted,
+                ..retained.manifest.clone()
+            };
+            let page = ManifestPage {
+                request: ManifestRequest {
+                    pass: progress.active.clone().unwrap(),
+                    max_entries: 1,
+                },
+                entries: vec![incoming.clone()],
+                has_more: false,
+            };
+            let plan = if resolved_mode {
+                let value = ResolvedEntry {
+                    manifest: incoming,
+                    payload: if incoming_deleted {
+                        vec![]
+                    } else {
+                        retained.payload.clone()
+                    },
+                };
+                CataloguePagePlan::new(page, vec![value], vec![]).unwrap()
+            } else {
+                CataloguePagePlan::new(page, vec![], vec![incoming]).unwrap()
+            };
+            let actual = store.apply_page(plan);
+            assert_eq!(
+                actual.as_ref().map(|_| ()).map_err(Clone::clone),
+                expected,
+                "{name}, resolved={resolved_mode}"
+            );
+            drop(store);
+            let mut reopened = SqliteCatalogueStore::open(&path).unwrap();
+            assert_eq!(
+                reopened.cached_entry(&selected, &id("retained")).unwrap(),
+                Some(retained.clone())
+            );
+            if expected.is_err() {
+                assert_eq!(
+                    reopened.progress(&selected).unwrap(),
+                    Some(progress.clone())
+                );
+                let valid_page = ManifestPage {
+                    request: ManifestRequest {
+                        pass: progress.active.unwrap(),
+                        max_entries: 1,
+                    },
+                    entries: vec![retained.manifest.clone()],
+                    has_more: false,
+                };
+                reopened
+                    .apply_page(
+                        CataloguePagePlan::new(valid_page, vec![], vec![retained.manifest])
+                            .unwrap(),
+                    )
+                    .unwrap();
+            }
+            let final_progress = reopened.progress(&selected).unwrap().unwrap();
+            assert_eq!(final_progress.completed, 3);
+            assert!(final_progress.active.is_none());
+        }
+    }
+}
+
+#[test]
+fn resolved_cache_orders_newer_values_and_rejects_foreign_creation_and_payload_conflicts() {
+    for (name, saved_deleted, incoming_deleted, expected) in [
+        ("new-live", false, false, Ok(())),
+        ("new-deletion", false, true, Ok(())),
+        ("new-tombstone", true, true, Ok(())),
+        (
+            "resurrection",
+            true,
+            false,
+            Err(CatalogueStoreError::Fenced),
+        ),
+    ] {
+        let dir = Directory::new();
+        let path = dir.path("receiver.db");
+        let (mut store, selected, retained) = retained_cache(&path, saved_deleted);
+        let previous = store.progress(&selected).unwrap();
+        let progress = store.begin(&selected, previous, 4).unwrap();
+        let manifest = ManifestEntry {
+            revision: 4,
+            deleted: incoming_deleted,
+            ..retained.manifest.clone()
+        };
+        let value = ResolvedEntry {
+            manifest: manifest.clone(),
+            payload: if incoming_deleted {
+                vec![]
+            } else {
+                b"new-content".to_vec()
+            },
+        };
+        let page = ManifestPage {
+            request: ManifestRequest {
+                pass: progress.active.clone().unwrap(),
+                max_entries: 1,
+            },
+            entries: vec![manifest],
+            has_more: false,
+        };
+        let actual =
+            store.apply_page(CataloguePagePlan::new(page, vec![value.clone()], vec![]).unwrap());
+        assert_eq!(
+            actual.as_ref().map(|_| ()).map_err(Clone::clone),
+            expected,
+            "{name}"
+        );
+        drop(store);
+        let mut reopened = SqliteCatalogueStore::open(path).unwrap();
+        if expected.is_ok() {
+            assert_eq!(
+                reopened.cached_entry(&selected, &id("retained")).unwrap(),
+                Some(value)
+            );
+            assert_eq!(reopened.progress(&selected).unwrap().unwrap().completed, 4);
+        } else {
+            assert_eq!(
+                reopened.cached_entry(&selected, &id("retained")).unwrap(),
+                Some(retained)
+            );
+            assert_eq!(reopened.progress(&selected).unwrap(), Some(progress));
+        }
+    }
+    for resolved_mode in [false, true] {
+        let dir = Directory::new();
+        let path = dir.path("receiver.db");
+        let (mut store, selected, retained) = retained_cache(&path, false);
+        let previous = store.progress(&selected).unwrap();
+        let progress = store.begin(&selected, previous, 4).unwrap();
+        let foreign = ManifestEntry {
+            key: EntryKey {
+                creation: 2,
+                ..retained.manifest.key.clone()
+            },
+            ..retained.manifest.clone()
+        };
+        let page = ManifestPage {
+            request: ManifestRequest {
+                pass: progress.active.clone().unwrap(),
+                max_entries: 1,
+            },
+            entries: vec![foreign.clone()],
+            has_more: false,
+        };
+        let plan = if resolved_mode {
+            CataloguePagePlan::new(
+                page,
+                vec![ResolvedEntry {
+                    manifest: foreign,
+                    payload: retained.payload.clone(),
+                }],
+                vec![],
+            )
+            .unwrap()
+        } else {
+            CataloguePagePlan::new(page, vec![], vec![foreign]).unwrap()
+        };
+        assert_eq!(store.apply_page(plan), Err(CatalogueStoreError::Conflict));
+        assert_eq!(store.progress(&selected).unwrap(), Some(progress));
+        assert_eq!(
+            store.cached_entry(&selected, &id("retained")).unwrap(),
+            Some(retained)
+        );
+    }
+    let dir = Directory::new();
+    let path = dir.path("receiver.db");
+    let (mut store, selected, retained) = retained_cache(&path, false);
+    let previous = store.progress(&selected).unwrap();
+    let progress = store.begin(&selected, previous, 4).unwrap();
+    let page = ManifestPage {
+        request: ManifestRequest {
+            pass: progress.active.clone().unwrap(),
+            max_entries: 1,
+        },
+        entries: vec![retained.manifest.clone()],
+        has_more: false,
+    };
+    assert_eq!(
+        store.apply_page(
+            CataloguePagePlan::new(
+                page,
+                vec![ResolvedEntry {
+                    payload: b"different-same-revision".to_vec(),
+                    ..retained.clone()
+                }],
+                vec![]
+            )
+            .unwrap()
+        ),
+        Err(CatalogueStoreError::Conflict)
+    );
+    assert_eq!(store.progress(&selected).unwrap(), Some(progress));
+    assert_eq!(
+        store.cached_entry(&selected, &id("retained")).unwrap(),
+        Some(retained)
+    );
 }
 
 #[test]

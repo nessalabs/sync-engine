@@ -155,6 +155,8 @@ pub enum CatalogueValidationError {
     WrongPayload,
     /// Payload or entry count exceeded the caller's bounds.
     BoundsExceeded,
+    /// Later live content contradicts an earlier retained deletion descriptor.
+    DeletionFence,
 }
 
 /// Checks the existing finite-pass relationships before a source effect.
@@ -252,19 +254,43 @@ pub fn validate_manifest(
     Ok(())
 }
 
+/// Checks that two descriptors for one key describe a compatible revision order.
+///
+/// This pure constant-work operation borrows both values and performs no I/O or
+/// allocation. It validates their relationship, not individual page ranges,
+/// payload bytes, cache presence or authority. Equal revisions retain the same
+/// deletion meaning; later revisions cannot restore an earlier deleted identity.
+/// Stores choose the earlier/later order from their coherent revision evidence.
+///
+/// # Errors
+/// Returns [`CatalogueValidationError::WrongPayload`] for differing stable keys,
+/// backward revisions or changed deletion meaning at the same revision. Returns
+/// [`CatalogueValidationError::DeletionFence`] for live content after deletion.
+pub fn validate_catalogue_revision_transition(
+    earlier: &ManifestEntry,
+    later: &ManifestEntry,
+) -> Result<(), CatalogueValidationError> {
+    if later.key != earlier.key
+        || later.revision < earlier.revision
+        || (later.revision == earlier.revision && later.deleted != earlier.deleted)
+    {
+        return Err(CatalogueValidationError::WrongPayload);
+    }
+    if earlier.deleted && !later.deleted {
+        return Err(CatalogueValidationError::DeletionFence);
+    }
+    Ok(())
+}
+
 /// Checks a current payload against the manifest identity and revision.
 pub fn validate_resolved(
     manifest: &ManifestEntry,
     resolved: &ResolvedEntry,
     max_payload_bytes: usize,
 ) -> Result<(), CatalogueValidationError> {
-    if resolved.manifest.key != manifest.key
-        || resolved.manifest.revision < manifest.revision
-        || (resolved.manifest.revision == manifest.revision
-            && resolved.manifest.deleted != manifest.deleted)
-        || (manifest.deleted && !resolved.manifest.deleted)
-        || (resolved.manifest.deleted && !resolved.payload.is_empty())
-    {
+    validate_catalogue_revision_transition(manifest, &resolved.manifest)
+        .map_err(|_| CatalogueValidationError::WrongPayload)?;
+    if resolved.manifest.deleted && !resolved.payload.is_empty() {
         return Err(CatalogueValidationError::WrongPayload);
     }
     if resolved.payload.len() > max_payload_bytes {

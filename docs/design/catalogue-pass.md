@@ -103,6 +103,46 @@ reset, the host must implement the ownership-aware post-pass absence lookup in
 the wider sync contract. This reference adapter chooses an eager privacy wipe
 on scope change and has no cached live values to classify after that reset.
 
+## Cached descriptor design revisit (#37)
+
+Successive independent reviews found incoming descriptor contradictions and then
+unchanged-cache contradictions. The consistency model has two facts: a stable
+key plus monotonic revision/deletion meaning, and durable presence/content under
+one saved pass. A descriptor comparison has one pure directional owner,
+`validate_catalogue_revision_transition(earlier, later)`. Resolved source values,
+unchanged cached descriptors and replacement/ignored resolved cache values ask
+that same owner. Presence, exact scope/pass CAS, equal-revision payload equality
+and the SQL transaction remain store decisions. No second deletion-bit validator
+is added to the adapter. The structural plan cannot certify cached presence.
+
+For cache evidence, order the two descriptors by revision before comparing. An
+unchanged entry explicitly claims that the cache is at least as new as the
+manifest; its comparison is manifest -> cache. A resolved value can be older than
+a concurrent saved value; compare the older descriptor -> newer descriptor and
+keep the newer row. This aligns resolved and unchanged stale evidence instead of
+refusing valid older-live/newer-tombstone evidence in only one mode. A newer live
+value after a saved tombstone remains refused. The pure owner returns a typed
+`DeletionFence` for later live content after earlier deletion, and `WrongPayload`
+for key/backward/equal-revision contradictions. `validate_resolved` preserves its
+existing `WrongPayload` boundary refusal for all descriptor contradictions; store
+cache comparison maps the typed fence to its existing `Fenced` outcome.
+
+| Earlier / later evidence | Decision and required regression |
+| --- | --- |
+| Different stable key or backward revision | Pure owner refuses; store does not change cache or pass (`cached_descriptor_comparisons_preserve_revision_meaning`) |
+| Same revision, different deletion meaning, either direction | Pure owner refuses; unchanged and resolved paths preserve cache/progress across reopen |
+| Deleted earlier, newer live later | Pure typed deletion fence; no unchanged acknowledgement or cache replacement |
+| Live earlier, newer deletion later | Accept; keep/commit the newer tombstone |
+| Same revision and same deletion meaning | Accept descriptor; equal resolved payload bytes remain required by the store |
+| Same/newer live value with unchanged key | Accept compatible revision; keep or replace by age |
+| Missing unchanged cache or incompatible durable pass | Store typed Stale before entry/cursor effects; not a descriptor policy |
+| Resolved older live response versus newer cached tombstone | Accept compatible stale descriptor and retain tombstone; resolves the inherited mismatch between unchanged and resolved paths |
+| Invalid descriptor followed by valid page retry | Reopen preserves original cache/pass; valid compatible page can still complete |
+
+The validator borrows two descriptors, performs constant work and no I/O, and
+does not allocate, read payloads or establish authorization. Public individual
+descriptor syntax/range and page coverage retain their existing owners.
+
 The [issue39](https://github.com/nessalabs/sync-engine/issues/39) request-only owner is published for host adapters that validate before metadata
 access. It establishes request admissibility, not authorization, physical source
 identity, durable pass correlation or cursor/entry ordering. Those relationships
