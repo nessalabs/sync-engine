@@ -5,6 +5,7 @@ use nessa_sync::replication::application::{
 };
 use nessa_sync::replication::domain::{
     validate_page, Checkpoint, Id, Limits, Page, PageRequest, Record, Scope, ValidationError,
+    MAX_ID_BYTES,
 };
 use nessa_sync::replication::infrastructure::{
     MemoryAuthorizer, MemorySource, MemoryStore, SourceFact,
@@ -320,7 +321,10 @@ fn malformed_pages_refuse_before_apply() {
 #[test]
 fn pure_range_and_identity_validation() {
     assert_eq!(Id::new("  "), Err(ValidationError::InvalidId));
-    assert_eq!(Id::new("x".repeat(129)), Err(ValidationError::InvalidId));
+    assert_eq!(
+        Id::new("x".repeat(MAX_ID_BYTES + 1)),
+        Err(ValidationError::InvalidId)
+    );
     assert_eq!(Limits::new(0, 1, 1), Err(ValidationError::InvalidLimits));
     assert_eq!(Limits::new(1, 0, 1), Err(ValidationError::InvalidLimits));
     assert_eq!(Limits::new(1, 1, 0), Err(ValidationError::InvalidLimits));
@@ -973,6 +977,9 @@ fn mid_pass_epoch_change_refuses_next_page_before_source_read() {
 
 #[path = "replication/domain/page_request.rs"]
 mod page_request;
+
+#[path = "replication/domain/id.rs"]
+mod id_contract;
 
 #[path = "replication/infrastructure/memory_request.rs"]
 mod memory_request_contract;

@@ -2,18 +2,34 @@
 
 use std::collections::HashSet;
 
-/// A validated opaque identifier, at most 128 UTF-8 bytes.
+/// Maximum UTF-8 bytes retained by one opaque [`Id`].
+///
+/// Host wire schemas can consume this owner constant through the
+/// `wire_contract` example; the limit counts bytes rather than code points.
+pub const MAX_ID_BYTES: usize = 128;
+
+/// A validated opaque identifier bounded by [`MAX_ID_BYTES`] UTF-8 bytes.
+/// Accepted text is retained unchanged in compact immutable storage.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Id(String);
+pub struct Id(Box<str>);
 
 impl Id {
-    /// Constructs an ID. Empty, whitespace-only, and oversized IDs are refused.
-    pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
-        let value = value.into();
-        if value.trim().is_empty() || value.len() > 128 {
+    /// Constructs an ID from borrowed text, consulting `AsRef<str>` once.
+    ///
+    /// Byte length is checked before the blank scan and ownership allocation.
+    /// Accepted input is copied into compact immutable storage, so an owned
+    /// input's spare allocation capacity is not retained. Whitespace surrounding
+    /// nonblank text is preserved; this constructor does not normalize identity.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::InvalidId`] for empty, whitespace-only, or
+    /// oversized text. The byte ceiling is [`MAX_ID_BYTES`].
+    pub fn new(value: impl AsRef<str>) -> Result<Self, ValidationError> {
+        let value = value.as_ref();
+        if value.len() > MAX_ID_BYTES || value.trim().is_empty() {
             return Err(ValidationError::InvalidId);
         }
-        Ok(Self(value))
+        Ok(Self(retain_id(value)))
     }
 
     /// Returns the opaque host-selected ID.
@@ -21,6 +37,18 @@ impl Id {
         &self.0
     }
 }
+
+// Retained identifier allocation has one acquisition point. Tests instrument
+// this point without replacing the allocator or introducing unsafe hooks.
+fn retain_id(value: &str) -> Box<str> {
+    #[cfg(test)]
+    allocation_tests::allocated();
+    Box::from(value)
+}
+
+#[cfg(test)]
+#[path = "../../../tests/replication/domain/id_allocation.rs"]
+mod allocation_tests;
 
 /// Exact receiving and source stream identity, including authorization epoch.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -222,7 +250,7 @@ impl CommitPlan {
 /// Pure validation refusal. No store call is allowed after one of these errors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValidationError {
-    /// Opaque identity was empty or too long.
+    /// Opaque identity was blank or exceeded [`MAX_ID_BYTES`] UTF-8 bytes.
     InvalidId,
     /// A configured bound was zero.
     InvalidLimits,

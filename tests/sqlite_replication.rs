@@ -10,6 +10,7 @@ use nessa_sync::replication::application::{
 };
 use nessa_sync::replication::domain::{
     validate_page, Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Record, Scope,
+    MAX_ID_BYTES,
 };
 use nessa_sync::replication::infrastructure::{
     MemoryAuthorizer, SqliteReferenceSource, SqliteReplicaStore,
@@ -259,8 +260,8 @@ fn source_checks_single_record_size_before_reading_payload_and_uses_indexed_rang
     );
     let db = rusqlite::Connection::open(&path).unwrap();
     let detail: String = db.query_row(
-        "EXPLAIN QUERY PLAN SELECT position, length(record_id), length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3",
-        rusqlite::params![0, 1, 10],
+        "EXPLAIN QUERY PLAN SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3",
+        rusqlite::params![0, 1, 10, 2 * MAX_ID_BYTES],
         |row| row.get(3),
     ).unwrap();
     assert!(
