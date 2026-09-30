@@ -25,8 +25,9 @@ use crate::replication::artifacts::{
     MAX_CHUNK_BYTES,
 };
 use crate::replication::catalogue::{
-    CataloguePass, CatalogueSource, CatalogueSourceError, EntryKey, ManifestEntry, ManifestPage,
-    ManifestRequest, ResolvedEntry,
+    validate_catalogue_pass, validate_manifest, validate_manifest_request, CataloguePass,
+    CatalogueSource, CatalogueSourceError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
+    ResolvedEntry,
 };
 use crate::replication::domain::{Id, Page, PageRequest, Record, Scope};
 use crate::replication::history::{
@@ -964,18 +965,15 @@ fn serve_one(
                 if !catalogue_access(config, &token, &pass.scope, counters, &mut stream)? {
                     return Ok(());
                 }
-                if count == 0
-                    || count > MAX_CATALOGUE_ENTRIES as u64
-                    || pass.generation == 0
-                    || pass.boundary <= pass.completed
-                {
+                let Ok(max_entries) = usize::try_from(count) else {
+                    write_frame(&mut stream, &[4])?;
+                    return Ok(());
+                };
+                let request = ManifestRequest { pass, max_entries };
+                if validate_manifest_request(&request, MAX_CATALOGUE_ENTRIES).is_err() {
                     write_frame(&mut stream, &[4])?;
                     return Ok(());
                 }
-                let request = ManifestRequest {
-                    pass,
-                    max_entries: count as usize,
-                };
                 counters
                     .catalogue_manifest_reads
                     .fetch_add(1, Ordering::Relaxed);
@@ -1008,8 +1006,7 @@ fn serve_one(
                 }
                 if max == 0
                     || max > MAX_PAGE_PAYLOAD as u64
-                    || pass.generation == 0
-                    || pass.boundary <= pass.completed
+                    || validate_catalogue_pass(&pass).is_err()
                 {
                     write_frame(&mut stream, &[4])?;
                     return Ok(());
@@ -1385,9 +1382,8 @@ impl CatalogueSource for LoopbackClient {
         &mut self,
         request: &ManifestRequest,
     ) -> Result<ManifestPage, CatalogueSourceError> {
-        if request.max_entries == 0 || request.max_entries > MAX_CATALOGUE_ENTRIES {
-            return Err(CatalogueSourceError::InvalidRequest);
-        }
+        validate_manifest_request(request, MAX_CATALOGUE_ENTRIES)
+            .map_err(|_| CatalogueSourceError::InvalidRequest)?;
         let mut body = vec![12];
         put_id(&mut body, &self.token);
         put_catalogue_pass(&mut body, &request.pass);
@@ -1451,7 +1447,7 @@ impl CatalogueSource for LoopbackClient {
             entries,
             has_more,
         };
-        crate::replication::catalogue::validate_manifest(request, &page, MAX_CATALOGUE_ENTRIES)
+        validate_manifest(request, &page, MAX_CATALOGUE_ENTRIES)
             .map_err(|_| CatalogueSourceError::InvalidRequest)?;
         self.counters.catalogue_manifest_bytes += descriptor_bytes;
         self.counters.protocol_bytes = self
@@ -1467,6 +1463,7 @@ impl CatalogueSource for LoopbackClient {
         id: &Id,
         max_payload_bytes: usize,
     ) -> Result<ResolvedEntry, CatalogueSourceError> {
+        validate_catalogue_pass(pass).map_err(|_| CatalogueSourceError::InvalidRequest)?;
         if max_payload_bytes == 0 || max_payload_bytes > MAX_PAGE_PAYLOAD {
             return Err(CatalogueSourceError::InvalidRequest);
         }
@@ -1900,6 +1897,7 @@ impl RecordSource for LoopbackClient {
 #[cfg(all(test, feature = "sqlite"))]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
 
     fn id(value: &str) -> Id {
         Id::new(value).unwrap()
@@ -1917,7 +1915,7 @@ mod tests {
     fn fake_reply(response: Vec<u8>) -> LoopbackClient {
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
         let address = match listener.local_addr().unwrap() {
-            std::net::SocketAddr::V4(address) => address,
+            SocketAddr::V4(address) => address,
             _ => unreachable!(),
         };
         thread::spawn(move || {
@@ -2104,5 +2102,106 @@ mod tests {
         chunk_reply.extend_from_slice(b"four");
         let mut client = fake_reply(chunk_reply);
         assert_eq!(client.chunk(&chunk), Err(ChunkSourceError::VersionChanged));
+    }
+    #[test]
+    fn catalogue_request_owners_refuse_before_client_wire_or_server_source() {
+        let valid = CataloguePass {
+            scope: test_scope(),
+            completed: 0,
+            boundary: 1,
+            cursor: None,
+            generation: 1,
+        };
+        let mut generation = valid.clone();
+        generation.generation = 0;
+        let mut equal = valid.clone();
+        equal.completed = 1;
+        let mut backward = valid.clone();
+        backward.completed = 2;
+        let invalid = [generation, equal, backward];
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = match listener.local_addr().unwrap() {
+            SocketAddr::V4(address) => address,
+            _ => unreachable!(),
+        };
+        drop(listener);
+        let mut client = LoopbackClient::new(address, id("read")).unwrap();
+        for pass in &invalid {
+            assert_eq!(
+                CatalogueSource::manifest(
+                    &mut client,
+                    &ManifestRequest {
+                        pass: pass.clone(),
+                        max_entries: 1
+                    }
+                ),
+                Err(CatalogueSourceError::InvalidRequest)
+            );
+            assert_eq!(
+                client.resolve(pass, &id("entry"), 1024),
+                Err(CatalogueSourceError::InvalidRequest)
+            );
+        }
+        for count in [0, MAX_CATALOGUE_ENTRIES + 1] {
+            assert_eq!(
+                CatalogueSource::manifest(
+                    &mut client,
+                    &ManifestRequest {
+                        pass: valid.clone(),
+                        max_entries: count
+                    }
+                ),
+                Err(CatalogueSourceError::InvalidRequest)
+            );
+        }
+        assert_eq!(client.counters().protocol_bytes, 0);
+        for operation in [12, 13] {
+            let cases: Vec<_> = invalid
+                .iter()
+                .map(|pass| (pass, 1))
+                .chain((operation == 12).then_some((&valid, MAX_CATALOGUE_ENTRIES + 1)))
+                .chain((operation == 12).then_some((&valid, 0)))
+                .collect();
+            for (pass, count) in cases {
+                let listener =
+                    TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+                let address = listener.local_addr().unwrap();
+                let config = LoopbackConfig {
+                    source_path: PathBuf::new(),
+                    catalogue_source_path: Some(PathBuf::new()),
+                    artifact_source_path: None,
+                    catalogue_fault: None,
+                    origin: id("origin"),
+                    stream: id("index"),
+                    incarnation: id("first"),
+                    schema: id("opaque"),
+                    access_epoch: id("epoch"),
+                    read_token: id("read"),
+                    allowed_receivers: vec![id("receiver")],
+                    write_token: id("write"),
+                };
+                let counters = Arc::new(ServerCounters::default());
+                let observed = counters.clone();
+                let server = thread::spawn(move || {
+                    let (socket, _) = listener.accept().unwrap();
+                    serve_one(socket, &config, &(Mutex::new(0), Condvar::new()), &observed)
+                });
+                let mut socket = TcpStream::connect(address).unwrap();
+                let mut body = vec![operation];
+                put_id(&mut body, &id("read"));
+                put_catalogue_pass(&mut body, pass);
+                if operation == 12 {
+                    body.extend_from_slice(&(count as u64).to_be_bytes());
+                } else {
+                    put_id(&mut body, &id("entry"));
+                    body.extend_from_slice(&1024_u64.to_be_bytes());
+                }
+                write_frame(&mut socket, &body).unwrap();
+                assert_eq!(read_frame(&mut socket).unwrap(), vec![4]);
+                assert!(server.join().unwrap().is_ok());
+                assert_eq!(counters.catalogue_manifest_reads.load(Ordering::Relaxed), 0);
+                assert_eq!(counters.catalogue_resolve_reads.load(Ordering::Relaxed), 0);
+            }
+        }
     }
 }

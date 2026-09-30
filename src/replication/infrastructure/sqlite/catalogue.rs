@@ -7,10 +7,10 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::replication::catalogue::{
-    validate_catalogue_page_plan, CataloguePagePlan, CataloguePass, CatalogueProgress,
-    CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError, EntryKey,
-    ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
-    MAX_CATALOGUE_PAYLOAD_BYTES,
+    validate_catalogue_page_plan, validate_catalogue_pass, validate_manifest_request,
+    CataloguePagePlan, CataloguePass, CatalogueProgress, CatalogueSource, CatalogueSourceError,
+    CatalogueStore, CatalogueStoreError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
+    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use crate::replication::domain::{Id, Scope};
 
@@ -272,12 +272,8 @@ impl CatalogueSource for SqliteCatalogueSource {
         if !self.matches(&request.pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
-        if request.max_entries == 0
-            || request.max_entries > MAX_CATALOGUE_ENTRIES
-            || request.pass.boundary <= request.pass.completed
-        {
-            return Err(CatalogueSourceError::InvalidRequest);
-        }
+        validate_manifest_request(request, MAX_CATALOGUE_ENTRIES)
+            .map_err(|_| CatalogueSourceError::InvalidRequest)?;
         let boundary = i64::try_from(request.pass.boundary)
             .map_err(|_| CatalogueSourceError::InvalidRequest)?;
         let completed = i64::try_from(request.pass.completed)
@@ -356,6 +352,7 @@ impl CatalogueSource for SqliteCatalogueSource {
         if !self.matches(&pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
+        validate_catalogue_pass(pass).map_err(|_| CatalogueSourceError::InvalidRequest)?;
         if max_payload_bytes == 0 || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
             return Err(CatalogueSourceError::InvalidRequest);
         }

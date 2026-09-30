@@ -58,6 +58,11 @@ sequenceDiagram
 
 | Event | Required result |
 | --- | --- |
+| Manifest or resolve has zero generation or non-advancing boundary | Pure `validate_catalogue_pass` owns these pass relationships; request, source and wire consumers ask it before effects. |
+| Loopback request fits the core ceiling but exceeds its smaller wire count ceiling | Manifest request owner consumes the transport's published local ceiling; checked usize conversion precedes validation. |
+| Application receives an inadmissible actual manifest request | Request owner refuses before authorization/source; payload budget remains a distinct application decision. |
+| Invalid resolve pass accompanies unavailable SQLite metadata | Pass owner refuses before metadata; valid pass still encounters real metadata failure. No fabricated manifest/page. |
+| Reference SQLite source receives zero generation or another inadmissible manifest request | Source consumes `validate_manifest_request` before its metadata transaction and maps refusal to `CatalogueSourceError::InvalidRequest`; exact source identity remains adapter-owned. Valid requests still read unchanged descriptors. |
 | Host checks a manifest request before source I/O | Pure `validate_manifest_request` owns nonzero entry count, core/caller entry ceilings, advancing boundary and nonzero generation; it borrows the request without payload, allocation or effects. |
 | Invalid request accompanies a contradictory response | `validate_manifest` consumes the request owner first and preserves typed `InvalidRequest` precedence; response correlation/order remains its responsibility. |
 | Request fits the published ceiling but exceeds the caller's smaller ceiling | Request owner refuses `InvalidRequest`; an exact fitting count is accepted. |

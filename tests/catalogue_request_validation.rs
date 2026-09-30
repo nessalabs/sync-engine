@@ -2,8 +2,8 @@
 
 use nessa_sync::replication::{
     catalogue::{
-        validate_manifest, validate_manifest_request, CataloguePass, CatalogueValidationError,
-        EntryKey, ManifestPage, ManifestRequest, MAX_CATALOGUE_ENTRIES,
+        validate_catalogue_pass, validate_manifest, validate_manifest_request, CataloguePass,
+        CatalogueValidationError, EntryKey, ManifestPage, ManifestRequest, MAX_CATALOGUE_ENTRIES,
     },
     domain::{Id, Scope},
 };
@@ -54,6 +54,12 @@ fn request_rules_refuse_directly_and_before_response_correlation() {
     invalid.push((zero_generation, MAX_CATALOGUE_ENTRIES));
 
     for (request, cap) in invalid {
+        if request.pass.generation == 0 || request.pass.boundary <= request.pass.completed {
+            assert_eq!(
+                validate_catalogue_pass(&request.pass),
+                Err(CatalogueValidationError::InvalidRequest)
+            );
+        }
         assert_eq!(
             validate_manifest_request(&request, cap),
             Err(CatalogueValidationError::InvalidRequest)
@@ -87,6 +93,7 @@ fn exact_limits_and_large_revisions_preserve_the_borrowed_request() {
         let saved = request.clone();
         assert_eq!(validate_manifest_request(&request, count), Ok(()));
         assert_eq!(validate_manifest_request(&request, usize::MAX), Ok(()));
+        assert_eq!(validate_catalogue_pass(&request.pass), Ok(()));
         assert_eq!(request, saved);
         let page = ManifestPage {
             request: request.clone(),

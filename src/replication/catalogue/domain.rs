@@ -157,6 +157,23 @@ pub enum CatalogueValidationError {
     BoundsExceeded,
 }
 
+/// Checks the existing finite-pass relationships before a source effect.
+///
+/// This pure borrowed check performs no I/O or mutation. It establishes an
+/// advancing captured boundary and nonzero receiver generation; it does not
+/// authorize the scope, read durable progress or validate cursor ordering.
+/// Immutable requests may be checked concurrently.
+///
+/// # Errors
+/// Returns [`CatalogueValidationError::InvalidRequest`] when the boundary does
+/// not advance completed progress or the generation is zero.
+pub fn validate_catalogue_pass(pass: &CataloguePass) -> Result<(), CatalogueValidationError> {
+    if pass.boundary <= pass.completed || pass.generation == 0 {
+        return Err(CatalogueValidationError::InvalidRequest);
+    }
+    Ok(())
+}
+
 /// Checks manifest request bounds before a host performs source I/O.
 ///
 /// The request is borrowed and unchanged; this pure operation allocates no
@@ -196,12 +213,10 @@ pub fn validate_manifest_request(
     if request.max_entries == 0
         || request.max_entries > MAX_CATALOGUE_ENTRIES
         || request.max_entries > max_entries
-        || request.pass.boundary <= request.pass.completed
-        || request.pass.generation == 0
     {
         return Err(CatalogueValidationError::InvalidRequest);
     }
-    Ok(())
+    validate_catalogue_pass(&request.pass)
 }
 
 /// Validates a bounded page before resolving any payloads.
