@@ -7,10 +7,10 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::replication::catalogue::{
-    validate_catalogue_page_plan, CataloguePagePlan, CataloguePass, CatalogueProgress,
-    CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError, EntryKey,
-    ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
-    MAX_CATALOGUE_PAYLOAD_BYTES,
+    validate_catalogue_page_plan, validate_catalogue_revision_transition, CataloguePagePlan,
+    CataloguePass, CatalogueProgress, CatalogueSource, CatalogueSourceError, CatalogueStore,
+    CatalogueStoreError, CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage,
+    ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use crate::replication::domain::{Id, Scope};
 
@@ -635,12 +635,16 @@ impl CatalogueStore for SqliteCatalogueStore {
             let saved: Option<(i64, i64, i64)> = tx.query_row("SELECT creation, revision, deleted FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND entry_id = ?4",
                 params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), entry.key.id.as_str()],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
-            match saved {
-                Some((creation, revision, _))
-                    if to_u64(creation)? == entry.key.creation
-                        && to_u64(revision)? >= entry.revision => {}
-                _ => return Err(CatalogueStoreError::Stale),
-            }
+            let (creation, revision, deleted) = saved.ok_or(CatalogueStoreError::Stale)?;
+            let cached = ManifestEntry {
+                key: EntryKey {
+                    creation: to_u64(creation)?,
+                    id: entry.key.id.clone(),
+                },
+                revision: to_u64(revision)?,
+                deleted: deleted != 0,
+            };
+            validate_catalogue_revision_transition(entry, &cached).map_err(revision_error)?;
         }
         for value in &plan.entries {
             let key = &value.manifest.key;
@@ -648,17 +652,25 @@ impl CatalogueStore for SqliteCatalogueStore {
                 params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str()],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
             if let Some((creation, revision, deleted, payload)) = saved {
-                if to_u64(creation)? != key.creation {
-                    return Err(CatalogueStoreError::Conflict);
-                }
-                if deleted != 0 && !value.manifest.deleted {
-                    return Err(CatalogueStoreError::Fenced);
-                }
-                if to_u64(revision)? > value.manifest.revision {
+                let cached = ManifestEntry {
+                    key: EntryKey {
+                        creation: to_u64(creation)?,
+                        id: key.id.clone(),
+                    },
+                    revision: to_u64(revision)?,
+                    deleted: deleted != 0,
+                };
+                let (earlier, later) = if cached.revision > value.manifest.revision {
+                    (&value.manifest, &cached)
+                } else {
+                    (&cached, &value.manifest)
+                };
+                validate_catalogue_revision_transition(earlier, later).map_err(revision_error)?;
+                if cached.revision > value.manifest.revision {
                     continue;
                 }
-                if to_u64(revision)? == value.manifest.revision {
-                    if (deleted != 0) != value.manifest.deleted || payload != value.payload {
+                if cached.revision == value.manifest.revision {
+                    if payload != value.payload {
                         return Err(CatalogueStoreError::Conflict);
                     }
                     continue;
@@ -724,5 +736,12 @@ impl CatalogueStore for SqliteCatalogueStore {
             .map_err(|_| CatalogueStoreError::Failed)?;
         tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
         read_progress(&self.conn, scope)?.ok_or(CatalogueStoreError::Failed)
+    }
+}
+
+fn revision_error(error: CatalogueValidationError) -> CatalogueStoreError {
+    match error {
+        CatalogueValidationError::DeletionFence => CatalogueStoreError::Fenced,
+        _ => CatalogueStoreError::Conflict,
     }
 }

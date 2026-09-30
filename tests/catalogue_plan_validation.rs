@@ -1,9 +1,9 @@
 //! Pure public page-plan relationships, independent of database/transport features.
 
 use nessa_sync::replication::catalogue::{
-    validate_catalogue_page_plan, validate_manifest, CataloguePagePlan, CataloguePass,
-    CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
-    ResolvedEntry, MAX_CATALOGUE_PAYLOAD_BYTES,
+    validate_catalogue_page_plan, validate_catalogue_revision_transition, validate_manifest,
+    CataloguePagePlan, CataloguePass, CatalogueValidationError, EntryKey, ManifestEntry,
+    ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
 use nessa_sync::replication::domain::{Id, Scope};
 
@@ -240,4 +240,55 @@ fn ordered_manifest_cannot_repeat_an_identity_under_another_key() {
         CataloguePagePlan::new(page, vec![], vec![]),
         Err(CatalogueValidationError::InvalidOrder)
     );
+}
+
+#[test]
+fn directional_revision_owner_rejects_contradictions_and_preserves_valid_stale_evidence() {
+    let initial = entry("a", 1);
+    for (earlier_deleted, later_revision, later_deleted, expected) in [
+        (false, 0, false, Err(CatalogueValidationError::WrongPayload)),
+        (false, 1, false, Ok(())),
+        (false, 1, true, Err(CatalogueValidationError::WrongPayload)),
+        (false, 2, false, Ok(())),
+        (false, 2, true, Ok(())),
+        (true, 1, true, Ok(())),
+        (true, 1, false, Err(CatalogueValidationError::WrongPayload)),
+        (true, 2, true, Ok(())),
+        (true, 2, false, Err(CatalogueValidationError::DeletionFence)),
+    ] {
+        let earlier = ManifestEntry {
+            deleted: earlier_deleted,
+            ..initial.clone()
+        };
+        let later = ManifestEntry {
+            revision: later_revision,
+            deleted: later_deleted,
+            ..initial.clone()
+        };
+        assert_eq!(
+            validate_catalogue_revision_transition(&earlier, &later),
+            expected
+        );
+    }
+    let foreign_id = ManifestEntry {
+        key: EntryKey {
+            id: id("foreign"),
+            ..initial.key.clone()
+        },
+        ..initial.clone()
+    };
+    let foreign_creation = ManifestEntry {
+        key: EntryKey {
+            creation: 2,
+            ..initial.key.clone()
+        },
+        revision: 2,
+        ..initial.clone()
+    };
+    for foreign in [foreign_id, foreign_creation] {
+        assert_eq!(
+            validate_catalogue_revision_transition(&initial, &foreign),
+            Err(CatalogueValidationError::WrongPayload)
+        );
+    }
 }
