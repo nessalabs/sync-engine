@@ -261,7 +261,7 @@ fn source_checks_single_record_size_before_reading_payload_and_uses_indexed_rang
     let db = rusqlite::Connection::open(&path).unwrap();
     let detail: String = db.query_row(
         "EXPLAIN QUERY PLAN SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3",
-        rusqlite::params![0, 1, 10, 2 * MAX_ID_BYTES],
+        rusqlite::params![0, 1, 10, i64::try_from(2 * MAX_ID_BYTES).unwrap()],
         |row| row.get(3),
     ).unwrap();
     assert!(

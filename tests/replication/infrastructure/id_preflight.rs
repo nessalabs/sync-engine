@@ -201,7 +201,7 @@ impl Fixture {
             let db = Connection::open(self.directory.path(file)).unwrap();
             db.execute(
                 &format!("UPDATE {table} SET payload = zeroblob(?1) WHERE position = 1"),
-                [self.request.max_payload_bytes + 1],
+                [i64::try_from(self.request.max_payload_bytes + 1).unwrap()],
             )
             .unwrap();
         }
@@ -416,7 +416,7 @@ fn assert_metadata_avoids_text_conversion(path: &Path, sql: &str, parameters: im
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    // Bundled SQLite 3.46's OPFLAG_BYTELENARG is 0xc0. A direct octet_length
+    // Bundled SQLite 3.53.2's OPFLAG_BYTELENARG is 0xc0. A direct octet_length
     // column uses that flag so overflow text bytes need not be materialized.
     assert!(instructions
         .iter()
@@ -430,17 +430,25 @@ fn actual_metadata_queries_use_sqlite_stored_byte_length_optimization() {
         assert_metadata_avoids_text_conversion(
             &fixture.directory.path("source.sqlite"),
             FORWARD_RECORD_METADATA_SQL,
-            params![0, 1, 1, MAX_STORED_ID_BYTES],
+            params![0, 1, 1, i64::try_from(MAX_STORED_ID_BYTES).unwrap()],
         );
         assert_metadata_avoids_text_conversion(
             &fixture.directory.path("source.sqlite"),
             HISTORY_RECORD_METADATA_SQL,
-            params![1, 2, 1, MAX_STORED_ID_BYTES],
+            params![1, 2, 1, i64::try_from(MAX_STORED_ID_BYTES).unwrap()],
         );
         assert_metadata_avoids_text_conversion(
             &fixture.directory.path("replica.sqlite"),
             REPLICA_RECORD_METADATA_SQL,
-            params!["r", "o", "s", 0, 1, 1, MAX_STORED_ID_BYTES],
+            params![
+                "r",
+                "o",
+                "s",
+                0,
+                1,
+                1,
+                i64::try_from(MAX_STORED_ID_BYTES).unwrap()
+            ],
         );
     }
 }

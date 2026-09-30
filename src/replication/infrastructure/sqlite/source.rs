@@ -320,9 +320,15 @@ impl RecordSource for SqliteReferenceSource {
                 .prepare(FORWARD_RECORD_METADATA_SQL)
                 .map_err(|_| SourceError::Unavailable)?;
             let rows = statement
-                .query_map(params![after, target, limit, MAX_STORED_ID_BYTES], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })
+                .query_map(
+                    params![
+                        after,
+                        target,
+                        limit,
+                        i64::try_from(MAX_STORED_ID_BYTES).map_err(|_| SourceError::Unavailable)?
+                    ],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
                 .map_err(|_| SourceError::Unavailable)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_| SourceError::Unavailable)?;
@@ -427,7 +433,8 @@ fn read_backward(
                     i64::try_from(oldest).map_err(|_| HistorySourceError::InvalidRequest)?,
                     i64::try_from(before).map_err(|_| HistorySourceError::InvalidRequest)?,
                     i64::try_from(max_records).map_err(|_| HistorySourceError::InvalidRequest)?,
-                    MAX_STORED_ID_BYTES
+                    i64::try_from(MAX_STORED_ID_BYTES)
+                        .map_err(|_| HistorySourceError::Unavailable)?
                 ],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )

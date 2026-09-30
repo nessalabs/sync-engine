@@ -137,7 +137,7 @@ impl SqliteReplicaStore {
                         after,
                         i64::try_from(saved_position).map_err(|_| StoreError::Failed)?,
                         limit,
-                        MAX_STORED_ID_BYTES
+                        i64::try_from(MAX_STORED_ID_BYTES).map_err(|_| StoreError::Failed)?
                     ],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )

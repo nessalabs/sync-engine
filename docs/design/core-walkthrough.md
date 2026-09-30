@@ -294,7 +294,7 @@ returned UTF-8/type, and otherwise let `Id::new` decide the returned text. The
 adapter does not add physical Unicode canonicality rules or narrow accepted files.
 
 The storage envelope also bounds conversion allocation before `get_ref` calls
-SQLite's UTF-8 text API. In the pinned bundled SQLite 3.46 converter,
+SQLite's UTF-8 text API. In the pinned bundled SQLite 3.53.2 converter,
 `sqlite3VdbeMemTranslate` requests at most `2*n + 1` bytes for conversion from
 `n` UTF-16 storage bytes. The envelope therefore bounds that requested conversion
 buffer at `4*MAX_ID_BYTES + 1`; raw row storage and terminators need at most
