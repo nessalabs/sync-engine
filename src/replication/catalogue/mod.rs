@@ -1,5 +1,6 @@
 //! Current-value catalogue replication with finite, resumable passes.
 //!
+//! `validate_manifest_request` owns request admissibility before source I/O.
 //! The domain validates responses and complete public page-plan relationships.
 //! `CataloguePagePlan::new` derives continuation through that same owner;
 //! stores call `validate_catalogue_page_plan` before their durable comparisons.

@@ -58,6 +58,9 @@ sequenceDiagram
 
 | Event | Required result |
 | --- | --- |
+| Host checks a manifest request before source I/O | Pure `validate_manifest_request` owns nonzero entry count, core/caller entry ceilings, advancing boundary and nonzero generation; it borrows the request without payload, allocation or effects. |
+| Invalid request accompanies a contradictory response | `validate_manifest` consumes the request owner first and preserves typed `InvalidRequest` precedence; response correlation/order remains its responsibility. |
+| Request fits the published ceiling but exceeds the caller's smaller ceiling | Request owner refuses `InvalidRequest`; an exact fitting count is accepted. |
 | Source head equals completed revision | No payload reads and no pass restart. |
 | Mutation while a pass runs | Preserve `C,H,cursor`; finish the pass. A later pass can pick up revisions above `H`. |
 | Earlier entry changes after its key was passed | Next pass selects it because its current revision exceeds `H`. |
@@ -94,3 +97,10 @@ When integrating with a product that must retain live values across a full
 reset, the host must implement the ownership-aware post-pass absence lookup in
 the wider sync contract. This reference adapter chooses an eager privacy wipe
 on scope change and has no cached live values to classify after that reset.
+
+The [issue39](https://github.com/nessalabs/sync-engine/issues/39) request-only owner is published for host adapters that validate before metadata
+access. It establishes request admissibility, not authorization, physical source
+identity, durable pass correlation or cursor/entry ordering. Those relationships
+remain with their existing owners. `catalogue_request_validation` exercises the
+same owner directly and through response validation, including exact ceilings,
+large revision values and refusal precedence. No fabricated page is needed.
