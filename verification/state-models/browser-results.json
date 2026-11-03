@@ -1,0 +1,88 @@
+{
+  "ok": true,
+  "browser": "156.0.8078.80",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "pages": 15,
+  "diagrams": 5,
+  "errors": [],
+  "results": [
+    {
+      "id": "sync",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "adapters",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "artifacts",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "bounds",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "catalogue",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "history",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "host",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "identity",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "inventory",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "network",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "progress",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "records",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "recovery",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "transfer",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "verification",
+      "figures": 0,
+      "failed": 0
+    }
+  ]
+}

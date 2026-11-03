@@ -168,3 +168,7 @@ request runs the path-classification test and skips Rust setup and checks.
 The repository has its own workflow and build cache; a Nessa integration would
 pin a reviewed core revision and test its own adapter. See
 [CONTRIBUTING.md](CONTRIBUTING.md) before making changes.
+
+## State and verification atlas
+
+Start with [the task-oriented Nessa Docs atlas](docs/state/README.md) for feature owners, recovery decisions and selected bounded models with negative controls.
