@@ -1,0 +1,86 @@
+[
+  {
+    "owner": "records",
+    "name": "checkpoint-without-records",
+    "rule": "AtomicProgress",
+    "from": "stored' = stored + 1",
+    "to": "stored' = stored"
+  },
+  {
+    "owner": "records",
+    "name": "repeat-stale-local-pass",
+    "rule": "ExpectedPosition",
+    "from": "/\\ local = checkpoint",
+    "to": "/\\ TRUE"
+  },
+  {
+    "owner": "history",
+    "name": "install-old-generation",
+    "rule": "CurrentGeneration",
+    "from": "Install == /\\ ~installed /\\ generation = 1",
+    "to": "Install == /\\ ~installed /\\ TRUE"
+  },
+  {
+    "owner": "history",
+    "name": "install-after-delete",
+    "rule": "NoDeletedInstall",
+    "from": "/\\ ~deleted /\\ installed' = TRUE",
+    "to": "/\\ TRUE /\\ installed' = TRUE"
+  },
+  {
+    "owner": "catalogue",
+    "name": "advance-before-payload",
+    "rule": "PayloadBeforeCursor",
+    "from": "Apply == /\\ cursor < 2 /\\ resolved",
+    "to": "Apply == /\\ cursor < 2 /\\ TRUE"
+  },
+  {
+    "owner": "catalogue",
+    "name": "finish-first-page",
+    "rule": "FinalPageOnly",
+    "from": "completed' = IF cursor = 1 THEN 2 ELSE 0",
+    "to": "completed' = 2"
+  },
+  {
+    "owner": "progress",
+    "name": "accept-later-writer-row",
+    "rule": "ExactReplacement",
+    "from": "/\\ returned = 1",
+    "to": "/\\ TRUE"
+  },
+  {
+    "owner": "transfer",
+    "name": "publish-partial-file",
+    "rule": "CompleteBeforeVisible",
+    "from": "/\\ offset = 2",
+    "to": "/\\ TRUE"
+  },
+  {
+    "owner": "transfer",
+    "name": "publish-invalid-hash",
+    "rule": "HashBeforeVisible",
+    "from": "/\\ validHash /\\ version = 1",
+    "to": "/\\ TRUE /\\ version = 1"
+  },
+  {
+    "owner": "transfer",
+    "name": "publish-replaced-manifest",
+    "rule": "ExactManifest",
+    "from": "/\\ validHash /\\ version = 1",
+    "to": "/\\ validHash /\\ TRUE"
+  },
+  {
+    "owner": "bounds",
+    "name": "accept-other-scope",
+    "rule": "ExactScope",
+    "from": "/\\ scope = 1",
+    "to": "/\\ TRUE"
+  },
+  {
+    "owner": "bounds",
+    "name": "accept-other-offset",
+    "rule": "ExactOffset",
+    "from": "/\\ offset = 1",
+    "to": "/\\ TRUE"
+  }
+]

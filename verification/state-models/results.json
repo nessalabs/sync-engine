@@ -1,0 +1,511 @@
+{
+  "date": "2026-11-03T09:39:23.110Z",
+  "documents": 15,
+  "baselines": [
+    {
+      "owner": "bounds",
+      "id": "e9bd8378-13eb-41b3-89c3-9c6b6c5f834e",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:23.766Z",
+        "config": "tla/RequestEcho.cfg",
+        "modelDigest": "4201d00f853a96cf5b4f3c707069af0cccb08750be3aef0d95cc30584723a3ae",
+        "states": 5,
+        "held": [
+          "ExactScope",
+          "ExactOffset"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "owner": "catalogue",
+      "id": "1c32edbc-7350-4a6e-9d98-3200a6b480f3",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:27.179Z",
+        "config": "tla/CataloguePage.cfg",
+        "modelDigest": "fdbb0847e9c50988975a756e897df3d8e8e3cb8082ab2d2786201937cbb03cee",
+        "states": 5,
+        "held": [
+          "PayloadBeforeCursor",
+          "FinalPageOnly"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "owner": "history",
+      "id": "9b6d67a0-5bc2-4a7c-b494-16df6f975f64",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:30.576Z",
+        "config": "tla/HistoryFence.cfg",
+        "modelDigest": "67b3694ea93d50d6a89c0ae087e2471ed93d15d917d674d39e697ae382f97f1d",
+        "states": 8,
+        "held": [
+          "CurrentGeneration",
+          "NoDeletedInstall"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "owner": "progress",
+      "id": "061aa961-018e-42a1-b6bf-df6100120fd8",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:34.032Z",
+        "config": "tla/CommitReceipt.cfg",
+        "modelDigest": "189aab3f9a54df316b94495a06dce76757fe29537ce976de94a8ed7d5191e082",
+        "states": 3,
+        "held": [
+          "ExactReplacement"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "owner": "records",
+      "id": "5a15b7dc-251b-4495-8b4d-5d1a9c4e9391",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:35.420Z",
+        "config": "tla/RecordCommit.cfg",
+        "modelDigest": "df48bb63f0337f1de9d3b2778460898dfb39bc17432ebf8d42d5efb26e657858",
+        "states": 5,
+        "held": [
+          "AtomicProgress",
+          "ExpectedPosition"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "owner": "transfer",
+      "id": "2b8e94be-0db7-42c0-87b0-e50242ee083d",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:38.858Z",
+        "config": "tla/ArtifactPublish.cfg",
+        "modelDigest": "0afaac78c0bbd2c033cf35717df9416721f93e107cb081e03a2e7fc78a7eedae",
+        "states": 14,
+        "held": [
+          "CompleteBeforeVisible",
+          "HashBeforeVisible",
+          "ExactManifest"
+        ],
+        "broke": [],
+        "unchecked": []
+      }
+    }
+  ],
+  "controls": [
+    {
+      "name": "accept-other-scope",
+      "owner": "bounds",
+      "expected": "ExactScope",
+      "passed": true,
+      "id": "5de3685c-2357-4cd2-a0e7-bac4393db204",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:25.125Z",
+        "config": "tla/RequestEcho.cfg",
+        "modelDigest": "bf8d6a881dd9c9de3dadcea5cb3d0f5eac0943ca79acc1435df94ce01c261444",
+        "states": 6,
+        "held": [
+          "ExactOffset"
+        ],
+        "broke": [
+          {
+            "rule": "ExactScope",
+            "path": [
+              "Start with scope is 2, acceptedOffset is 0, accepted is FALSE, acceptedScope is 0, offset is 1.",
+              "Validate: scope is 2, acceptedOffset is 1, accepted is TRUE, acceptedScope is 2, offset is 1."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "accept-other-offset",
+      "owner": "bounds",
+      "expected": "ExactOffset",
+      "passed": true,
+      "id": "047c45a0-30ce-4733-8051-e724eb446c9a",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:26.508Z",
+        "config": "tla/RequestEcho.cfg",
+        "modelDigest": "6497d5171b45be99a52fb23b07e382c1fc13e42c1b8e59b34fb8780a419cf377",
+        "states": 6,
+        "held": [
+          "ExactScope"
+        ],
+        "broke": [
+          {
+            "rule": "ExactOffset",
+            "path": [
+              "Start with scope is 1, acceptedOffset is 0, accepted is FALSE, acceptedScope is 0, offset is 2.",
+              "Validate: scope is 1, acceptedOffset is 2, accepted is TRUE, acceptedScope is 1, offset is 2."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "advance-before-payload",
+      "owner": "catalogue",
+      "expected": "PayloadBeforeCursor",
+      "passed": true,
+      "id": "d7500708-80cd-4eab-a91c-3aab99569516",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:28.540Z",
+        "config": "tla/CataloguePage.cfg",
+        "modelDigest": "cb27d52c8007ce3b6bf9495eda9d71348bd1ecb945a2c1ef92bbcd26278f6550",
+        "states": 8,
+        "held": [
+          "FinalPageOnly"
+        ],
+        "broke": [
+          {
+            "rule": "PayloadBeforeCursor",
+            "path": [
+              "Start with completed is 0, completionPage is 0, applied is FALSE, resolved is FALSE, hadPayload is TRUE, cursor is 0.",
+              "Apply: completed is 0, completionPage is 0, applied is TRUE, resolved is FALSE, hadPayload is FALSE, cursor is 1."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "finish-first-page",
+      "owner": "catalogue",
+      "expected": "FinalPageOnly",
+      "passed": true,
+      "id": "d4fd6a8e-fbcc-47c6-b71f-a8660a988388",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:29.901Z",
+        "config": "tla/CataloguePage.cfg",
+        "modelDigest": "59fe68ef34d62e30cea73b533787e58e49f56f7fc9eeaa31d62b39f771a54908",
+        "states": 5,
+        "held": [
+          "PayloadBeforeCursor"
+        ],
+        "broke": [
+          {
+            "rule": "FinalPageOnly",
+            "path": [
+              "Start with completed is 0, completionPage is 0, applied is FALSE, resolved is FALSE, hadPayload is TRUE, cursor is 0.",
+              "Resolve: completed is 0, completionPage is 0, applied is FALSE, resolved is TRUE, hadPayload is TRUE, cursor is 0.",
+              "Apply: completed is 2, completionPage is 0, applied is TRUE, resolved is FALSE, hadPayload is TRUE, cursor is 1."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "install-old-generation",
+      "owner": "history",
+      "expected": "CurrentGeneration",
+      "passed": true,
+      "id": "83d0bb3c-ecdd-4070-8821-fa133d3cdf85",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:31.971Z",
+        "config": "tla/HistoryFence.cfg",
+        "modelDigest": "738f6453308769e90cfefc9a6640dfe8f774eac4ff32d23f4df2bea79fc8d924",
+        "states": 10,
+        "held": [
+          "NoDeletedInstall"
+        ],
+        "broke": [
+          {
+            "rule": "CurrentGeneration",
+            "path": [
+              "Start with atGeneration is 0, generation is 1, deleted is FALSE, installed is FALSE, atDeleted is FALSE.",
+              "Reset: atGeneration is 0, generation is 2, deleted is FALSE, installed is FALSE, atDeleted is FALSE.",
+              "Install: atGeneration is 2, generation is 2, deleted is FALSE, installed is TRUE, atDeleted is FALSE."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "install-after-delete",
+      "owner": "history",
+      "expected": "NoDeletedInstall",
+      "passed": true,
+      "id": "a2b0217d-254e-4d52-a024-23027ad80a74",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:33.342Z",
+        "config": "tla/HistoryFence.cfg",
+        "modelDigest": "59d08478e816f4a1639bd3cf139571336593d31da463dbb3b61dca35d220dccc",
+        "states": 10,
+        "held": [
+          "CurrentGeneration"
+        ],
+        "broke": [
+          {
+            "rule": "NoDeletedInstall",
+            "path": [
+              "Start with atGeneration is 0, generation is 1, deleted is FALSE, installed is FALSE, atDeleted is FALSE.",
+              "Delete: atGeneration is 0, generation is 1, deleted is TRUE, installed is FALSE, atDeleted is FALSE.",
+              "Install: atGeneration is 1, generation is 1, deleted is TRUE, installed is TRUE, atDeleted is TRUE."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "accept-later-writer-row",
+      "owner": "progress",
+      "expected": "ExactReplacement",
+      "passed": true,
+      "id": "d9f38624-0aef-4fd4-bef2-ba9df0bb1e50",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:34.721Z",
+        "config": "tla/CommitReceipt.cfg",
+        "modelDigest": "1e372dd91ec5b66c97bcce97e3d4343cb2957a3d5ffb2f67eeb19781d33dc927",
+        "states": 4,
+        "held": [],
+        "broke": [
+          {
+            "rule": "ExactReplacement",
+            "path": [
+              "Start with returned is 2, accepted is FALSE, captured is 0.",
+              "Accept: returned is 2, accepted is TRUE, captured is 2."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "checkpoint-without-records",
+      "owner": "records",
+      "expected": "AtomicProgress",
+      "passed": true,
+      "id": "2d0b235f-3ab8-4c48-bfc7-cbce5d835432",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:36.776Z",
+        "config": "tla/RecordCommit.cfg",
+        "modelDigest": "5d3a142ca49ea5edbe7fb175d51c0b967e096cfd85764bc8cee8aee60153aa32",
+        "states": 5,
+        "held": [
+          "ExpectedPosition"
+        ],
+        "broke": [
+          {
+            "rule": "AtomicProgress",
+            "path": [
+              "Start with stored is 0, committed is FALSE, checkpoint is 0, local is 0, expectedAtCommit is 0, priorAtCommit is 0.",
+              "Apply: stored is 0, committed is TRUE, checkpoint is 1, local is 0, expectedAtCommit is 0, priorAtCommit is 0."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "repeat-stale-local-pass",
+      "owner": "records",
+      "expected": "ExpectedPosition",
+      "passed": true,
+      "id": "3751f3d3-82bf-44e2-86e5-5a36419ba6ce",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:38.136Z",
+        "config": "tla/RecordCommit.cfg",
+        "modelDigest": "7d1d6ff6ec4e88852b0d12d6239567adc958a169f340d7f60161c9dc08547c83",
+        "states": 7,
+        "held": [
+          "AtomicProgress"
+        ],
+        "broke": [
+          {
+            "rule": "ExpectedPosition",
+            "path": [
+              "Start with stored is 0, committed is FALSE, checkpoint is 0, local is 0, expectedAtCommit is 0, priorAtCommit is 0.",
+              "Apply: stored is 1, committed is TRUE, checkpoint is 1, local is 0, expectedAtCommit is 0, priorAtCommit is 0.",
+              "Apply: stored is 2, committed is TRUE, checkpoint is 2, local is 0, expectedAtCommit is 0, priorAtCommit is 1."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "publish-partial-file",
+      "owner": "transfer",
+      "expected": "CompleteBeforeVisible",
+      "passed": true,
+      "id": "58eee996-52d2-40e8-a2eb-ff7f621b05f6",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:40.232Z",
+        "config": "tla/ArtifactPublish.cfg",
+        "modelDigest": "41b9c443824e54585d5c1c6647194e87c191f7a5bbefaf83fe2b80e2c1f877a8",
+        "states": 18,
+        "held": [
+          "HashBeforeVisible",
+          "ExactManifest"
+        ],
+        "broke": [
+          {
+            "rule": "CompleteBeforeVisible",
+            "path": [
+              "Start with savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is TRUE, version is 1, savedVersion is 0, offset is 0.",
+              "Publish: savedHash is TRUE, savedOffset is 0, published is TRUE, validHash is TRUE, version is 1, savedVersion is 1, offset is 0."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "publish-invalid-hash",
+      "owner": "transfer",
+      "expected": "HashBeforeVisible",
+      "passed": true,
+      "id": "88e4bd7d-8e71-4be7-8579-87c5bb8d0109",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:41.578Z",
+        "config": "tla/ArtifactPublish.cfg",
+        "modelDigest": "cf6b67af4d023f957ca8e29b74a8f0b4c866bdfeb8e46cf90d0ed91e56d747c7",
+        "states": 16,
+        "held": [
+          "CompleteBeforeVisible",
+          "ExactManifest"
+        ],
+        "broke": [
+          {
+            "rule": "HashBeforeVisible",
+            "path": [
+              "Start with savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is FALSE, version is 1, savedVersion is 0, offset is 0.",
+              "Chunk: savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is FALSE, version is 1, savedVersion is 0, offset is 1.",
+              "Chunk: savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is FALSE, version is 1, savedVersion is 0, offset is 2.",
+              "Publish: savedHash is FALSE, savedOffset is 2, published is TRUE, validHash is FALSE, version is 1, savedVersion is 1, offset is 2."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    },
+    {
+      "name": "publish-replaced-manifest",
+      "owner": "transfer",
+      "expected": "ExactManifest",
+      "passed": true,
+      "id": "05c323df-2a42-4c6c-87a4-7e6621e3cb81",
+      "state": "broke",
+      "message": "A rule broke. This checks the design, not the code.",
+      "result": {
+        "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:39:42.954Z",
+        "config": "tla/ArtifactPublish.cfg",
+        "modelDigest": "4f3720024f9343a90746d65b2b0a1035e62a170529b5a030e0c82e277f83adfc",
+        "states": 15,
+        "held": [
+          "CompleteBeforeVisible",
+          "HashBeforeVisible"
+        ],
+        "broke": [
+          {
+            "rule": "ExactManifest",
+            "path": [
+              "Start with savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is TRUE, version is 1, savedVersion is 0, offset is 0.",
+              "Chunk: savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is TRUE, version is 1, savedVersion is 0, offset is 1.",
+              "Chunk: savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is TRUE, version is 1, savedVersion is 0, offset is 2.",
+              "Replace: savedHash is FALSE, savedOffset is 0, published is FALSE, validHash is TRUE, version is 2, savedVersion is 0, offset is 2.",
+              "Publish: savedHash is TRUE, savedOffset is 2, published is TRUE, validHash is TRUE, version is 2, savedVersion is 2, offset is 2."
+            ],
+            "states": []
+          }
+        ],
+        "unchecked": []
+      }
+    }
+  ],
+  "ok": true
+}

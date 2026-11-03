@@ -1,0 +1,311 @@
+{
+  "sourceRevision": "f2a05ef24fcff66df9d55e508539cec718e2d805",
+  "platform": "macOS arm64",
+  "rust": "1.99.1",
+  "date": "2026-11-03",
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "log": "00.log",
+      "rustTestOccurrences": {
+        "passed": 54,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "log": "01.log",
+      "rustTestOccurrences": {
+        "passed": 101,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "log": "02.log",
+      "rustTestOccurrences": {
+        "passed": 58,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "log": "03.log",
+      "rustTestOccurrences": {
+        "passed": 115,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit": 0,
+      "log": "04.log",
+      "rustTestOccurrences": {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit": 0,
+      "log": "05.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit": 0,
+      "log": "06.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit": 0,
+      "log": "07.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit": 0,
+      "log": "08.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit": 0,
+      "log": "09.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit": 0,
+      "log": "10.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit": 0,
+      "log": "11.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit": 0,
+      "log": "12.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit": 0,
+      "log": "13.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit": 0,
+      "log": "14.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit": 0,
+      "log": "15.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit": 0,
+      "log": "16.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "log": "17.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "log": "18.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit": 0,
+      "log": "19.log",
+      "rustTestOccurrences": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Counts overlap across feature matrices and labs; not unique tests.",
+    "No Linux or Rust1.85 local run; no physical power loss or production transport qualification."
+  ]
+}
