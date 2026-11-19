@@ -1,0 +1,501 @@
+{
+  "scope": "seven controlled guard reversion proofs; owned benign fixtures only",
+  "source_commit": "fbc520a6ea842d78f05a350d005c821564856f4a",
+  "source_sha256": {
+    "src/replication/infrastructure/session/records/follow.rs": "0fe0512edd9eb1e6b48f8685d68569a5a5403593a716dc33c8007c4032e6d92c"
+  },
+  "results": [
+    {
+      "case": "baseline",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "session_follow",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "seconds": 8.962,
+      "expected": "pass",
+      "assertion_failure": false
+    },
+    {
+      "case": "queued-writer-admission",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "queued_rpc_rechecks_policy_after_acquiring_the_frame_writer"
+      ],
+      "exit_code": 101,
+      "seconds": 0.674,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "early-refusal-eof",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "early_terminal_hint_survives_eof_until_bound_is_validated"
+      ],
+      "exit_code": 101,
+      "seconds": 0.764,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "atomic-activation",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "activation_validates_early_refusal_and_publishes_terminal_state_atomically"
+      ],
+      "exit_code": 101,
+      "seconds": 0.686,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "setup-cursor",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "session_follow",
+        "setup_notification_is_retained_before_initial_catch_up"
+      ],
+      "exit_code": 101,
+      "seconds": 2.932,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "hint-policy-recheck",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "session_follow",
+        "policy_is_rechecked_after_hint_head_capture_before_emission"
+      ],
+      "exit_code": 101,
+      "seconds": 0.932,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "idle-read-timeout",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "session_follow",
+        "persistent_hint_only_wakes_authorized_reads_and_idle_timeout_keeps_subscription"
+      ],
+      "exit_code": 101,
+      "seconds": 0.977,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "fixed-rpc-deadline",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "hint_traffic_cannot_extend_an_admitted_rpc_deadline"
+      ],
+      "exit_code": 101,
+      "seconds": 1.96,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "restored-final",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "session_follow",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "seconds": 8.393,
+      "expected": "pass",
+      "assertion_failure": false
+    }
+  ],
+  "restored_worktree_clean": true,
+  "independent_review": {
+    "rounds": 3,
+    "round1": [
+      "queued RPC send admission after writer wait",
+      "early correlated terminal hint followed by EOF during setup"
+    ],
+    "round2": [
+      "activation publication and early hint validation must be one locked transition"
+    ],
+    "round3": "clean; read-only review of final source and recorded evidence; reviewer did not independently rerun tests"
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.117,
+      "log": "qualification-00.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.32,
+      "log": "qualification-01.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 0.054,
+      "log": "qualification-02.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.245,
+      "log": "qualification-03.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.646,
+      "log": "qualification-04.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.906,
+      "log": "qualification-05.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 10.369,
+      "log": "qualification-06.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.333,
+      "log": "qualification-07.log"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.041,
+      "log": "qualification-08.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.111,
+      "log": "qualification-09.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.818,
+      "log": "qualification-10.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.836,
+      "log": "qualification-11.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.489,
+      "log": "qualification-12.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.389,
+      "log": "qualification-13.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.901,
+      "log": "qualification-14.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.24,
+      "log": "qualification-15.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.028,
+      "log": "qualification-16.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.554,
+      "log": "qualification-17.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.069,
+      "log": "qualification-18.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.176,
+      "log": "qualification-19.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.164,
+      "log": "qualification-20.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.159,
+      "log": "qualification-21.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.197,
+      "log": "qualification-22.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 25.394,
+      "log": "qualification-23.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 0.642,
+      "log": "qualification-24.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.091,
+      "log": "qualification-25.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.831,
+      "log": "qualification-26.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.108,
+      "log": "qualification-27.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.003,
+      "log": "qualification-28.log"
+    }
+  ],
+  "strict_full_epic_gate": {
+    "command": [
+      "python3",
+      "scripts/verify-session-e2e.py",
+      "--modes",
+      "session-io",
+      "--require-complete"
+    ],
+    "exit_code": 2,
+    "remaining_coverage_gaps": 7
+  },
+  "limits": [
+    "Rust/TCP fixture tests and SQLite atomic adapter; no deployed encrypted transport or arbitrary host callback cancellation",
+    "qualification timings and process logs are local evidence; elapsed performance observations are separately retained in session-follow-e2e.json"
+  ]
+}

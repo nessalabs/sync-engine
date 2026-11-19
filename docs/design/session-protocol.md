@@ -363,3 +363,9 @@ controlled adverse-order tests and independent adversarial review. After three
 reviews still finding substantive issues, stop stacking patches and simplify
 states/ownership before requalification. No #54 completion or merge is claimed
 by this first milestone.
+
+The [opt-in persistent follow slice](session-follow.md) supplies a bounded reader,
+one advisory wake slot and explicit host fallback/reconnect over the serialized
+record path. Its real TCP/direct and opaque-relay lab measures notification to
+actual durable apply. It retains per-operation policy and the full #54 completion
+gaps above; it supplies neither secure channel composition nor general multiplexing.

@@ -29,7 +29,6 @@ READ = "dev-read-secret"
 WRITE = "dev-write-secret"
 GAPS = [
     "production authenticated/encrypted direct and relay channel qualification",
-    "persistent hints and notification-to-applied warm follow",
     "catalogue and matching 620-entry bootstrap workload",
     "tail, older history and artifact session adapters",
     "multiple scopes per session and multi-stream resume",

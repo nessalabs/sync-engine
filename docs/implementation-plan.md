@@ -17,7 +17,7 @@ metadata grants no authority; the authorizer delegates current host policy on
 every admitted call. The [serialized record adapter](design/session-records.md)
 now carries real scoped reads over host-authenticated streams, with direct and
 raw-relayed TCP/SQLite fixture E2E checks and paired measurements. Production
-channel security, hints, catalogue/history/artifact routes and multiplexed
+channel security, catalogue/history/artifact routes and multiplexed
 scheduling remain open. The strict E2E completion gate still refuses completion;
 these narrower passing checks do not close #54. Opt-in bounded Open now combines
 first hello/binding metadata while retaining every current-policy and head check;
@@ -26,9 +26,12 @@ The opt-in [open-target first-page slice](design/session-open-page.md) now exten
 the application port explicitly, rather than caching a binding head, with both
 pre-read access checks, canonical validation and unchanged durable-apply ownership.
 The [interruptible I/O prerequisite](design/session-io.md) now supplies unique split
-owners and an independent close path for a future hint reader. Persistent hints,
-coalescing and warm follow are still pending; no simulated hint proof substitutes
-for their required real transport-to-cache qualification.
+owners and an independent close path. The opt-in [persistent follow adapter](design/session-follow.md)
+now adds one bounded reader dispatcher and advisory wake slot while retaining
+current per-operation authorization. Its real direct/opaque-relay TCP/SQLite lab
+compares push with explicit polling and verifies lost-hint fallback, coalescing
+and reopened-cache correctness. This one-scope slice does not close the remaining
+secure-channel, route, multiplexing or outage qualification gaps.
 
 ## Outcome we are building toward
 

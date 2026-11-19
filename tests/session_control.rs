@@ -50,6 +50,11 @@ fn frames() -> Vec<ControlFrame> {
             request: 1,
             scope: scope("scope"),
         },
+        ControlFrame::FollowOpen {
+            limits: limits(),
+            request: 1,
+            scope: scope("scope"),
+        },
     ]
 }
 fn encoded(frame: &ControlFrame) -> Vec<u8> {
@@ -414,4 +419,25 @@ fn combined_open_fits_minimum_budget_and_refuses_zero_or_trailing_fields() {
     ));
     bytes[18..26].fill(0); // wire request after prefix/preamble/limits
     assert!(read_control(&mut bytes.as_slice(), 2048).is_err());
+}
+
+#[test]
+fn follow_open_is_explicit_and_has_the_same_bounded_fields_as_open() {
+    let open = frames()[4].clone();
+    let follow = frames()[5].clone();
+    let mut old = encoded(&open);
+    let new = encoded(&follow);
+    assert_eq!(old[10], 6);
+    assert_eq!(new[10], 7);
+    old[10] = 7;
+    assert_eq!(old, new);
+    for end in 0..new.len() {
+        assert!(read_control(&mut &new[..end], 2048).is_err());
+    }
+    let invalid = ControlFrame::FollowOpen {
+        limits: limits(),
+        request: 0,
+        scope: scope("scope"),
+    };
+    assert!(write_control(&mut Vec::new(), &invalid, 2048).is_err());
 }
