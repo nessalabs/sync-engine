@@ -12,10 +12,11 @@ command execution or backup.
 
 [Session transport #54](design/session-protocol.md) begins with a measured loopback
 baseline, proposed state/ownership contract, bounded control codec and passive
-binding lifecycle labs. These components grant no authority and implement no
-source or live replication session. Its
-remaining slice plan is future work;
-none of the production session protocol is implemented by the seven slices below.
+binding lifecycle and current-policy authorizer prerequisite labs. Binding
+metadata grants no authority; the authorizer delegates current host policy on
+every admitted call. No source or live replication session is implemented. The
+remaining slice plan is future work; none of the production session protocol is
+implemented by the seven slices below.
 
 ## Outcome we are building toward
 

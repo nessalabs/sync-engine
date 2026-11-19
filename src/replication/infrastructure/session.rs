@@ -321,3 +321,6 @@ pub use lifecycle::{
     ConnectionId, LifecycleError, RequestIdentity, ScopeIdentity, SessionId, SessionLifecycle,
     SessionPhase,
 };
+
+mod authorization;
+pub use authorization::ScopedSessionAuthorizer;
