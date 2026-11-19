@@ -173,7 +173,7 @@ impl SessionLifecycle {
             selected: None,
             phase: SessionPhase::Connecting,
             max_pending,
-            next_request: NonZeroU64::new(1),
+            next_request: NonZeroU64::new(super::FIRST_REQUEST),
             slots: Vec::new(),
         })
     }

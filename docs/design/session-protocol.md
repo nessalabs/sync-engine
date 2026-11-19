@@ -63,6 +63,7 @@ UTF-8 byte length followed by exact text; `Id::new` owns its admissibility and
 | 3 Bind | correlation, scope | Nonzero IDs and valid exact scope representation. |
 | 4 Bound | correlation, handle u32, generation u64, scope, head u64 | Nonzero handle/generation; head zero is allowed for an empty source. |
 | 5 Refused | correlation, reason u8 | Metadata-free binding refusal; canonical source codes 1–6 only, unknown codes are incompatible. |
+| 6 Open | limits, request u64, scope | Opt-in combined first Hello/Bind offer on a host-authenticated channel; nonzero request. Welcome and correlated Bound/Refused are separate replies; neither is a grant. |
 
 Unknown magic/version/kind/mode is `Incompatible`, not retryable unavailability.
 Invalid numerical/identity values and trailing fields refuse; malformed input

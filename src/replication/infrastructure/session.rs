@@ -18,6 +18,7 @@ pub const MIN_CONTROL_BYTES: usize = 2 * 1024;
 pub const MAX_SESSION_BINDINGS: u16 = 32;
 const MAGIC: &[u8; 4] = b"NSC1";
 const VERSION: u16 = 1;
+const FIRST_REQUEST: u64 = 1;
 // Only explicit, current per-operation authorization is supported. A binding
 // never becomes an implementation of ScopeAuthorizer.
 const PER_OPERATION: u8 = 1;
@@ -74,6 +75,16 @@ pub enum ControlFrame {
     /// Offer supported limits. Host channel authentication is a prerequisite
     /// for acting on the offer, rather than a property of these bytes.
     Hello(SessionLimits),
+    /// Opt-in combined hello and first binding offer on an authenticated channel.
+    /// Peer support must be known by the host; no automatic fallback is implied.
+    Open {
+        /// Offered bounds, retained until the Welcome is checked.
+        limits: SessionLimits,
+        /// Nonzero first binding request number, echoed with the selected session.
+        request: u64,
+        /// Exact scope retained before sending; this offer grants no authority.
+        scope: Scope,
+    },
     /// Return accepted bounds, session namespace and reference record ceiling.
     Welcome {
         /// Nonzero host-selected session namespace.
@@ -179,6 +190,19 @@ pub fn write_control(
         ControlFrame::Hello(limits) => {
             body.push(1);
             put_limits(&mut body, *limits)?;
+        }
+        ControlFrame::Open {
+            limits,
+            request,
+            scope,
+        } => {
+            if *request == 0 {
+                return Err(ControlError::Malformed);
+            }
+            body.push(6);
+            put_limits(&mut body, *limits)?;
+            body.extend_from_slice(&request.to_be_bytes());
+            put_scope(&mut body, scope);
         }
         ControlFrame::Welcome {
             session,
@@ -332,6 +356,11 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
                 reason: super::loopback::decode_source_error(code),
             }
         }
+        6 => ControlFrame::Open {
+            limits: decoder.limits()?,
+            request: u64::from_be_bytes(decoder.take()?),
+            scope: decoder.scope()?,
+        },
         _ => return Err(ControlError::Incompatible),
     };
     if !decoder.0.is_empty() {

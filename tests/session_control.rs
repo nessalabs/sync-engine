@@ -45,6 +45,11 @@ fn frames() -> Vec<ControlFrame> {
                 head: 9,
             },
         },
+        ControlFrame::Open {
+            limits: limits(),
+            request: 1,
+            scope: scope("scope"),
+        },
     ]
 }
 fn encoded(frame: &ControlFrame) -> Vec<u8> {
@@ -376,4 +381,37 @@ fn binding_refusal_round_trips_known_codes_and_rejects_unknown_codes() {
             Err(ControlError::Incompatible)
         ));
     }
+}
+
+#[test]
+fn combined_open_fits_minimum_budget_and_refuses_zero_or_trailing_fields() {
+    let frame = ControlFrame::Open {
+        limits: limits(),
+        request: 1,
+        scope: scope(&"x".repeat(MAX_ID_BYTES)),
+    };
+    let mut bytes = Vec::new();
+    write_control(&mut bytes, &frame, 2048).unwrap();
+    assert_eq!(bytes.len(), 800);
+    assert_eq!(read_control(&mut bytes.as_slice(), 2048).unwrap(), frame);
+    for end in 0..bytes.len() {
+        assert!(read_control(&mut &bytes[..end], 2048).is_err());
+    }
+    let mut invalid = frame.clone();
+    if let ControlFrame::Open { request, .. } = &mut invalid {
+        *request = 0;
+    }
+    let mut output = Vec::new();
+    assert!(write_control(&mut output, &invalid, 2048).is_err());
+    assert!(output.is_empty());
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    let length = (trailing.len() - 4) as u32;
+    trailing[..4].copy_from_slice(&length.to_be_bytes());
+    assert!(matches!(
+        read_control(&mut trailing.as_slice(), 2048),
+        Err(ControlError::Malformed)
+    ));
+    bytes[18..26].fill(0); // wire request after prefix/preamble/limits
+    assert!(read_control(&mut bytes.as_slice(), 2048).is_err());
 }

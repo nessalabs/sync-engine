@@ -19,7 +19,9 @@ now carries real scoped reads over host-authenticated streams, with direct and
 raw-relayed TCP/SQLite fixture E2E checks and paired measurements. Production
 channel security, hints, catalogue/history/artifact routes and multiplexed
 scheduling remain open. The strict E2E completion gate still refuses completion;
-these narrower passing checks do not close #54.
+these narrower passing checks do not close #54. Opt-in bounded Open now combines
+first hello/binding metadata while retaining every current-policy and head check;
+its matched E2E measurements include the complete cold/warm/reconnect workload.
 
 ## Outcome we are building toward
 

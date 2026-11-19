@@ -85,7 +85,11 @@ fn authenticate(socket: &mut TcpStream, token: &Id) -> io::Result<bool> {
     socket.write_all(&[if allowed { 0 } else { 1 }])?;
     Ok(allowed)
 }
-fn dial(endpoint: SocketAddrV4, token: &Id) -> Result<(RecordSession<TcpStream>, u64), Error> {
+fn dial(
+    endpoint: SocketAddrV4,
+    token: &Id,
+    opening: bool,
+) -> Result<(RecordSession<TcpStream>, u64), Error> {
     let mut socket = TcpStream::connect_timeout(&endpoint.into(), Duration::from_secs(5))?;
     setup(&socket)?;
     socket.write_all(&[token.as_str().len() as u8])?;
@@ -95,7 +99,12 @@ fn dial(endpoint: SocketAddrV4, token: &Id) -> Result<(RecordSession<TcpStream>,
     if ack != [0] {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
     }
-    let session = RecordSession::connect(socket, scope("device-a"), limits()).map_err(error)?;
+    let session = if opening {
+        RecordSession::connect_open(socket, scope("device-a"), limits())
+    } else {
+        RecordSession::connect(socket, scope("device-a"), limits())
+    }
+    .map_err(error)?;
     Ok((session, (token.as_str().len() + 2) as u64))
 }
 fn catch_up<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
@@ -142,12 +151,12 @@ impl Ports {
                 0,
                 0,
             ))
-        } else if mode == "session" {
-            let (session, auth_bytes) = dial(endpoint, token)?;
+        } else if ["session", "session-open"].contains(&mode) {
+            let (session, auth_bytes) = dial(endpoint, token, mode == "session-open")?;
             let (a, s) = session.parts();
             Ok((Self::Session { session, a, s }, auth_bytes, 1))
         } else {
-            Err("mode must be loopback or session".into())
+            Err("mode must be loopback, session or session-open".into())
         }
     }
     fn counters(&self) -> Result<WireCounters, Error> {
@@ -334,7 +343,7 @@ fn run() -> Result<(), Error> {
         }
         Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("inspect") if args.len()==3=>{let(c,n,p)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{p},\"ordered_complete\":true}}");Ok(())}
-        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
+        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
     }
 }
 fn main() {
