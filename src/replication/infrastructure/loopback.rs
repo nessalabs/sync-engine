@@ -110,7 +110,7 @@ fn put_id(out: &mut Vec<u8>, id: &Id) {
     out.extend_from_slice(bytes);
 }
 
-fn put_scope(out: &mut Vec<u8>, scope: &Scope) {
+pub(super) fn put_scope(out: &mut Vec<u8>, scope: &Scope) {
     for id in [
         scope.receiver(),
         scope.origin(),
@@ -143,17 +143,17 @@ fn put_wire_record(out: &mut Vec<u8>, record: &Record) {
     out.extend_from_slice(&record.payload);
 }
 
-struct Decoder<'a> {
+pub(super) struct Decoder<'a> {
     bytes: &'a [u8],
     offset: usize,
 }
 
 impl<'a> Decoder<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
+    pub(super) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, offset: 0 }
     }
 
-    fn take(&mut self, len: usize) -> Result<&'a [u8], FrameError> {
+    pub(super) fn take(&mut self, len: usize) -> Result<&'a [u8], FrameError> {
         let end = self.offset.checked_add(len).ok_or(FrameError::Malformed)?;
         let part = self
             .bytes
@@ -163,11 +163,11 @@ impl<'a> Decoder<'a> {
         Ok(part)
     }
 
-    fn byte(&mut self) -> Result<u8, FrameError> {
+    pub(super) fn byte(&mut self) -> Result<u8, FrameError> {
         Ok(self.take(1)?[0])
     }
 
-    fn u64(&mut self) -> Result<u64, FrameError> {
+    pub(super) fn u64(&mut self) -> Result<u64, FrameError> {
         let bytes: [u8; 8] = self
             .take(8)?
             .try_into()
@@ -175,13 +175,13 @@ impl<'a> Decoder<'a> {
         Ok(u64::from_be_bytes(bytes))
     }
 
-    fn id(&mut self) -> Result<Id, FrameError> {
+    pub(super) fn id(&mut self) -> Result<Id, FrameError> {
         let len = self.byte()? as usize;
         let value = std::str::from_utf8(self.take(len)?).map_err(|_| FrameError::Malformed)?;
         Id::new(value).map_err(|_| FrameError::Malformed)
     }
 
-    fn scope(&mut self) -> Result<Scope, FrameError> {
+    pub(super) fn scope(&mut self) -> Result<Scope, FrameError> {
         Ok(Scope::new(
             self.id()?,
             self.id()?,
@@ -201,7 +201,7 @@ impl<'a> Decoder<'a> {
         ))
     }
 
-    fn wire_record(&mut self, max_record_bytes: usize) -> Result<Record, FrameError> {
+    pub(super) fn wire_record(&mut self, max_record_bytes: usize) -> Result<Record, FrameError> {
         let position = self.u64()?;
         let id = self.id()?;
         let scope = self.scope()?;
@@ -306,7 +306,7 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    fn finish(self) -> Result<(), FrameError> {
+    pub(super) fn finish(self) -> Result<(), FrameError> {
         if self.offset == self.bytes.len() {
             Ok(())
         } else {
@@ -430,7 +430,7 @@ fn decode_catalogue_error(code: u8) -> CatalogueSourceError {
     }
 }
 
-fn source_error_code(error: SourceError) -> u8 {
+pub(super) fn source_error_code(error: SourceError) -> u8 {
     match error {
         SourceError::Denied => 1,
         SourceError::Unavailable => 2,
@@ -441,7 +441,7 @@ fn source_error_code(error: SourceError) -> u8 {
     }
 }
 
-fn decode_source_error(code: u8) -> SourceError {
+pub(super) fn decode_source_error(code: u8) -> SourceError {
     match code {
         1 => SourceError::Denied,
         2 => SourceError::Unavailable,
@@ -454,7 +454,10 @@ fn decode_source_error(code: u8) -> SourceError {
     }
 }
 
-fn encode_record_page(request: &PageRequest, page: Page) -> Result<Vec<u8>, SourceError> {
+pub(super) fn encode_record_page(
+    request: &PageRequest,
+    page: Page,
+) -> Result<Vec<u8>, SourceError> {
     if page.request != *request {
         return Err(SourceError::IdentityChanged);
     }
@@ -1209,6 +1212,8 @@ fn catalogue_access(
 /// Client-side wire accounting. Record payload and framing are separate.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WireCounters {
+    /// Complete request/reply exchanges, including typed refusals and subscriptions.
+    pub exchanges: u64,
     /// Framing, metadata and request bytes after subtracting counted payload
     /// and catalogue descriptor bytes from complete frames.
     pub protocol_bytes: u64,
@@ -1275,6 +1280,7 @@ impl LoopbackClient {
         self.counters.protocol_bytes += (request.len() + 4) as u64;
         let response = read_frame(&mut stream)?;
         self.counters.protocol_bytes += (response.len() + 4) as u64;
+        self.counters.exchanges += 1;
         Ok(response)
     }
 
@@ -1297,6 +1303,7 @@ impl LoopbackClient {
         self.counters.protocol_bytes += (request.len() + 4) as u64;
         let response = read_frame(&mut stream)?;
         self.counters.protocol_bytes += (response.len() + 4) as u64;
+        self.counters.exchanges += 1;
         match response.as_slice() {
             [0] => Ok(stream),
             _ => Err(FrameError::Malformed),

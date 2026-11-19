@@ -17,6 +17,6 @@ mod loopback;
 #[cfg(feature = "transport")]
 pub use loopback::*;
 
-/// Experimental bounded session control metadata; no source or authorization adapter.
+/// Experimental bounded session control, lifecycle and serialized record ports.
 #[cfg(feature = "transport")]
 pub mod session;

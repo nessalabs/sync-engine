@@ -63,3 +63,7 @@ required-features = ["transport"]
 [[example]]
 name = "session_authorization"
 required-features = ["transport"]
+
+[[example]]
+name = "session_records"
+required-features = ["transport", "sqlite"]

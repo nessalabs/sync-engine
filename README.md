@@ -172,3 +172,13 @@ pin a reviewed core revision and test its own adapter. See
 ## State and verification atlas
 
 Start with [the task-oriented Nessa Docs atlas](docs/state/README.md) for feature owners, recovery decisions and selected bounded models with negative controls.
+
+## Experimental session record reads
+
+The [record-session contract](docs/design/session-records.md) documents the first
+real serialized session read adapter and its ownership boundaries. Run
+`python3 scripts/verify-session-e2e.py` for actual direct/raw-relayed TCP paths to
+reopened SQLite caches. Add `--profiles --repetitions 2` for paired loopback/session
+measurements; timings are observations, not CI thresholds. This uses plaintext
+loopback fixture authentication, not production device trust or an encrypted relay.
+`--require-complete` remains nonzero until the documented #54 coverage gaps close.

@@ -1,12 +1,13 @@
-//! Bounded, experimental session control codec. These messages are untrusted
-//! metadata, not authenticated grants or source responses. The host must still
-//! authenticate its channel, authorize every operation, correlate replies and
-//! validate domain values before apply. No socket, source, store or retry owner
-//! is created here. After any decode/I/O error, discard the connection.
+//! Experimental bounded session metadata, lifecycle and serialized record reads.
+//! Control frames alone are untrusted metadata, never grants. The `records`
+//! adapter supplies scoped ports over a host-authenticated duplex channel and
+//! retains current per-operation policy checks. The host owns authentication,
+//! finite I/O deadlines and channel disposal; the application owns validated
+//! durable apply. No listener or automatic retry/reconnect is created here.
 
 use std::io::{self, Read, Write};
 
-use crate::replication::application::MAX_RECORD_BYTES;
+use crate::replication::application::{SourceError, MAX_RECORD_BYTES};
 use crate::replication::domain::{Id, Scope};
 
 /// Largest control body accepted before allocating a receive buffer.
@@ -66,7 +67,7 @@ pub struct BindingMetadata {
     pub head: u64,
 }
 
-/// Initial control vocabulary only; no data, refusal, cancel or grant cache.
+/// Control vocabulary only; no data, cancel or grant cache.
 /// The encoded hello and welcome explicitly select per-operation authorization.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlFrame {
@@ -88,6 +89,13 @@ pub enum ControlFrame {
         correlation: Correlation,
         /// Requested exact scope.
         scope: Scope,
+    },
+    /// Refuse a correlated binding request without exposing source identity.
+    Refused {
+        /// Exact binding request correlation.
+        correlation: Correlation,
+        /// Typed denial, uncertainty or source refusal; unknown wire codes are fatal.
+        reason: SourceError,
     },
     /// Carry authorized host metadata. Decode alone does not prove authorization.
     Bound {
@@ -189,6 +197,14 @@ pub fn write_control(
             body.push(3);
             put_correlation(&mut body, *correlation)?;
             put_scope(&mut body, scope);
+        }
+        ControlFrame::Refused {
+            correlation,
+            reason,
+        } => {
+            body.push(5);
+            put_correlation(&mut body, *correlation)?;
+            body.push(super::loopback::source_error_code(reason.clone()));
         }
         ControlFrame::Bound {
             correlation,
@@ -305,6 +321,17 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
                 head: u64::from_be_bytes(decoder.take()?),
             },
         },
+        5 => {
+            let correlation = decoder.correlation()?;
+            let code = decoder.take::<1>()?[0];
+            if !(1..=6).contains(&code) {
+                return Err(ControlError::Incompatible);
+            }
+            ControlFrame::Refused {
+                correlation,
+                reason: super::loopback::decode_source_error(code),
+            }
+        }
         _ => return Err(ControlError::Incompatible),
     };
     if !decoder.0.is_empty() {
@@ -324,3 +351,9 @@ pub use lifecycle::{
 
 mod authorization;
 pub use authorization::ScopedSessionAuthorizer;
+
+mod records;
+pub use records::{
+    serve_record_session, RecordSession, RecordSessionAuthorizer, RecordSessionError,
+    RecordSessionSource,
+};

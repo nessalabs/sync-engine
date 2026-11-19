@@ -346,3 +346,34 @@ fn golden_bind_pins_distinct_scope_field_order() {
         frame
     );
 }
+
+#[test]
+fn binding_refusal_round_trips_known_codes_and_rejects_unknown_codes() {
+    use nessa_sync::replication::application::SourceError;
+    for reason in [
+        SourceError::Denied,
+        SourceError::Unavailable,
+        SourceError::Pruned,
+        SourceError::InvalidRequest,
+        SourceError::IdentityChanged,
+        SourceError::OversizedRecord,
+    ] {
+        let frame = ControlFrame::Refused {
+            correlation: Correlation {
+                session: 1,
+                request: 1,
+            },
+            reason,
+        };
+        let mut bytes = encoded(&frame);
+        assert_eq!(
+            read_control(&mut bytes.as_slice(), MAX_CONTROL_BYTES).unwrap(),
+            frame
+        );
+        *bytes.last_mut().unwrap() = 255;
+        assert!(matches!(
+            read_control(&mut bytes.as_slice(), MAX_CONTROL_BYTES),
+            Err(ControlError::Incompatible)
+        ));
+    }
+}
