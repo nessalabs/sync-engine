@@ -1,12 +1,85 @@
 # Session transport: first measurement and state contract (#54)
 
-**Status: proposed, first milestone only.** No session codec, production socket,
-pairing, relay service or new authorization mechanism is implemented here.
+**Status: proposed session protocol with a bounded control-codec skeleton.**
+Only the control vocabulary and in-memory lab below are implemented. No active
+session, production socket, pairing, relay service or new authorization mechanism
+is implemented here.
 The seven [reference slices](../implementation-plan.md) remain the implemented
 baseline. [Issue #54](https://github.com/nessalabs/sync-engine/issues/54) remains
 open; this note is the decision/test boundary for its first implementation slice.
 The [product contract](sync-engine.md), [record walkthrough](core-walkthrough.md),
 [history](tail-history.md) and [catalogue](catalogue-pass.md) retain their ownership.
+
+## Implemented control-only milestone
+
+The optional `transport` feature exposes
+`infrastructure::session::{read_control, write_control, ControlFrame}`. This is
+an experimental control codec, not an implementation of any source, store or
+`ScopeAuthorizer` port. Existing loopback and all authorization/read/apply call
+orders remain unchanged. The earlier authorization-composition dependency is
+not resolved by this skeleton.
+
+The only supported mode is **explicit per-operation authorization**. Hello and
+Welcome encode mode byte 1; another mode is incompatible. A decoded Welcome or
+Bound grants nothing. The host must authenticate the channel and authorize the
+exact scope before emitting identity-bearing binding metadata. Binding metadata
+cannot replace a subsequent current authorization check. This slice adds no
+cached grant, lease, policy setting, socket listener, data route or command path.
+
+Run `python3 scripts/verify-session-control.py`. It compiles the transport-only
+example and round-trips four coalesced control frames (218 bytes) through memory.
+The example never constructs a source/store/authorizer. Its zero grant/read/commit
+fields describe this absence, not an end-to-end authorization or commit proof.
+Tests additionally cover golden bytes, short reads/writes, every truncated prefix,
+bounded identifiers, numerical refusal, unknown vocabulary and unconsumed-body
+refusal at the length boundary. The CI runs both the example lab and feature-matrix
+tests. No WAN or session-performance comparison is claimed.
+
+### Control wire layout (experimental v1)
+
+Each message is `[body_length: u32][magic: 4 bytes][version: u16][kind: u8][fields]`.
+Integers are unsigned big endian; magic is ASCII `NSC1`, version is 1. Body length
+includes the seven-byte magic/version/kind preamble and excludes its own four-byte
+prefix. Caller budgets and advertised control limits must be 2,048–8,192 bytes;
+announced lengths above the admitted caller budget are refused before body
+allocation/read. Announced lengths below seven are malformed. The receive-body
+allocation is limited to the admitted control budget. Decoded IDs and bounded
+validation/re-encoding scratch allocate separately; this is not a one-buffer
+whole-decoder memory claim. No record payload is accepted.
+
+Limits encode `[mode: u8 = 1][control_bytes: u32][bindings: u16]`, with binding
+count 1–32. The record ceiling in Welcome is positive and at most the existing
+source-owned `MAX_RECORD_BYTES`. A host may advertise a smaller supported ceiling.
+Correlation is `[session: u64][request: u64]`, both nonzero. Scope is six IDs in
+receiver/origin/stream/incarnation/schema/access-epoch order. Each ID is a one-byte
+UTF-8 byte length followed by exact text; `Id::new` owns its admissibility and
+`MAX_ID_BYTES` bound, including unchanged embedded NUL or multibyte identities.
+
+| Kind | Fields after preamble | Codec checks |
+| --- | --- | --- |
+| 1 Hello | limits | Only explicit per-operation mode and supported hard bounds. |
+| 2 Welcome | session u64, limits, record_bytes u32 | Nonzero namespace, same mode/limits validation, supported record ceiling. |
+| 3 Bind | correlation, scope | Nonzero IDs and valid exact scope representation. |
+| 4 Bound | correlation, handle u32, generation u64, scope, head u64 | Nonzero handle/generation; head zero is allowed for an empty source. |
+
+Unknown magic/version/kind/mode is `Incompatible`, not retryable unavailability.
+Invalid numerical/identity values and trailing fields refuse; malformed input
+cannot become a partially valid frame. Invalid outgoing values write no bytes.
+After any codec or I/O error the caller discards the connection, because framing
+may no longer be aligned. Callers own deadlines, flushing and connection lifetime.
+The write path assembles a bounded complete frame before one `write_all` call;
+short writes remain supported by that standard I/O contract.
+
+The codec deliberately establishes **no session freshness, ordering, correlation
+match, handle uniqueness, negotiated-limit intersection or policy decision**.
+The next owner must compare Welcome limits against its retained offer and bind
+session IDs to authenticated channels; retain exact requests; check replies and
+binding generations; bound all maps; and reject data from closed/invalid bindings.
+Both differently scoped and stale frames may be representable control metadata;
+representability is never permission to apply. There is no Ready state, binding
+registry, request execution or Cancel message in this slice. The tables below
+remain required tests for those future owners, including both commit/cancel
+orderings. Do not expose this codec as a production server.
 
 ## Measured loopback baseline
 
@@ -144,8 +217,8 @@ Do not claim stale-origin protection before that work exists.
 
 | Slice | Deliverable and finish line | Dependencies / exclusions |
 | --- | --- | --- |
-| 0: baseline and contract (this change) | Reproducible exchange/byte counts in existing weak-link lab; proposed ordering tables and explicit port constraints. | No session implementation or claimed production readiness. |
-| 1: authorization and bounded codec | Resolve the authorizer composition gate; specify concrete version/length/ID/extension rules and limits. Pure codec + controlled state tests refuse over-budget/unknown/cross-request values before allocation/apply. | No sockets or product auth owner replacement. Review the contract before adding multiplexing. |
+| 0: baseline and contract (landed) | Reproducible exchange/byte counts in existing weak-link lab; proposed ordering tables and explicit port constraints. | No session implementation or claimed production readiness. |
+| 1: authorization and bounded codec (control-only skeleton implemented) | Resolve the authorizer composition gate; specify concrete version/length/ID/extension rules and limits. Pure codec + controlled state tests refuse over-budget/unknown/cross-request values before allocation/apply. | No sockets or product auth owner replacement. Review the contract before adding multiplexing. |
 | 2: one session, record reads | Hello/binding + correlated head/page behind existing ports where their invariants hold. Independent process lab demonstrates reconnect/drop and exact durable resume. | Preserve explicit authorize until slice 1 proves removal safe. No hidden retries. |
 | 3: multiplex, credit and cancel | Interleave scopes with bounded queues and record fragments. Deterministic tests cover every ordering table above, including commit races and old epoch. | No command execution; control priority is scheduling only. |
 | 4: history/catalogue/artifact adapters | Carry current head/status everywhere; batched heads and coalesced hints preserve finite passes, request echoes and deletion privacy. | Resolve #47 fields explicitly; #48 retention, #49 tombstone horizon and #50 origin fencing retain separate owners/issues. |
