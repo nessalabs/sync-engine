@@ -1,0 +1,61 @@
+{
+  "source_commit": "5ea1bd2c1d5c88c1fb41d7aec0f754e7602fc561",
+  "instrumentation": "scripts/verify-slice-3.py request counters only; no transport behavior changes",
+  "command": "python3 scripts/verify-slice-3.py --profiles",
+  "environment": "Linux x86_64 cloud workspace; Rust stable 1.100.0; synthetic fixture records",
+  "measurement_scope": "Proxy application-frame delays and per-direction throttling; TCP setup, packet loss, shared duplex contention, CPU and mobile power are not modeled",
+  "result": {
+    "slice": 3,
+    "converged": true,
+    "final": {
+      "checkpoint": 8,
+      "count": 8
+    },
+    "offline_payload_bytes": 5,
+    "unchanged_payload_bytes": 0,
+    "truncated_reply_recovered": true,
+    "all_hints_dropped_recovered": true,
+    "slow_receiver_isolated": true,
+    "subscribe_race_recovered": true,
+    "successive_hint_seconds": [
+      0.03,
+      0.029
+    ],
+    "auth_precedes_source_read": true,
+    "outage_recovered": true,
+    "profiles": [
+      {
+        "kbit_per_second": 32,
+        "rtt_seconds": 0.8,
+        "elapsed_seconds": 6.925,
+        "request_counts": {
+          "4": 1,
+          "1": 3,
+          "2": 2,
+          "3": 1
+        },
+        "exchanges": 7,
+        "head_checks": 2,
+        "duplicate_bytes": 0,
+        "protocol_bytes": 1360,
+        "payload_bytes": 4126
+      },
+      {
+        "kbit_per_second": 64,
+        "rtt_seconds": 1.5,
+        "elapsed_seconds": 11.169,
+        "request_counts": {
+          "4": 1,
+          "1": 3,
+          "2": 2,
+          "3": 1
+        },
+        "exchanges": 7,
+        "head_checks": 2,
+        "duplicate_bytes": 0,
+        "protocol_bytes": 1360,
+        "payload_bytes": 4126
+      }
+    ]
+  }
+}
