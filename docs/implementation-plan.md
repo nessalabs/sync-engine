@@ -11,8 +11,9 @@ command execution or backup.
 ## Proposed next work
 
 [Session transport #54](design/session-protocol.md) begins with a measured loopback
-baseline, proposed state/ownership contract and bounded control-only codec/lab.
-The codec grants no authority and implements no source or active session. Its
+baseline, proposed state/ownership contract, bounded control codec and passive
+binding lifecycle labs. These components grant no authority and implement no
+source or live replication session. Its
 remaining slice plan is future work;
 none of the production session protocol is implemented by the seven slices below.
 

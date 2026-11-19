@@ -1,8 +1,9 @@
 # Session transport: first measurement and state contract (#54)
 
 **Status: proposed session protocol with a bounded control-codec skeleton.**
-Only the control vocabulary and in-memory lab below are implemented. No active
-session, production socket, pairing, relay service or new authorization mechanism
+Only the control vocabulary, bounded passive binding lifecycle and in-memory
+labs below are implemented. No live replication session, production socket,
+pairing, relay service or new authorization mechanism
 is implemented here.
 The seven [reference slices](../implementation-plan.md) remain the implemented
 baseline. [Issue #54](https://github.com/nessalabs/sync-engine/issues/54) remains
@@ -72,14 +73,77 @@ short writes remain supported by that standard I/O contract.
 
 The codec deliberately establishes **no session freshness, ordering, correlation
 match, handle uniqueness, negotiated-limit intersection or policy decision**.
-The next owner must compare Welcome limits against its retained offer and bind
-session IDs to authenticated channels; retain exact requests; check replies and
-binding generations; bound all maps; and reject data from closed/invalid bindings.
+The passive lifecycle below now compares Welcome limits, retains exact Bind
+requests and checks binding replies. The future transport/data owner must bind
+these contexts to authenticated channels, correlate full data operations, and
+reject data from closed/invalid bindings.
 Both differently scoped and stale frames may be representable control metadata;
-representability is never permission to apply. There is no Ready state, binding
-registry, request execution or Cancel message in this slice. The tables below
-remain required tests for those future owners, including both commit/cancel
-orderings. Do not expose this codec as a production server.
+representability is never permission to apply. The codec alone has no Ready state or binding registry; the passive lifecycle
+below now correlates binding metadata only. There is still no data execution or
+Cancel message. The proposed tables remain required tests for future data owners,
+including both commit/cancel orderings. Do not expose this codec as a production server.
+
+## Implemented binding-lifecycle milestone
+
+`SessionLifecycle` adds metadata bookkeeping behind the optional transport feature;
+it implements no source/store/authorizer port and performs no I/O. Its `Ready`
+phase means only that Welcome metadata fit the retained offer. It does not mean
+that a channel is authenticated, a scope is authorized, or a checkpoint may be
+loaded/applied. Existing per-operation authorization checks remain unchanged.
+The host still authenticates the channel, authorizes before sending Bind or
+emitting identity-bearing Bound, and authorizes every later operation/apply.
+No cached grant, authority expansion or production policy setting is introduced.
+
+The owner issues immutable `RequestIdentity` and `ScopeIdentity` tokens. They
+include an opaque process-local `ConnectionId` plus the selected nonzero wire
+`SessionId`; scopes additionally retain the full exact scope, handle and generation.
+Each owner has a fresh allocation-backed connection tag, without a global counter
+or unbounded registry. The future read loop must capture that tag **before reading**
+and pass it with the resulting frames. Never relabel an old frame with the new
+owner's tag. This rejects stale local read-loop results even if two peers reuse
+wire numbers; it does not establish cryptographic replay protection or global
+wire-session freshness. Host authentication and channel ownership remain required.
+
+Only Bind requests are executed as bookkeeping in this slice; no data operation
+is routed. A request number is allocated only after admission and never wraps or
+reuses zero. The fixed local pending budget cannot exceed the offered binding
+budget and is further limited by the accepted Welcome. Welcome may reduce but
+never increase the retained control/binding limits. Record-ceiling validation is
+metadata admission only; no payload budget or data receiver is implemented.
+
+Each issued Bind reserves one **lifetime slot**, including after completion,
+cancellation or invalidation. The selected binding limit (at most 32) therefore
+bounds active metadata, pending requests, retired exact scopes and handle tombstones
+together. Terminal slots are not silently recycled; budget exhaustion requires a
+new owner/connection. This intentionally conservative first owner avoids an
+unbounded retired-ID set. It does not implement indefinite same-connection rebinding
+or a general-purpose data-request window.
+
+| Current metadata state / event | Implemented decision |
+| --- | --- |
+| Connecting / valid current-tag Welcome within retained offer | Ready with immutable wire namespace. Unknown operation, zero namespace or incompatible limits closes terminally. A second Welcome cannot reopen/reinitialize an owner. |
+| Any state / another connection's event or token | `WrongConnection`; leave the current owner untouched. |
+| Connecting / local begin Bind | `NotReady`, no slot or ID consumed. Unsolicited Bound on the current connection closes as `UnexpectedReply`. |
+| Ready / begin Bind | Reserve exact scope and next typed request. Duplicate active/pending stable target is `ScopeConflict`; a retired exact scope is `StaleIdentity`. Admission failures consume no request number. |
+| Pending / exact Bound, including replies reordered across requests | Check connection tag, wire session, request, all six scope fields and fresh handle and nonzero generation before installing passive context. Advisory head is not stored as progress. |
+| Pending / wrong scope/session, unknown request, duplicate handle or malformed identity | Refuse and close this owner; no partial context survives. Handles cannot be reused even with a higher generation after invalidation. |
+| Pending / local cancel | Mark the retained slot invalid; repeated cancel is harmless. A late Bound is `TerminalRequest` and cannot reopen it; unrelated requests/contexts remain usable. |
+| Bound / local cancel | `TerminalRequest`; completion is not undone. This is metadata completion, not a store commit or wire Cancel acknowledgment. |
+| Bound / explicit host invalidation | Mark exact context invalid and retain scope/handle tombstone. Old token checks fail; changed scope for the same stable target may start a new slot only after explicit invalidation/cancellation. |
+| Any / close | Closed, discard all retained slots and selected metadata. The owner cannot reopen; old tokens never validate on a new owner. No checkpoint reset or cache wipe occurs. |
+
+These methods serialize mutation through Rust's exclusive mutable borrow. There
+is no policy callback, store transaction, cancellation frame or commit-race owner
+in this milestone. The later data path must still validate exact operation/range
+correlation and preserve both commit-wins and cancellation-wins cases from the
+proposed tables. Identity-check success alone is never permission to read or apply.
+
+`python3 scripts/verify-session-lifecycle.py` runs a benign in-memory lab through
+the landed codec: reordered Bound replies, explicit invalidation, late cancelled
+reply refusal, close and a replacement owner reusing the same wire namespace.
+Contract tests separately cover every scope component, budget saturation and
+request-number exhaustion. This is not a socket, policy, reconnect or performance
+qualification; the legacy labs continue to exercise the existing live reference path.
 
 ## Measured loopback baseline
 

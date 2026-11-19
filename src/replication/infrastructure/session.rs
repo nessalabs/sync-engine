@@ -26,7 +26,7 @@ const PER_OPERATION: u8 = 1;
 pub struct SessionLimits {
     /// Maximum control-body bytes, excluding the four-byte length prefix.
     pub control_bytes: u32,
-    /// Maximum binding metadata entries a future session owner may retain.
+    /// Maximum binding metadata entries a session owner may retain.
     pub bindings: u16,
 }
 
@@ -43,7 +43,7 @@ impl SessionLimits {
 }
 
 /// Correlation metadata. IDs must be nonzero; uniqueness and freshness are
-/// obligations of the future session owner, not established by decoding.
+/// obligations of the session owner, not established by decoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Correlation {
     /// Host-selected session namespace, bound to its authenticated channel.
@@ -53,12 +53,12 @@ pub struct Correlation {
 }
 
 /// Passive binding metadata. This value grants no authority and cannot advance
-/// a checkpoint. The future owner must correlate exact scope and request first.
+/// a checkpoint. The session owner must correlate exact scope and request first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BindingMetadata {
     /// Nonzero session-local scope handle.
     pub handle: u32,
-    /// Nonzero binding generation, fenced by the future session owner.
+    /// Nonzero binding generation retained with the exact handle by the lifecycle owner.
     pub generation: u64,
     /// Exact receiver/source identity and access epoch.
     pub scope: Scope,
@@ -77,7 +77,7 @@ pub enum ControlFrame {
     Welcome {
         /// Nonzero host-selected session namespace.
         session: u64,
-        /// Accepted limits; future negotiation must compare these to the offer.
+        /// Accepted limits; the lifecycle owner compares these to the retained offer.
         limits: SessionLimits,
         /// Maximum source payload, no larger than the supported owner ceiling.
         record_bytes: u32,
@@ -315,3 +315,9 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
     write_control(&mut io::sink(), &frame, limit)?;
     Ok(frame)
 }
+
+mod lifecycle;
+pub use lifecycle::{
+    ConnectionId, LifecycleError, RequestIdentity, ScopeIdentity, SessionId, SessionLifecycle,
+    SessionPhase,
+};
