@@ -1,10 +1,10 @@
 # Session transport: first measurement and state contract (#54)
 
 **Status: proposed session protocol with a bounded control-codec skeleton.**
-Only the control vocabulary, bounded passive binding lifecycle and in-memory
-labs below are implemented. No live replication session, production socket,
-pairing, relay service or new authorization mechanism
-is implemented here.
+The control vocabulary, bounded passive binding lifecycle, current-policy
+authorizer composition and in-memory labs below are implemented. No live
+replication session, production socket, pairing, relay service or new
+authentication/policy service is implemented here.
 The seven [reference slices](../implementation-plan.md) remain the implemented
 baseline. [Issue #54](https://github.com/nessalabs/sync-engine/issues/54) remains
 open; this note is the decision/test boundary for its first implementation slice.
@@ -144,6 +144,65 @@ reply refusal, close and a replacement owner reusing the same wire namespace.
 Contract tests separately cover every scope component, budget saturation and
 request-number exhaustion. This is not a socket, policy, reconnect or performance
 qualification; the legacy labs continue to exercise the existing live reference path.
+
+## Current-policy authorization prerequisite
+
+`ScopedSessionAuthorizer` composes the passive lifecycle with a **host-provided
+current `ScopeAuthorizer`**. It is usable with the unchanged application ports;
+it is not a live bound-session read adapter or an authentication/policy service.
+Construction borrows an owner, exact scope token and current policy port without
+making a decision. Each `authorize` call checks the local identity fence and then
+calls current host policy. It contains no Allowed cache. A successful Hello/Bound,
+Ready phase, advisory head or earlier successful policy check never supplies a
+later grant.
+
+The host must bind the underlying policy implementation to the authenticated
+principal/channel and current authority. Wrapping an always-allow or cached-grant
+implementation does not make it authoritative. The existing policy port contract
+remains the authority boundary. The source endpoint must independently authorize
+every operation and emitted batch before exposing bytes; this client/application
+preflight cannot replace it. Local progress and response validation remain with
+the existing application and store owners.
+
+| Input/state at a policy request | Port outcome / admission effect |
+| --- | --- |
+| Requested scope differs from the token in any of its six fields | `Access::IdentityChanged`; no policy, progress or source access. This reveals only a local argument mismatch, no source identity/existence. |
+| Token is invalidated or belongs to another connection | `IdentityChanged`; explicit rebind/reconciliation required, no automatic reset. |
+| Owner is Closed (or not Ready for that context) | `Unverifiable`; freeze admission without treating a transport loss as revocation or wiping cache. |
+| Exact active context | Invoke the host's current policy once for this call. No result is cached for another call. |
+| Current policy echoes Allowed for the exact scope | Preserve Allowed; the existing application can proceed to its local-progress/read boundary. |
+| Current policy echoes another scope, incarnation, schema or epoch | `IdentityChanged`; refuse before local progress or source access. Do not expose the foreign echo as an allowed result. |
+| Current policy returns Denied / Unverifiable / IdentityChanged / InvalidResponse | Preserve that typed outcome; the existing application maps it to its normal refusal. Unknown/unexpected lifecycle outcomes are invalid, never retryable grants. |
+| Policy changes between begin and the next page/application operation | Invoke policy again. Denial/uncertainty stops before page read/apply; existing data/progress remain intact. |
+| Host observes lifecycle invalidation between operations | Drop the old gate, mutate the lifecycle explicitly, then construct a new gate. Old tokens fail even if a previously captured finite pass exists. |
+
+Compose with existing `begin_pass`/`step`/`finish_pass`: they already check access
+before loading saved progress or reading a page. A scope-mismatch error from saved
+progress must therefore remain invisible until current policy allows the request.
+The generic authorizer port is also shared by history and catalogue, but this
+milestone's application-order lab qualifies the record entry points only; it is
+not new history/catalogue transport integration.
+
+The shared lifecycle borrow makes the ownership mode explicit: a gate is
+short-lived and cannot coexist with mutation of that owner. Process pending
+lifecycle events before starting an operation, and drop the gate before applying
+such events. Policy may change independently through its own authority. This
+adds no atomic policy/commit transaction or globally instantaneous revocation;
+source-side checks, generation validation and existing uncertain-commit recovery
+remain required. Full duplex/multiplexed transport ownership still needs a separate
+composition proof before a live read route is wired.
+
+Run `python3 scripts/verify-session-authorization.py`. The benign lab/tests use
+scripted current-policy decisions and
+existing in-memory record ports to observe `policy -> load -> head` and
+`policy -> page -> apply` ordering, refusals before a potentially revealing cache
+mismatch, changed policy between operations, and lifecycle stops. They do not
+carry record data over a session or establish production policy/privacy behavior.
+The gate performs no entity/tombstone lookup, and introduces no new remote absence
+response; the existing equivalent absence and owner-before-deletion rules remain
+requirements for the future source adapter. No authorization exchanges are removed.
+Cold/warm bound-session exchange/byte/latency comparison remains pending until an
+actual data path exists; timing this in-memory prerequisite would not answer it.
 
 ## Measured loopback baseline
 
