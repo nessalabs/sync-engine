@@ -37,13 +37,15 @@ pub struct LoopbackReadConfig {
 
 impl LoopbackReadConfig {
     fn permits(&self, token: &Id, scope: &Scope) -> bool {
-        token == &self.read_token
-            && scope.origin() == &self.origin
+        token == &self.read_token && self.allowed_receivers.contains(scope.receiver())
+    }
+
+    fn matches(&self, scope: &Scope) -> bool {
+        scope.origin() == &self.origin
             && scope.stream() == &self.stream
             && scope.incarnation() == &self.incarnation
             && scope.schema() == &self.schema
             && scope.access_epoch() == &self.access_epoch
-            && self.allowed_receivers.contains(scope.receiver())
     }
 }
 
@@ -103,6 +105,7 @@ where
     F: Fn() -> Result<S, SourceError>,
     S: RecordSource,
 {
+    stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let frame = read_frame(&mut stream)?;
@@ -115,6 +118,10 @@ where
     let scope = input.scope()?;
     if !config.permits(&token, &scope) {
         write_frame(&mut stream, &[1])?;
+        return Ok(());
+    }
+    if !config.matches(&scope) {
+        write_frame(&mut stream, &[9])?;
         return Ok(());
     }
     let response = match operation {

@@ -116,3 +116,28 @@ sequenceDiagram
 The optional profile is a small correctness experiment. It does not model radio
 packet loss, mobile OS background policy, battery cost, relay availability or
 large Nessa transcripts. Those need later experiments before service targets.
+
+## Reference record bounds and refusals
+
+`application::MAX_RECORD_BYTES` owns the reference record append ceiling. The
+`wire_contract` example exports it as `record_max_payload_bytes`. SQLite refuses
+larger appends before committing; an exactly-at-limit record fits one loopback
+page or tail. Smaller requested budgets can still return `OversizedRecord`.
+
+For record, history, catalogue and authorization operations, status 1 means
+credential or receiver refusal, 2 means temporary unavailability, and 9 means
+scope/identity mismatch. Credential and receiver checks precede identity checks.
+Existing operation-specific status codes retain their meanings. Unknown source
+status codes become `InvalidRequest`; unknown authorization replies become
+`Access::InvalidResponse`. These require host intervention rather than automatic
+unavailable-source retry. An identity refusal becomes `Access::IdentityChanged`,
+which the application reports as `WrongAccessScope` without resetting progress.
+
+Each frame is assembled into one buffer before `write_all`; sockets on both
+ends enable TCP_NODELAY. The writer-count regression proves write grouping,
+not a measured latency improvement. Subscription acknowledgment reads have the
+same finite timeout as ordinary exchanges. After a wake followed by EOF, the
+example immediately subscribes again before its next catch-up. The deliberate
+double `begin_pass` head recheck remains. The successive-hint process regression
+uses a ten-second fallback and a three-second bound for each separate update;
+its timing and reversion evidence must be measured on a qualified Rust build.

@@ -202,7 +202,7 @@ fn run() -> Result<(), AnyError> {
             let mut source = client(&args[2], &args[5])?;
             let mut store = SqliteReplicaStore::open(&args[3])?;
             let mut hint_bytes = 0;
-            loop {
+            'follow: loop {
                 match source.subscribe(&target) {
                     Ok(mut hints) => {
                         // First catch-up and post-pass head check close the
@@ -219,12 +219,19 @@ fn run() -> Result<(), AnyError> {
                         }
                         hints.set_read_timeout(Some(fallback))?;
                         let mut hint_buffer = Vec::new();
+                        let mut saw_hint = false;
                         loop {
                             match read_hint(&mut hints, &mut hint_buffer) {
                                 Ok(Some(frame)) if frame == [7] || frame == [8] => {
                                     hint_bytes += 5;
+                                    saw_hint |= frame == [7];
                                 }
                                 Ok(None) => {}
+                                Err(FrameError::Io(error))
+                                    if saw_hint && error.kind() == io::ErrorKind::UnexpectedEof =>
+                                {
+                                    continue 'follow;
+                                }
                                 _ => break,
                             }
                             match catch_up(&target, &mut authorizer, &mut source, &mut store) {

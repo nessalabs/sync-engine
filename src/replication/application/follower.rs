@@ -14,6 +14,10 @@ pub enum Access {
     Allowed(Scope),
     /// Authenticated denial. Host owns any cache invalidation policy.
     Denied,
+    /// Source scope or identity no longer matches.
+    IdentityChanged,
+    /// Policy reply was malformed or used an unsupported status.
+    InvalidResponse,
     /// Policy could not be checked; keep cached data but deliver nothing.
     Unverifiable,
 }
@@ -24,9 +28,14 @@ pub trait ScopeAuthorizer {
     fn authorize(&mut self, scope: &Scope) -> Access;
 }
 
+/// Maximum payload accepted by the reference record source and its wire adapter.
+pub const MAX_RECORD_BYTES: usize = 512 * 1024;
+
 /// Typed source failure; source adapters must enforce the request bounds before allocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
+    /// Authentication or receiver policy refused this request.
+    Denied,
     /// Source is temporarily unavailable.
     Unavailable,
     /// History is pruned; a later compatible reset is required.
@@ -81,6 +90,8 @@ pub trait ReplicaStore {
 /// Use-case failure with the owner of the refusal preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SyncError {
+    /// Authorization returned an unsupported or malformed reply.
+    InvalidAccessResponse,
     /// Policy denied delivery.
     Denied,
     /// Current policy could not be verified.
@@ -204,6 +215,8 @@ fn check_access<A: ScopeAuthorizer>(scope: &Scope, authorizer: &mut A) -> Result
         Access::Allowed(current) if current == *scope => Ok(()),
         Access::Allowed(_) => Err(SyncError::WrongAccessScope),
         Access::Denied => Err(SyncError::Denied),
+        Access::IdentityChanged => Err(SyncError::WrongAccessScope),
+        Access::InvalidResponse => Err(SyncError::InvalidAccessResponse),
         Access::Unverifiable => Err(SyncError::Unverifiable),
     }
 }

@@ -17,7 +17,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::replication::application::{Access, RecordSource, ScopeAuthorizer, SourceError};
+use crate::replication::application::{
+    Access, RecordSource, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
+};
 use crate::replication::artifacts::{
     validate_chunk, ArtifactKey, ArtifactManifest, ArtifactState, ChunkReply, ChunkRequest,
     ChunkSource, ChunkSourceError, ContentIdentity, ManifestReply as ArtifactManifestReply,
@@ -43,7 +45,7 @@ pub use record_server::{LoopbackReadConfig, LoopbackRecordServer};
 /// Maximum complete wire body, checked before allocating a read buffer.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Maximum payload bytes in one record page.
-pub const MAX_PAGE_PAYLOAD: usize = 512 * 1024;
+pub const MAX_PAGE_PAYLOAD: usize = MAX_RECORD_BYTES;
 /// Maximum records in one record page.
 pub const MAX_PAGE_RECORDS: usize = 64;
 const MAX_CATALOGUE_ENTRIES: usize = 128;
@@ -95,8 +97,10 @@ pub fn write_frame(writer: &mut impl Write, body: &[u8]) -> Result<(), FrameErro
     if body.len() > MAX_FRAME_BYTES {
         return Err(FrameError::TooLarge);
     }
-    writer.write_all(&(body.len() as u32).to_be_bytes())?;
-    writer.write_all(body)?;
+    let mut frame = Vec::with_capacity(4 + body.len());
+    frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    frame.extend_from_slice(body);
+    writer.write_all(&frame)?;
     Ok(())
 }
 
@@ -406,6 +410,7 @@ fn decode_chunk_source_error(code: u8) -> ChunkSourceError {
 #[cfg(feature = "sqlite")]
 fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
     match error {
+        CatalogueSourceError::Denied => 1,
         CatalogueSourceError::Unavailable => 2,
         CatalogueSourceError::IdentityChanged => 3,
         CatalogueSourceError::InvalidRequest => 4,
@@ -415,15 +420,19 @@ fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
 
 fn decode_catalogue_error(code: u8) -> CatalogueSourceError {
     match code {
+        1 => CatalogueSourceError::Denied,
+        2 => CatalogueSourceError::Unavailable,
+        9 => CatalogueSourceError::IdentityChanged,
         3 => CatalogueSourceError::IdentityChanged,
         4 => CatalogueSourceError::InvalidRequest,
         5 => CatalogueSourceError::OversizedEntry,
-        _ => CatalogueSourceError::Unavailable,
+        _ => CatalogueSourceError::InvalidRequest,
     }
 }
 
 fn source_error_code(error: SourceError) -> u8 {
     match error {
+        SourceError::Denied => 1,
         SourceError::Unavailable => 2,
         SourceError::Pruned => 3,
         SourceError::InvalidRequest => 4,
@@ -434,11 +443,14 @@ fn source_error_code(error: SourceError) -> u8 {
 
 fn decode_source_error(code: u8) -> SourceError {
     match code {
+        1 => SourceError::Denied,
+        2 => SourceError::Unavailable,
+        9 => SourceError::IdentityChanged,
         3 => SourceError::Pruned,
         4 => SourceError::InvalidRequest,
         5 => SourceError::IdentityChanged,
         6 => SourceError::OversizedRecord,
-        _ => SourceError::Unavailable,
+        _ => SourceError::InvalidRequest,
     }
 }
 
@@ -496,6 +508,7 @@ fn encode_record_page(request: &PageRequest, page: Page) -> Result<Vec<u8>, Sour
 #[cfg(feature = "sqlite")]
 fn history_error_code(error: HistorySourceError) -> u8 {
     match error {
+        HistorySourceError::Denied => 1,
         HistorySourceError::Unavailable => 2,
         HistorySourceError::ResetRequired => 3,
         HistorySourceError::InvalidRequest => 4,
@@ -506,11 +519,14 @@ fn history_error_code(error: HistorySourceError) -> u8 {
 
 fn decode_history_error(code: u8) -> HistorySourceError {
     match code {
+        1 => HistorySourceError::Denied,
+        2 => HistorySourceError::Unavailable,
+        9 => HistorySourceError::IdentityChanged,
         3 => HistorySourceError::ResetRequired,
         4 => HistorySourceError::InvalidRequest,
         5 => HistorySourceError::IdentityChanged,
         6 => HistorySourceError::OversizedRecord,
-        _ => HistorySourceError::Unavailable,
+        _ => HistorySourceError::InvalidRequest,
     }
 }
 
@@ -668,6 +684,7 @@ fn serve_one(
     wake: &(Mutex<u64>, Condvar),
     counters: &ServerCounters,
 ) -> Result<(), FrameError> {
+    stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let frame = read_frame(&mut stream)?;
@@ -677,12 +694,13 @@ fn serve_one(
     match operation {
         1..=3 => {
             let scope = input.scope()?;
-            if token != config.read_token
-                || !config.matches(&scope)
-                || !config.allowed_receivers.contains(scope.receiver())
-            {
+            if token != config.read_token || !config.allowed_receivers.contains(scope.receiver()) {
                 counters.refused_reads.fetch_add(1, Ordering::Relaxed);
                 write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            if !config.matches(&scope) {
+                write_frame(&mut stream, &[9])?;
                 return Ok(());
             }
             if operation == 1 {
@@ -739,12 +757,13 @@ fn serve_one(
         4 => {
             let scope = input.scope()?;
             input.finish()?;
-            if token != config.read_token
-                || !config.matches(&scope)
-                || !config.allowed_receivers.contains(scope.receiver())
-            {
+            if token != config.read_token || !config.allowed_receivers.contains(scope.receiver()) {
                 counters.refused_reads.fetch_add(1, Ordering::Relaxed);
                 write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            if !config.matches(&scope) {
+                write_frame(&mut stream, &[9])?;
                 return Ok(());
             }
             let (lock, signal) = wake;
@@ -821,12 +840,13 @@ fn serve_one(
         }
         7 | 8 => {
             let scope = input.scope()?;
-            if token != config.read_token
-                || !config.matches(&scope)
-                || !config.allowed_receivers.contains(scope.receiver())
-            {
+            if token != config.read_token || !config.allowed_receivers.contains(scope.receiver()) {
                 counters.refused_reads.fetch_add(1, Ordering::Relaxed);
                 write_frame(&mut stream, &[1])?;
+                return Ok(());
+            }
+            if !config.matches(&scope) {
+                write_frame(&mut stream, &[9])?;
                 return Ok(());
             }
             let before = if operation == 8 {
@@ -1172,12 +1192,15 @@ fn catalogue_access(
     stream: &mut TcpStream,
 ) -> Result<bool, FrameError> {
     if *token != config.read_token
-        || !config.matches(scope)
         || !config.allowed_receivers.contains(scope.receiver())
         || config.catalogue_source_path.is_none()
     {
         counters.refused_reads.fetch_add(1, Ordering::Relaxed);
         write_frame(stream, &[1])?;
+        return Ok(false);
+    }
+    if !config.matches(scope) {
+        write_frame(stream, &[9])?;
         return Ok(false);
     }
     Ok(true)
@@ -1245,6 +1268,7 @@ impl LoopbackClient {
 
     fn exchange(&mut self, request: &[u8]) -> Result<Vec<u8>, FrameError> {
         let mut stream = TcpStream::connect_timeout(&self.address.into(), CONNECT_TIMEOUT)?;
+        stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         write_frame(&mut stream, request)?;
@@ -1265,6 +1289,8 @@ impl LoopbackClient {
     /// head before waiting; an EOF means reconnect and check the head again.
     pub fn subscribe(&mut self, scope: &Scope) -> Result<TcpStream, FrameError> {
         let mut stream = TcpStream::connect_timeout(&self.address.into(), CONNECT_TIMEOUT)?;
+        stream.set_nodelay(true)?;
+        stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         let request = self.request(4, scope);
         write_frame(&mut stream, &request)?;
@@ -1783,7 +1809,10 @@ impl ScopeAuthorizer for LoopbackClient {
         match self.exchange(&self.request(1, scope)) {
             Ok(response) if response == [0] => Access::Allowed(scope.clone()),
             Ok(response) if response == [1] => Access::Denied,
-            _ => Access::Unverifiable,
+            Ok(response) if response == [2] => Access::Unverifiable,
+            Ok(response) if response == [9] => Access::IdentityChanged,
+            Ok(_) => Access::InvalidResponse,
+            Err(_) => Access::Unverifiable,
         }
     }
 }
@@ -2205,3 +2234,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, feature = "sqlite"))]
+#[path = "../../../tests/replication/infrastructure/loopback_issue_53.rs"]
+mod issue_53_tests;

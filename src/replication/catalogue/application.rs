@@ -14,6 +14,8 @@ use super::{
 /// Source refusal before receiver progress changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueSourceError {
+    /// Authentication or receiver policy refused this request.
+    Denied,
     /// Source cannot currently answer or resolve an entry.
     Unavailable,
     /// Exact source identity or access scope changed.
@@ -56,6 +58,8 @@ impl From<CatalogueProgressError> for CatalogueStoreError {
 /// End-to-end refusal with source and store errors preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueError {
+    /// Authorization returned an unsupported or malformed reply.
+    InvalidAccessResponse,
     /// Current policy denied delivery.
     Denied,
     /// Current policy cannot be checked.
@@ -126,6 +130,8 @@ fn authorize<A: ScopeAuthorizer>(scope: &Scope, authorizer: &mut A) -> Result<()
         Access::Allowed(current) if current == *scope => Ok(()),
         Access::Allowed(_) => Err(CatalogueError::WrongAccessScope),
         Access::Denied => Err(CatalogueError::Denied),
+        Access::IdentityChanged => Err(CatalogueError::WrongAccessScope),
+        Access::InvalidResponse => Err(CatalogueError::InvalidAccessResponse),
         Access::Unverifiable => Err(CatalogueError::Unverifiable),
     }
 }
