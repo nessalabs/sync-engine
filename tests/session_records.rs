@@ -6,8 +6,8 @@ use nessa_sync::replication::{
     },
     domain::{Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Scope},
     infrastructure::session::{
-        read_control, serve_record_session, write_control, ControlFrame, RecordSession,
-        RecordSessionError, SessionLimits,
+        read_control, serve_record_session, write_control, ControlFrame, InterruptibleSessionIo,
+        RecordSession, RecordSessionError, SessionInterrupt, SessionLimits, TcpSessionIo,
     },
     infrastructure::{SqliteReferenceSource, SqliteReplicaStore},
 };
@@ -15,8 +15,8 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -156,10 +156,37 @@ impl RecordSource for LiveSource {
         self.inner.page(request)
     }
 }
+#[derive(Default)]
+struct IoGate {
+    state: Mutex<(bool, bool)>,
+    ready: Condvar,
+}
+impl IoGate {
+    fn hold(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = true;
+        self.ready.notify_all();
+        while !state.1 {
+            state = self.ready.wait(state).unwrap();
+        }
+    }
+    fn entered(&self) -> bool {
+        let (state, _) = self
+            .ready
+            .wait_timeout_while(self.state.lock().unwrap(), Duration::from_secs(2), |s| !s.0)
+            .unwrap();
+        state.0
+    }
+    fn release(&self) {
+        self.state.lock().unwrap().1 = true;
+        self.ready.notify_all();
+    }
+}
 #[derive(Clone, Copy)]
 enum Fault {
     None,
     TruncatePage,
+    StallPage,
     DenyAfterFragment,
     WrongVersion,
     DenyAfterHead,
@@ -175,6 +202,7 @@ struct Channel {
     fault: Fault,
     fired: bool,
     broken: bool,
+    gate: Arc<IoGate>,
 }
 impl Read for Channel {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
@@ -284,6 +312,9 @@ impl Write for Channel {
         if page && !self.fired {
             self.fired = true;
             match self.fault {
+                Fault::StallPage => {
+                    self.gate.hold();
+                }
                 Fault::TruncatePage => {
                     self.socket.write_all(&bytes[..12])?;
                     self.socket.shutdown(Shutdown::Both)?;
@@ -316,6 +347,7 @@ struct Server {
     mode: Arc<AtomicU8>,
     current: Arc<Mutex<Scope>>,
     opens: Arc<AtomicUsize>,
+    gate: Arc<IoGate>,
 }
 impl Server {
     fn spawn(path: PathBuf, connections: usize, fault: Fault) -> Self {
@@ -329,6 +361,8 @@ impl Server {
         let opens = Arc::new(AtomicUsize::new(0));
         let live = Arc::new(AtomicUsize::new(0));
         let head_reads = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(IoGate::default());
+        let held_gate = gate.clone();
         let (m, c, o) = (mode.clone(), current.clone(), opens.clone());
         let join = thread::spawn(move || {
             for number in 1..=connections {
@@ -358,6 +392,7 @@ impl Server {
                     fault,
                     fired: false,
                     broken: false,
+                    gate: held_gate.clone(),
                 };
                 let mut policy = Policy {
                     mode: m.clone(),
@@ -392,7 +427,10 @@ impl Server {
                         })
                     },
                 );
-                if !matches!(fault, Fault::TruncatePage | Fault::BadBound(_)) {
+                if !matches!(
+                    fault,
+                    Fault::TruncatePage | Fault::BadBound(_) | Fault::StallPage
+                ) {
                     result.unwrap();
                 }
                 assert_eq!(live.load(Ordering::SeqCst), 0);
@@ -404,6 +442,7 @@ impl Server {
             mode,
             current,
             opens,
+            gate,
         }
     }
     fn connect(&self, requested: Scope) -> RecordSession<TcpStream> {
@@ -422,7 +461,25 @@ impl Server {
         token: &[u8],
         opening: bool,
     ) -> Result<RecordSession<TcpStream>, RecordSessionError> {
-        let mut socket = TcpStream::connect(self.address)?;
+        let socket = self.dial(token)?;
+        if opening {
+            RecordSession::connect_open(socket, requested, limits())
+        } else {
+            RecordSession::connect(socket, requested, limits())
+        }
+    }
+    fn connect_io(
+        &self,
+        requested: Scope,
+    ) -> Result<RecordSession<TcpSessionIo>, RecordSessionError> {
+        let io = TcpSessionIo::new(self.dial(b"fixture-read")?)?;
+        RecordSession::connect_open_interruptible(io, requested, limits())
+    }
+    fn dial(&self, token: &[u8]) -> Result<TcpStream, RecordSessionError> {
+        Self::dial_at(self.address, token)
+    }
+    fn dial_at(address: SocketAddrV4, token: &[u8]) -> Result<TcpStream, RecordSessionError> {
+        let mut socket = TcpStream::connect(address)?;
         socket.set_nodelay(true)?;
         socket.set_read_timeout(Some(Duration::from_secs(5)))?;
         socket.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -433,13 +490,10 @@ impl Server {
         if ack != [0] {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
         }
-        if opening {
-            RecordSession::connect_open(socket, requested, limits())
-        } else {
-            RecordSession::connect(socket, requested, limits())
-        }
+        Ok(socket)
     }
     fn finish(self) {
+        self.gate.release();
         self.join.join().unwrap();
     }
 }
@@ -1367,4 +1421,308 @@ fn open_page_wire_echo_target_and_empty_before_target_are_validated() {
         session.close().unwrap();
         server.finish();
     }
+}
+
+struct RawRelay {
+    address: SocketAddrV4,
+    join: thread::JoinHandle<()>,
+}
+impl RawRelay {
+    fn spawn(upstream: SocketAddrV4) -> Self {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = match listener.local_addr().unwrap() {
+            std::net::SocketAddr::V4(a) => a,
+            _ => unreachable!(),
+        };
+        let join = thread::spawn(move || {
+            let (mut down, _) = listener.accept().unwrap();
+            let mut up = TcpStream::connect(upstream).unwrap();
+            for s in [&down, &up] {
+                s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                s.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+                s.set_nodelay(true).unwrap();
+            }
+            let mut down_read = down.try_clone().unwrap();
+            let mut up_write = up.try_clone().unwrap();
+            let sender = thread::spawn(move || {
+                let _ = io::copy(&mut down_read, &mut up_write);
+                let _ = up_write.shutdown(Shutdown::Both);
+            });
+            let _ = io::copy(&mut up, &mut down);
+            let _ = down.shutdown(Shutdown::Both);
+            sender.join().unwrap();
+        });
+        Self { address, join }
+    }
+    fn finish(self) {
+        self.join.join().unwrap();
+    }
+}
+#[test]
+fn interruptible_close_unblocks_stalled_record_reply_before_io_deadline() {
+    for relayed in [false, true] {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::StallPage);
+        let relay = if relayed {
+            Some(RawRelay::spawn(server.address))
+        } else {
+            None
+        };
+        let endpoint = relay.as_ref().map_or(server.address, |r| r.address);
+        let channel =
+            TcpSessionIo::new(Server::dial_at(endpoint, b"fixture-read").unwrap()).unwrap();
+        let session = Arc::new(
+            RecordSession::connect_open_interruptible(channel, scope(), limits()).unwrap(),
+        );
+        let (mut a, mut s) = session.parts();
+        let path = fixture.path("replica.db");
+        let worker = thread::spawn(move || {
+            let mut store = SqliteReplicaStore::open(&path).unwrap();
+            let result = begin_pass_with_page(
+                &scope(),
+                Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+                &mut a,
+                &mut s,
+                &mut store,
+            );
+            (
+                result,
+                store.checkpoint(&scope()).unwrap(),
+                store.count(&scope()).unwrap(),
+            )
+        });
+        let entered = server.gate.entered();
+        let close = session.clone();
+        let (tx, rx) = mpsc::channel();
+        let closer = thread::spawn(move || tx.send(close.close()).unwrap());
+        let closed = rx.recv_timeout(Duration::from_secs(2));
+        server.gate.release();
+        closer.join().unwrap();
+        let (result, saved, count) = worker.join().unwrap();
+        session.close().unwrap();
+        server.finish();
+        if let Some(relay) = relay {
+            relay.finish();
+        }
+        assert!(entered);
+        assert!(
+            matches!(closed, Ok(Ok(()))),
+            "close waited behind blocked read: {closed:?}"
+        );
+        assert!(result.is_err());
+        assert!(saved.is_none());
+        assert_eq!(count, 0);
+    }
+}
+
+struct FaultInterrupt {
+    physical: Arc<dyn SessionInterrupt>,
+    closed: Arc<AtomicBool>,
+    calls: AtomicUsize,
+}
+impl SessionInterrupt for FaultInterrupt {
+    fn interrupt(&self) -> io::Result<()> {
+        self.closed.store(true, Ordering::Release);
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            Err(io::Error::other("fixture interrupt failure"))
+        } else {
+            self.physical.interrupt()
+        }
+    }
+}
+struct FaultIo {
+    inner: TcpSessionIo,
+    interrupt: Arc<FaultInterrupt>,
+}
+impl Read for FaultIo {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if self.interrupt.closed.load(Ordering::Acquire) {
+            return Err(io::ErrorKind::NotConnected.into());
+        }
+        self.inner.read(out)
+    }
+}
+impl Write for FaultIo {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.interrupt.closed.load(Ordering::Acquire) {
+            return Err(io::ErrorKind::NotConnected.into());
+        }
+        self.inner.write(bytes)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        if self.interrupt.closed.load(Ordering::Acquire) {
+            return Err(io::ErrorKind::NotConnected.into());
+        }
+        self.inner.flush()
+    }
+}
+impl InterruptibleSessionIo for FaultIo {
+    fn interrupt_handle(&self) -> Arc<dyn SessionInterrupt> {
+        self.interrupt.clone()
+    }
+}
+#[test]
+fn interrupt_error_returns_promptly_and_all_ports_remain_terminal() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::StallPage);
+    let io = TcpSessionIo::new(server.dial(b"fixture-read").unwrap()).unwrap();
+    let physical = io.interrupt_handle();
+    let interrupt = Arc::new(FaultInterrupt {
+        physical: physical.clone(),
+        closed: Arc::new(AtomicBool::new(false)),
+        calls: AtomicUsize::new(0),
+    });
+    let session = Arc::new(
+        RecordSession::connect_open_interruptible(
+            FaultIo {
+                inner: io,
+                interrupt: interrupt.clone(),
+            },
+            scope(),
+            limits(),
+        )
+        .unwrap(),
+    );
+    let (mut a, mut s) = session.parts();
+    let path = fixture.path("replica.db");
+    let worker = thread::spawn(move || {
+        let mut store = SqliteReplicaStore::open(path).unwrap();
+        begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store,
+        )
+    });
+    let entered = server.gate.entered();
+    let root = session.clone();
+    let (tx, rx) = mpsc::channel();
+    let closer = thread::spawn(move || tx.send(root.close()).unwrap());
+    let closed = rx.recv_timeout(Duration::from_secs(2));
+    let (mut a, mut s) = session.parts();
+    let (ptx, prx) = mpsc::channel();
+    let ports = thread::spawn(move || {
+        let access = a.authorize(&scope());
+        let head = s.head(&scope());
+        let req = PageRequest {
+            scope: scope(),
+            after: 0,
+            target: 7,
+            max_records: 32,
+            max_payload_bytes: MAX_RECORD_BYTES,
+            max_record_bytes: MAX_RECORD_BYTES,
+        };
+        let page = s.page(&req);
+        let open = nessa_sync::replication::application::OpenRecordSource::open_page(
+            &mut s,
+            &nessa_sync::replication::domain::OpenPageRequest {
+                scope: scope(),
+                after: 0,
+                max_records: 32,
+                max_payload_bytes: MAX_RECORD_BYTES,
+                max_record_bytes: MAX_RECORD_BYTES,
+            },
+        );
+        ptx.send((access, head, page, open)).unwrap()
+    });
+    let refused = prx.recv_timeout(Duration::from_secs(2));
+    physical.interrupt().unwrap();
+    server.gate.release();
+    closer.join().unwrap();
+    ports.join().unwrap();
+    assert!(worker.join().unwrap().is_err());
+    session.close().unwrap();
+    server.finish();
+    assert!(entered);
+    assert!(matches!(closed, Ok(Err(RecordSessionError::Io(_)))));
+    let (access, head, page, open) =
+        refused.expect("new ports waited behind RPC after failed interrupt");
+    assert_eq!(access, Access::Unverifiable);
+    assert_eq!(head, Err(SourceError::Unavailable));
+    assert_eq!(page, Err(SourceError::Unavailable));
+    assert_eq!(open, Err(SourceError::Unavailable));
+    assert_eq!(interrupt.calls.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn late_old_interrupt_cannot_close_reconnected_session_or_bypass_epoch_binding() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 3, Fault::None);
+    let io = TcpSessionIo::new(server.dial(b"fixture-read").unwrap()).unwrap();
+    let old = io.interrupt_handle();
+    let first = RecordSession::connect_open_interruptible(io, scope(), limits()).unwrap();
+    let (mut a, _) = first.parts();
+    let before = first.counters().unwrap();
+    first.close().unwrap();
+    first.close().unwrap();
+    assert_eq!(a.authorize(&scope()), Access::Unverifiable);
+    assert_eq!(first.counters().unwrap(), before);
+    *server.current.lock().unwrap() = with_epoch("new-epoch");
+    assert!(matches!(
+        server.connect_io(scope()),
+        Err(RecordSessionError::Source(SourceError::IdentityChanged))
+    ));
+    let current = server.connect_io(with_epoch("new-epoch")).unwrap();
+    old.interrupt().unwrap();
+    let (mut a, mut s) = current.parts();
+    let mut store = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
+    let pass = begin_pass_with_page(
+        &with_epoch("new-epoch"),
+        Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+        &mut a,
+        &mut s,
+        &mut store,
+    )
+    .unwrap();
+    assert_eq!(pass.position(), 7);
+    current.close().unwrap();
+    server.finish();
+}
+#[test]
+fn interruptible_close_does_not_roll_back_an_authorized_commit_owner() {
+    struct CommitGate {
+        inner: SqliteReplicaStore,
+        gate: Arc<IoGate>,
+    }
+    impl ReplicaStore for CommitGate {
+        fn load(&mut self, s: &Scope) -> Result<Option<Checkpoint>, StoreError> {
+            self.inner.load(s)
+        }
+        fn apply(&mut self, plan: CommitPlan) -> Result<(), StoreError> {
+            self.gate.hold();
+            self.inner.apply(plan)
+        }
+    }
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::None);
+    let session = Arc::new(server.connect_io(scope()).unwrap());
+    let (mut a, mut s) = session.parts();
+    let path = fixture.path("replica.db");
+    let gate = Arc::new(IoGate::default());
+    let held = gate.clone();
+    let worker_path = path.clone();
+    let worker = thread::spawn(move || {
+        let mut store = CommitGate {
+            inner: SqliteReplicaStore::open(worker_path).unwrap(),
+            gate: held,
+        };
+        begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store,
+        )
+    });
+    let entered = gate.entered();
+    let closed = session.close();
+    gate.release();
+    let pass = worker.join().unwrap().unwrap();
+    server.finish();
+    assert!(entered);
+    closed.unwrap();
+    assert_eq!(pass.position(), 7);
+    let store = SqliteReplicaStore::open(path).unwrap();
+    assert_eq!(store.checkpoint(&scope()).unwrap().unwrap().position(), 7);
+    assert_eq!(store.count(&scope()).unwrap(), 7);
 }

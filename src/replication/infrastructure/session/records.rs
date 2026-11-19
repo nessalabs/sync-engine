@@ -5,12 +5,13 @@
 //! configure finite I/O deadlines. No source handle survives response writes.
 
 use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{
     read_control, write_control, BindingMetadata, ControlError, ControlFrame, Correlation,
-    ScopeIdentity, ScopedSessionAuthorizer, SessionLifecycle, SessionLimits, FIRST_REQUEST,
-    MAX_CONTROL_BYTES, MIN_CONTROL_BYTES,
+    InterruptibleSessionIo, ScopeIdentity, ScopedSessionAuthorizer, SessionInterrupt,
+    SessionLifecycle, SessionLimits, FIRST_REQUEST, MAX_CONTROL_BYTES, MIN_CONTROL_BYTES,
 };
 use crate::replication::application::{
     Access, OpenRecordSource, RecordSource, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
@@ -403,15 +404,19 @@ impl<S: Read + Write> Client<S> {
 /// all parts. This first adapter supports one bound scope.
 pub struct RecordSession<S> {
     shared: Arc<Mutex<Client<S>>>,
+    interrupt: Option<Arc<dyn SessionInterrupt>>,
+    closing: Arc<AtomicBool>,
 }
 /// Current-policy RPC port, with local bound-scope preflight on every call.
 pub struct RecordSessionAuthorizer<S> {
     shared: Arc<Mutex<Client<S>>>,
+    closing: Arc<AtomicBool>,
 }
 /// Bounded head/page RPC port. Source-side policy is checked independently of
 /// the application's separate current-policy RPC before every read and fragment.
 pub struct RecordSessionSource<S> {
     shared: Arc<Mutex<Client<S>>>,
+    closing: Arc<AtomicBool>,
 }
 
 impl<S: Read + Write> RecordSession<S> {
@@ -422,7 +427,7 @@ impl<S: Read + Write> RecordSession<S> {
         scope: Scope,
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
-        Self::connect_with(io, scope, offered, false)
+        Self::connect_with(io, scope, offered, false, None)
     }
     /// Combine the initial hello and binding offer into one bounded request.
     /// Use only when the host knows the peer supports Open. Welcome and Bound
@@ -432,13 +437,14 @@ impl<S: Read + Write> RecordSession<S> {
         scope: Scope,
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
-        Self::connect_with(io, scope, offered, true)
+        Self::connect_with(io, scope, offered, true, None)
     }
     fn connect_with(
         io: S,
         scope: Scope,
         offered: SessionLimits,
         opening: bool,
+        interrupt: Option<Arc<dyn SessionInterrupt>>,
     ) -> Result<Self, RecordSessionError> {
         let mut owner =
             SessionLifecycle::new(offered, 1).map_err(|_| RecordSessionError::Protocol)?;
@@ -508,6 +514,8 @@ impl<S: Read + Write> RecordSession<S> {
             .map_err(|_| RecordSessionError::Protocol)?;
         wire.next = request.correlation().request.checked_add(1);
         Ok(Self {
+            closing: Arc::new(AtomicBool::new(false)),
+            interrupt,
             shared: Arc::new(Mutex::new(Client {
                 owner,
                 identity,
@@ -520,9 +528,11 @@ impl<S: Read + Write> RecordSession<S> {
     pub fn parts(&self) -> (RecordSessionAuthorizer<S>, RecordSessionSource<S>) {
         (
             RecordSessionAuthorizer {
+                closing: Arc::clone(&self.closing),
                 shared: Arc::clone(&self.shared),
             },
             RecordSessionSource {
+                closing: Arc::clone(&self.closing),
                 shared: Arc::clone(&self.shared),
             },
         )
@@ -537,14 +547,58 @@ impl<S: Read + Write> RecordSession<S> {
             .map_err(|_| RecordSessionError::Closed)
     }
     /// Invalidate all parts and drop the held channel without resetting cache.
-    /// This waits behind an in-flight RPC. Borrowed/externally shared channels
-    /// still need host disposal; dropping a handle need not shut down its socket.
+    /// Interruptible constructors request physical interruption before waiting
+    /// for the RPC mutex. An interrupt error returns promptly without taking it;
+    /// the host must retry/clean up using finite I/O deadlines. Generic constructors
+    /// still wait behind an in-flight RPC. Already completed authorized responses
+    /// can yield a DTO/commit while close races; this is no wire Cancel/rollback.
+    /// Borrowed/shared transports still require their host's resource disposal.
     pub fn close(&self) -> Result<(), RecordSessionError> {
+        self.closing.store(true, Ordering::Release);
+        if let Some(interrupt) = &self.interrupt {
+            interrupt.interrupt()?;
+        }
         let mut c = self.shared.lock().map_err(|_| RecordSessionError::Closed)?;
         c.wire.close();
         c.owner.close();
         Ok(())
     }
+}
+impl<S: InterruptibleSessionIo> RecordSession<S> {
+    /// Negotiate/bind with independently interruptible close. The host must
+    /// authenticate and configure this channel first. Retain a channel handle
+    /// before calling if the connecting handshake itself needs interruption.
+    pub fn connect_interruptible(
+        io: S,
+        scope: Scope,
+        offered: SessionLimits,
+    ) -> Result<Self, RecordSessionError> {
+        let interrupt = io.interrupt_handle();
+        Self::connect_with(io, scope, offered, false, Some(interrupt))
+    }
+    /// Opt-in bounded Open with independently interruptible close. Peer support
+    /// must already be known; this adds no fallback, authentication or retry.
+    pub fn connect_open_interruptible(
+        io: S,
+        scope: Scope,
+        offered: SessionLimits,
+    ) -> Result<Self, RecordSessionError> {
+        let interrupt = io.interrupt_handle();
+        Self::connect_with(io, scope, offered, true, Some(interrupt))
+    }
+}
+fn active_client<'a, S>(
+    shared: &'a Mutex<Client<S>>,
+    closing: &AtomicBool,
+) -> Result<MutexGuard<'a, Client<S>>, RecordSessionError> {
+    if closing.load(Ordering::Acquire) {
+        return Err(RecordSessionError::Closed);
+    }
+    let client = shared.lock().map_err(|_| RecordSessionError::Closed)?;
+    if closing.load(Ordering::Acquire) {
+        return Err(RecordSessionError::Closed);
+    }
+    Ok(client)
 }
 struct RemotePolicy<'a, S> {
     wire: &'a mut Wire<S>,
@@ -585,7 +639,7 @@ impl<S: Read + Write> ScopeAuthorizer for RemotePolicy<'_, S> {
 }
 impl<S: Read + Write> ScopeAuthorizer for RecordSessionAuthorizer<S> {
     fn authorize(&mut self, scope: &Scope) -> Access {
-        let Ok(mut c) = self.shared.lock() else {
+        let Ok(mut c) = active_client(&self.shared, &self.closing) else {
             return Access::Unverifiable;
         };
         let result = {
@@ -604,7 +658,8 @@ impl<S: Read + Write> ScopeAuthorizer for RecordSessionAuthorizer<S> {
 }
 impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
     fn head(&mut self, scope: &Scope) -> Result<u64, SourceError> {
-        let mut c = self.shared.lock().map_err(|_| SourceError::Unavailable)?;
+        let mut c =
+            active_client(&self.shared, &self.closing).map_err(|_| SourceError::Unavailable)?;
         c.scope(scope)?;
         c.wire.counters.head_checks += 1;
         let result = {
@@ -630,7 +685,8 @@ impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
         result.map_err(source_error)
     }
     fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError> {
-        let mut c = self.shared.lock().map_err(|_| SourceError::Unavailable)?;
+        let mut c =
+            active_client(&self.shared, &self.closing).map_err(|_| SourceError::Unavailable)?;
         c.scope(&request.scope)?;
         validate_page_request(request, physical(c.wire.record_bytes))
             .map_err(|_| SourceError::InvalidRequest)?;
@@ -679,7 +735,8 @@ impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
 }
 impl<S: Read + Write> OpenRecordSource for RecordSessionSource<S> {
     fn open_page(&mut self, request: &OpenPageRequest) -> Result<OpenedPage, SourceError> {
-        let mut c = self.shared.lock().map_err(|_| SourceError::Unavailable)?;
+        let mut c =
+            active_client(&self.shared, &self.closing).map_err(|_| SourceError::Unavailable)?;
         c.scope(&request.scope)?;
         validate_open_page_request(request, physical(c.wire.record_bytes))
             .map_err(|_| SourceError::InvalidRequest)?;

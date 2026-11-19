@@ -1,0 +1,21 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--all-features",
+    "--test",
+    "session_records",
+    "interruptible_close_unblocks_stalled_record_reply_before_io_deadline",
+    "--",
+    "--exact"
+  ],
+  "reversed_exit": 101,
+  "restored_exit": 0,
+  "restored_exact": true,
+  "scope": "benign owned TCP/SQLite fixture; not exploit reproduction",
+  "mutation": "move physical interrupt behind the RPC mutex in RecordSession::close",
+  "restored_source_sha256": "ea67381819a967755ad207622109abbe2c9fb106891dab50f1dd8e58df4c70e3",
+  "expected_failure": "close waited behind blocked read",
+  "cleanup": "release gate and join workers before assertions"
+}

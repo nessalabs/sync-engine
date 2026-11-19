@@ -25,6 +25,10 @@ its matched E2E measurements include the complete cold/warm/reconnect workload.
 The opt-in [open-target first-page slice](design/session-open-page.md) now extends
 the application port explicitly, rather than caching a binding head, with both
 pre-read access checks, canonical validation and unchanged durable-apply ownership.
+The [interruptible I/O prerequisite](design/session-io.md) now supplies unique split
+owners and an independent close path for a future hint reader. Persistent hints,
+coalescing and warm follow are still pending; no simulated hint proof substitutes
+for their required real transport-to-cache qualification.
 
 ## Outcome we are building toward
 
