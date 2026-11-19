@@ -8,8 +8,9 @@ use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
 
 use super::{
-    read_control, write_control, BindingMetadata, ControlError, ControlFrame, ScopeIdentity,
-    ScopedSessionAuthorizer, SessionLifecycle, SessionLimits, MAX_CONTROL_BYTES, MIN_CONTROL_BYTES,
+    read_control, write_control, BindingMetadata, ControlError, ControlFrame, Correlation,
+    ScopeIdentity, ScopedSessionAuthorizer, SessionLifecycle, SessionLimits, FIRST_REQUEST,
+    MAX_CONTROL_BYTES, MIN_CONTROL_BYTES,
 };
 use crate::replication::application::{
     Access, RecordSource, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
@@ -394,6 +395,24 @@ impl<S: Read + Write> RecordSession<S> {
         scope: Scope,
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
+        Self::connect_with(io, scope, offered, false)
+    }
+    /// Combine the initial hello and binding offer into one bounded request.
+    /// Use only when the host knows the peer supports Open. Welcome and Bound
+    /// are still validated independently; there is no fallback or reused grant.
+    pub fn connect_open(
+        io: S,
+        scope: Scope,
+        offered: SessionLimits,
+    ) -> Result<Self, RecordSessionError> {
+        Self::connect_with(io, scope, offered, true)
+    }
+    fn connect_with(
+        io: S,
+        scope: Scope,
+        offered: SessionLimits,
+        opening: bool,
+    ) -> Result<Self, RecordSessionError> {
         let mut owner =
             SessionLifecycle::new(offered, 1).map_err(|_| RecordSessionError::Protocol)?;
         let key = owner.connection_id();
@@ -404,7 +423,23 @@ impl<S: Read + Write> RecordSession<S> {
             record_bytes: MAX_RECORD_BYTES,
             next: None,
         };
-        let welcome = wire.control(&owner.hello().map_err(|_| RecordSessionError::Protocol)?)?;
+        let welcome = if opening {
+            // The complete offer fits the mandatory minimum budget, before any
+            // peer limit is selected. Retain the scope until Bound correlation.
+            write_control(
+                &mut wire,
+                &ControlFrame::Open {
+                    limits: offered,
+                    request: FIRST_REQUEST,
+                    scope: scope.clone(),
+                },
+                MIN_CONTROL_BYTES,
+            )?;
+            wire.flush()?;
+            read_control(&mut wire, offered.control_bytes as usize)?
+        } else {
+            wire.control(&owner.hello().map_err(|_| RecordSessionError::Protocol)?)?
+        };
         owner
             .accept_welcome(&key, &welcome)
             .map_err(|_| RecordSessionError::Protocol)?;
@@ -420,7 +455,17 @@ impl<S: Read + Write> RecordSession<S> {
         let (request, frame) = owner
             .begin_bind(scope)
             .map_err(|_| RecordSessionError::Protocol)?;
-        let response = wire.control(&frame)?;
+        let response = if opening {
+            if request.correlation().request != FIRST_REQUEST {
+                return Err(RecordSessionError::Protocol);
+            }
+            let limit = wire.limit;
+            let response = read_control(&mut wire, limit)?;
+            wire.counters.exchanges += 1;
+            response
+        } else {
+            wire.control(&frame)?
+        };
         if let ControlFrame::Refused {
             correlation,
             reason,
@@ -756,9 +801,14 @@ where
     if session == 0 {
         return Err(RecordSessionError::Protocol);
     }
-    let ControlFrame::Hello(offered) = read_control(stream, supported.control_bytes as usize)?
-    else {
-        return Err(RecordSessionError::Protocol);
+    let (offered, opening) = match read_control(stream, supported.control_bytes as usize)? {
+        ControlFrame::Hello(offered) => (offered, None),
+        ControlFrame::Open {
+            limits,
+            request,
+            scope,
+        } => (limits, Some((request, scope))),
+        _ => return Err(RecordSessionError::Protocol),
     };
     let selected = SessionLimits {
         control_bytes: offered.control_bytes.min(supported.control_bytes),
@@ -775,8 +825,13 @@ where
         limit,
     )?;
     stream.flush()?;
-    let ControlFrame::Bind { correlation, scope } = read_control(stream, limit)? else {
-        return Err(RecordSessionError::Protocol);
+    let (correlation, scope) = if let Some((request, scope)) = opening {
+        (Correlation { session, request }, scope)
+    } else {
+        match read_control(stream, limit)? {
+            ControlFrame::Bind { correlation, scope } => (correlation, scope),
+            _ => return Err(RecordSessionError::Protocol),
+        }
     };
     if correlation.session != session {
         return Err(RecordSessionError::Protocol);

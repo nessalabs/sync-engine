@@ -6,7 +6,8 @@ use nessa_sync::replication::{
     },
     domain::{Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Scope},
     infrastructure::session::{
-        serve_record_session, RecordSession, RecordSessionError, SessionLimits,
+        read_control, serve_record_session, write_control, ControlFrame, RecordSession,
+        RecordSessionError, SessionLimits,
     },
     infrastructure::{SqliteReferenceSource, SqliteReplicaStore},
 };
@@ -126,6 +127,7 @@ impl ScopeAuthorizer for Policy {
 struct LiveSource {
     inner: SqliteReferenceSource,
     live: Arc<AtomicUsize>,
+    deny_after_head: Option<Arc<AtomicU8>>,
 }
 impl Drop for LiveSource {
     fn drop(&mut self) {
@@ -134,7 +136,11 @@ impl Drop for LiveSource {
 }
 impl RecordSource for LiveSource {
     fn head(&mut self, scope: &Scope) -> Result<u64, SourceError> {
-        self.inner.head(scope)
+        let head = self.inner.head(scope);
+        if let Some(mode) = &self.deny_after_head {
+            mode.store(1, Ordering::SeqCst);
+        }
+        head
     }
     fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError> {
         self.inner.page(request)
@@ -146,6 +152,8 @@ enum Fault {
     TruncatePage,
     DenyAfterFragment,
     WrongVersion,
+    DenyAfterHead,
+    BadBound(u8),
 }
 struct Channel {
     socket: TcpStream,
@@ -167,6 +175,42 @@ impl Write for Channel {
             0,
             "source handle retained during network write"
         );
+        if bytes.len() > 12 && &bytes[4..8] == b"NSC1" && bytes[10] == 4 {
+            if let Fault::BadBound(case) = self.fault {
+                let mut changed = bytes.to_vec();
+                match case {
+                    0 => {
+                        self.socket.write_all(&changed[..12])?;
+                        self.socket.shutdown(Shutdown::Both)?;
+                        self.broken = true;
+                        return Ok(12);
+                    }
+                    1 => changed[11..19].copy_from_slice(&999_u64.to_be_bytes()),
+                    2 => changed[19..27].copy_from_slice(&999_u64.to_be_bytes()),
+                    3 => changed[40] = b'X',
+                    4 => {
+                        changed.clear();
+                        write_control(
+                            &mut changed,
+                            &ControlFrame::Welcome {
+                                session: 1,
+                                limits: limits(),
+                                record_bytes: MAX_RECORD_BYTES as u32,
+                            },
+                            8192,
+                        )
+                        .unwrap();
+                    }
+                    6 => changed.extend_from_slice(bytes),
+                    _ => {
+                        self.socket.shutdown(Shutdown::Both)?;
+                        return Ok(bytes.len());
+                    }
+                }
+                self.socket.write_all(&changed)?;
+                return Ok(bytes.len());
+            }
+        }
         if self.broken {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
@@ -197,7 +241,7 @@ impl Write for Channel {
                     self.mode.store(1, Ordering::SeqCst);
                     return Ok(bytes.len());
                 }
-                Fault::None | Fault::WrongVersion => {}
+                Fault::None | Fault::WrongVersion | Fault::DenyAfterHead | Fault::BadBound(_) => {}
             }
         }
         self.socket.write(bytes)
@@ -277,10 +321,15 @@ impl Server {
                         Ok(LiveSource {
                             inner,
                             live: live.clone(),
+                            deny_after_head: if matches!(fault, Fault::DenyAfterHead) {
+                                Some(m.clone())
+                            } else {
+                                None
+                            },
                         })
                     },
                 );
-                if !matches!(fault, Fault::TruncatePage) {
+                if !matches!(fault, Fault::TruncatePage | Fault::BadBound(_)) {
                     result.unwrap();
                 }
                 assert_eq!(live.load(Ordering::SeqCst), 0);
@@ -302,6 +351,14 @@ impl Server {
         requested: Scope,
         token: &[u8],
     ) -> Result<RecordSession<TcpStream>, RecordSessionError> {
+        self.connect_mode(requested, token, false)
+    }
+    fn connect_mode(
+        &self,
+        requested: Scope,
+        token: &[u8],
+        opening: bool,
+    ) -> Result<RecordSession<TcpStream>, RecordSessionError> {
         let mut socket = TcpStream::connect(self.address)?;
         socket.set_nodelay(true)?;
         socket.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -313,7 +370,11 @@ impl Server {
         if ack != [0] {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
         }
-        RecordSession::connect(socket, requested, limits())
+        if opening {
+            RecordSession::connect_open(socket, requested, limits())
+        } else {
+            RecordSession::connect(socket, requested, limits())
+        }
     }
     fn finish(self) {
         self.join.join().unwrap();
@@ -805,6 +866,167 @@ fn unsupported_wire_version_is_fatal_before_local_progress_access() {
         Err(SyncError::InvalidAccessResponse)
     );
     assert_eq!(a.authorize(&scope()), Access::Unverifiable);
+    assert_eq!(server.opens.load(Ordering::SeqCst), 1);
+    session.close().unwrap();
+    server.finish();
+}
+
+#[test]
+fn combined_open_preserves_real_durable_catch_up_and_current_access_checks() {
+    let mut opening_bytes = Vec::new();
+    for opening in [false, true] {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::None);
+        let session = server
+            .connect_mode(scope(), b"fixture-read", opening)
+            .unwrap();
+        assert_eq!(
+            session.counters().unwrap().exchanges,
+            if opening { 1 } else { 2 }
+        );
+        opening_bytes.push(session.counters().unwrap().protocol_bytes);
+        let (mut a, mut s) = session.parts();
+        let mut store = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
+        assert_eq!(
+            catch_up(&scope(), &mut a, &mut s, &mut store, MAX_RECORD_BYTES),
+            Ok(7)
+        );
+        assert_eq!(
+            session.counters().unwrap().exchanges,
+            if opening { 7 } else { 8 }
+        );
+        assert_eq!(server.opens.load(Ordering::SeqCst), 4);
+        server.mode.store(1, Ordering::SeqCst);
+        assert_eq!(
+            begin_pass(&scope(), &mut a, &mut s, &mut store),
+            Err(SyncError::Denied)
+        );
+        assert_eq!(server.opens.load(Ordering::SeqCst), 4);
+        drop(store);
+        let reopened = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
+        assert_eq!(
+            reopened.checkpoint(&scope()).unwrap().unwrap().position(),
+            7
+        );
+        assert_eq!(reopened.count(&scope()).unwrap(), 7);
+        session.close().unwrap();
+        server.finish();
+    }
+    assert_eq!(opening_bytes[0] - opening_bytes[1], 19);
+}
+
+#[test]
+fn combined_open_refuses_before_factory_and_rechecks_before_bound() {
+    for (mode, error) in [
+        (1, SourceError::Denied),
+        (2, SourceError::Unavailable),
+        (3, SourceError::InvalidRequest),
+    ] {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::None);
+        server.mode.store(mode, Ordering::SeqCst);
+        assert!(
+            matches!(server.connect_mode(scope(), b"fixture-read", true), Err(RecordSessionError::Source(e)) if e == error)
+        );
+        assert_eq!(server.opens.load(Ordering::SeqCst), 0);
+        server.finish();
+    }
+    let other = Scope::new(
+        id("other"),
+        id("example-origin"),
+        id("transcript"),
+        id("first"),
+        id("text-v1"),
+        id("local-epoch-1"),
+    );
+    for (requested, expected) in [
+        (with_epoch("stale"), SourceError::IdentityChanged),
+        (other, SourceError::Denied),
+    ] {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::None);
+        assert!(
+            matches!(server.connect_mode(requested, b"fixture-read", true), Err(RecordSessionError::Source(e)) if e == expected)
+        );
+        assert_eq!(server.opens.load(Ordering::SeqCst), 0);
+        server.finish();
+    }
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::DenyAfterHead);
+    assert!(matches!(
+        server.connect_mode(scope(), b"fixture-read", true),
+        Err(RecordSessionError::Source(SourceError::Denied))
+    ));
+    assert_eq!(server.opens.load(Ordering::SeqCst), 1);
+    server.finish();
+}
+
+#[test]
+fn combined_open_never_exposes_ports_on_missing_duplicate_or_mismatched_bound() {
+    for case in 0..6 {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::BadBound(case));
+        assert!(
+            server.connect_mode(scope(), b"fixture-read", true).is_err(),
+            "case {case}"
+        );
+        assert_eq!(server.opens.load(Ordering::SeqCst), 1);
+        server.finish();
+    }
+}
+
+#[test]
+fn unsupported_combined_open_closes_without_fallback() {
+    // Trusted test endpoint, no source/cache or authentication service involved.
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let peer = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        assert!(matches!(
+            read_control(&mut socket, 2048).unwrap(),
+            ControlFrame::Open { request: 1, .. }
+        ));
+        socket.write_all(b"\0\0\0\x07NSC1\0\x01\xff").unwrap();
+        let mut next = [0];
+        assert_eq!(
+            socket.read(&mut next).unwrap(),
+            0,
+            "unexpected fallback request"
+        );
+    });
+    let socket = TcpStream::connect(address).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    assert!(matches!(
+        RecordSession::connect_open(socket, scope(), limits()),
+        Err(RecordSessionError::Protocol)
+    ));
+    peer.join().unwrap();
+}
+
+#[test]
+fn duplicate_bound_cannot_be_used_as_later_authorization() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::BadBound(6));
+    let session = server.connect_mode(scope(), b"fixture-read", true).unwrap();
+    let (mut a, mut s) = session.parts();
+    struct NoLoad;
+    impl ReplicaStore for NoLoad {
+        fn load(&mut self, _: &Scope) -> Result<Option<Checkpoint>, StoreError> {
+            panic!("late binding reached local progress")
+        }
+        fn apply(&mut self, _: CommitPlan) -> Result<(), StoreError> {
+            panic!("late binding reached commit")
+        }
+    }
+    assert_eq!(
+        begin_pass(&scope(), &mut a, &mut s, &mut NoLoad),
+        Err(SyncError::InvalidAccessResponse)
+    );
     assert_eq!(server.opens.load(Ordering::SeqCst), 1);
     session.close().unwrap();
     server.finish();

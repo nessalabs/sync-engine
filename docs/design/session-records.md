@@ -36,9 +36,48 @@ its identity/head. Every acquired source handle drops before response I/O. Earli
 Allowed/Bound metadata is never a reusable grant. This is not an atomic global
 policy/store transaction or instantaneous revocation of bytes already sent.
 
+## Opt-in bounded opening
+
+`RecordSession::connect_open` sends one kind-6 Open containing the offered limits,
+first request number and exact retained scope. Its maximum body is 796 bytes,
+below the mandatory 2 KiB admission budget, even with all six maximum-length IDs.
+The host must already authenticate the channel and know its peer supports Open;
+the existing `connect` Hello/Bind path remains operational. There is no implicit
+compatibility probe, retry or fallback after refusal, malformed data or EOF.
+
+The server selects a fresh namespace and limit intersection, then emits the
+existing Welcome and Bound/Refused frames. It authorizes before source acquisition
+and checks again before Bound, exactly as for separate Hello/Bind. The client
+validates Welcome against its retained offer, installs its first pending Bind in
+the same lifecycle owner, then correlates the queued binding reply against the
+retained scope, first request and selected session. Ports exist only after both
+replies pass. No advisory head is reused, no application ordering changes, and all
+later current-policy and head checks remain. This reduces metadata setup only;
+it does not satisfy the separate open-target/head or no-authorize-exchange goals.
+
+| Opening state/event | Decision |
+| --- | --- |
+| Connecting / caller selects Open with known peer support | Send bounded retained limits/request/scope; remain unbound. |
+| Current Welcome within offer | Select namespace/limits; create the first local pending Bind without a second network request. |
+| Exact current Bound | Return ports; advisory head still cannot advance progress. |
+| Correlated Refused | Return typed refusal and no ports; no automatic mode fallback. |
+| Missing/truncated/duplicate Welcome, wrong session/request/scope or unsupported reply | Refuse and dispose the channel; no progress load or grant. |
+| Duplicate Bound after successful opening | It cannot be a later authorization response; close before application progress access. |
+| Policy changes before source access or after initial head acquisition | Refuse before factory / before Bound respectively; no source metadata is exposed on refusal. |
+
+Open is one logical opening exchange with two reply frames. The accounting counts
+both replies' bytes. The application-frame delay model charges each reply frame,
+so a saved logical exchange is **not** a measured full RTT saving. Warm explicit
+catch-up uses the unchanged protocol and must retain identical counters. The
+combined short workload measures each run's cold open + warm catch-up + reconnect
+intervals before computing statistics. It excludes inter-phase append/verification
+and is not wall-clock session lifetime; it prevents warm-only results from hiding
+setup cost. The existing session mode is the matched before case and `session-open`
+is the after case, with loopback retained as an additional reference.
+
 ## Wire and states
 
-Hello, Welcome, Bind and Bound use the [control codec](session-protocol.md).
+Hello, Open, Welcome, Bind and Bound use the [control codec](session-protocol.md).
 The server selects one binding and a body limit within the retained offer. Kind 5
 `Refused` carries correlation and only a canonical typed source refusal, with no
 scope/head disclosure. A refusal returns no ports. Bound's head is advisory metadata;
@@ -107,7 +146,8 @@ revocation, truncation/reconnect, version refusal, current policy before local
 progress/source access, stale scope components, and failed/uncertain commit resume.
 Codec tests additionally cover malformed correlation/status/fragment budgets.
 
-The measured workload appends the same seven-record/4,126-byte fixture for cold
+The measured workload compares loopback, separate Hello/Bind session, and opt-in
+Open session. It appends the same seven-record/4,126-byte fixture for cold
 connect, warm explicit catch-up and reconnect. All 21 records and IDs are inspected
 again in a fresh process. Matching legacy/session workloads run through a real TCP
 frame shaper, optionally with a second opaque raw-TCP relay hop. The 32 kbit/s,
@@ -122,7 +162,8 @@ and durable catch-up, excluding producer append and verification reopen.
 The legacy workload includes its one-shot subscription; this session milestone
 supports explicit catch-up only. Warm catch-up is not notification-to-applied warm
 follow, and no speedup or complete feature-equivalence claim follows from these
-numbers. The checked-in [raw results](../verification/session-records-e2e.json) retain
+numbers. The previous [record baseline](../verification/session-records-e2e.json) and current
+[opening comparison](../verification/session-open-e2e.json) retain
 commands, environment, conditions, cases and summaries.
 Actual paired results must appear in the implementation PR description as well.
 

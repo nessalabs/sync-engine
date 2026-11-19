@@ -7,6 +7,7 @@ production/session coverage gaps remain. The raw relay is a real byte-forwarding
 TCP hop; channel authentication here is a loopback-only plaintext token fixture.
 """
 import argparse
+import hashlib
 from collections import defaultdict
 import json
 from pathlib import Path
@@ -116,7 +117,7 @@ class Forwarder:
             tune(server)
             with self.lock:
                 self.sockets.append(server)
-            if self.framed and self.mode == "session":
+            if self.framed and self.mode != "loopback":
                 # Host fixture authentication is outside the generic protocol;
                 # include its actual preamble/ACK in bytes and exchanges.
                 length = exact(client, 1)
@@ -222,7 +223,9 @@ def case(base, mode, path, kbit, rtt):
         assert result.returncode == 0, (mode, path, kbit, result.stderr)
         report = json.loads(result.stdout)
         assert report["transport"] == mode
-        for position, phase in zip([7, 14, 21], report["phases"], strict=True):
+        expected_exchanges = {"loopback": [7, 7, 7], "session": [9, 6, 9], "session-open": [8, 6, 8]}[mode]
+        for position, exchanges, phase in zip([7, 14, 21], expected_exchanges, report["phases"], strict=True):
+            assert phase["exchanges"] == exchanges, phase
             assert phase["checkpoint"] == phase["records"] == position and phase["ordered_complete"], phase
             assert phase["payload_bytes"] == 4126 and phase["duplicate_bytes"] == 0, phase
             assert phase["total_bytes"] == phase["protocol_bytes"] + phase["payload_bytes"]
@@ -248,7 +251,11 @@ def case(base, mode, path, kbit, rtt):
 def summarize(cases):
     groups = defaultdict(list)
     for run in cases:
-        for phase in run["phases"]:
+        phases = list(run["phases"])
+        aggregate = {k: sum(p[k] for p in phases) for k in ["elapsed_ms", "exchanges", "protocol_exchanges", "host_auth_exchanges", "protocol_bytes", "total_bytes", "payload_bytes", "duplicate_bytes"]}
+        aggregate["elapsed_ms"] = round(aggregate["elapsed_ms"], 3)
+        aggregate["phase"] = "short_session"
+        for phase in [*phases, aggregate]:
             groups[(run["transport"], run["path"], run["kbit_per_second"], run["rtt_seconds"], phase["phase"])].append(phase)
     rows = []
     for (transport, path, kbit, rtt, phase), samples in sorted(groups.items()):
@@ -263,15 +270,16 @@ def summarize(cases):
 
 def markdown(report):
     rows = {(r["path"], r["kbit_per_second"], r["rtt_seconds"], r["phase"], r["transport"]): r for r in report["summary"]}
-    output = ["Payload per phase: 4,126 bytes; every measured row passed reopened-cache correctness checks. Timing is evidence, not a CI threshold.", "",
-              "| Path / profile | Phase | L/S exchanges | L protocol / total bytes | S protocol / total bytes | L ms median [min,max] | S ms median [min,max] | n |",
-              "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    output = ["L = loopback; S = existing Hello+Bind session; O = opt-in combined Open. Payload per phase: 4,126 bytes. Short session sums each run's cold + warm catch-up + reconnect (12,378 payload bytes); timing excludes inter-phase append/verification. Every row passed reopened-cache correctness. Timing is evidence, not a CI threshold.", "",
+              "| Path / profile | Phase | L/S/O exchanges | L protocol/total B | S protocol/total B | O protocol/total B | L ms median [min,max] | S ms median [min,max] | O ms median [min,max] | n |",
+              "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for path, kbit, rtt, phase in sorted({key[:4] for key in rows}):
-        left, right = rows[(path,kbit,rtt,phase,"loopback")], rows[(path,kbit,rtt,phase,"session")]
+        samples = [rows[(path,kbit,rtt,phase,mode)] for mode in ["loopback", "session", "session-open"]]
         profile = f"{kbit} kbit/s, {rtt}s RTT" if kbit else "unshaped"
-        def timing(row):
-            return f"{row['elapsed_ms_median']} [{row['elapsed_ms_min']},{row['elapsed_ms_max']}]"
-        output.append(f"| {path} / {profile} | {phase} | {left['exchanges']}/{right['exchanges']} | {left['protocol_bytes']} / {left['total_bytes']} | {right['protocol_bytes']} / {right['total_bytes']} | {timing(left)} | {timing(right)} | {left['samples']} |")
+        exchanges = "/".join(str(r["exchanges"]) for r in samples)
+        sizes = [f"{r['protocol_bytes']}/{r['total_bytes']}" for r in samples]
+        times = [f"{r['elapsed_ms_median']} [{r['elapsed_ms_min']},{r['elapsed_ms_max']}]" for r in samples]
+        output.append(f"| {path} / {profile} | {phase} | {exchanges} | " + " | ".join([*sizes, *times, str(samples[0]["samples"])]) + " |")
     return "\n".join(output) + "\n"
 
 
@@ -285,6 +293,10 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.repetitions <= 20:
         parser.error("repetitions must be 1..20")
+    measured = [*ROOT.glob("src/**/*.rs"), ROOT/"Cargo.toml", ROOT/"Cargo.lock", ROOT/"examples/session_records.rs", ROOT/"examples/loopback_sync.rs", Path(__file__).resolve()]
+    def fingerprints():
+        return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(measured)}
+    source_hashes = fingerprints()
     subprocess.run(["cargo", "build", "--locked", "--all-features", "--example", "session_records", "--example", "loopback_sync"], cwd=ROOT, check=True, capture_output=True)
     tests = subprocess.run(["cargo", "test", "--locked", "--all-features", "--test", "session_records"], cwd=ROOT, check=True, capture_output=True, text=True)
     count = re.search(r"test result: ok\. (\d+) passed", tests.stdout)
@@ -295,13 +307,25 @@ def main():
         for repeat in range(args.repetitions):
             for kbit, rtt in profiles:
                 for path in ["direct", "relay"]:
-                    for mode in ["loopback", "session"]:
+                    for mode in ["loopback", "session", "session-open"]:
                         label = f"{repeat}-{kbit}-{path}-{mode}"
                         print("measuring " + label, file=sys.stderr, flush=True)
                         run = case(Path(folder) / label, mode, path, kbit, rtt)
                         run["repetition"] = repeat + 1
                         cases.append(run)
-    report = {"scope": "record-session end-to-end foundation; not full #54 completion", "completion_ready": False,
+    assert source_hashes == fingerprints(), "measured inputs changed during this run"
+    summary = summarize(cases)
+    comparable = {(r["path"], r["kbit_per_second"], r["rtt_seconds"], r["phase"], r["transport"]): r for r in summary}
+    for key, old in comparable.items():
+        if key[-1] != "session":
+            continue
+        new = comparable[(*key[:-1], "session-open")]
+        openings = 0 if old["phase"] == "warm_catch_up" else (2 if old["phase"] == "short_session" else 1)
+        assert old["exchanges"] - new["exchanges"] == openings
+        assert old["protocol_bytes"] - new["protocol_bytes"] == 19 * openings
+        assert old["total_bytes"] - new["total_bytes"] == 19 * openings
+        assert old["payload_bytes"] == new["payload_bytes"]
+    report = {"source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "record-session bounded opening comparison; not full #54 completion", "completion_ready": False,
               "coverage_gaps": GAPS, "contract_tests_passed": int(count.group(1)), "environment": platform.platform(),
               "command": "python3 scripts/verify-session-e2e.py" + (" --profiles" if args.profiles else "") + f" --repetitions {args.repetitions}",
               "conditions": ["real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",
@@ -310,8 +334,10 @@ def main():
                   "legacy sync includes one-shot subscribe; session supports explicit catch-up only, not hints/follow yet",
                   "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends and verification reopen",
                   "application-frame half-RTT delay per direction and 256-byte throttling; no IP/TCP/TLS overhead, packet loss, mobile power or shared duplex contention model",
-                  "min/median/max of observed runs; no percentiles, speedup claim or timing pass/fail threshold"],
-              "cases": cases, "summary": summarize(cases)}
+                  "one Open request produces two reply frames; application-frame delay is charged per frame, not per logical exchange",
+                  "short_session sums each run cold/warm/reconnect timed intervals, excluding inter-phase append/verification; not wall-clock session lifetime",
+                  "min/median/max of observed runs; no percentiles, overall speedup claim or timing pass/fail threshold"],
+              "cases": cases, "summary": summary}
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")
