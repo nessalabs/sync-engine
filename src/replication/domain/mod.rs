@@ -2,6 +2,8 @@
 //! all invariants checked before a receiver store effect.
 //! Hosts call `validate_page_request` before source I/O. `validate_page` consumes
 //! that owner and additionally checks receiver checkpoint and response evidence.
+//! Open-target first pages validate their exact echo/captured target before
+//! delegating nonempty records to the same canonical page validator.
 
 mod records;
 pub use records::*;

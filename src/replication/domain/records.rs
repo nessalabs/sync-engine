@@ -219,6 +219,45 @@ pub struct PageRequest {
     pub max_record_bytes: usize,
 }
 
+/// First-page request whose finite target is captured by the source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenPageRequest {
+    /// Exact receiver/source scope.
+    pub scope: Scope,
+    /// Durable position just before the requested range.
+    pub after: u64,
+    /// Maximum records in the first page.
+    pub max_records: usize,
+    /// Maximum decoded payload bytes in the first page.
+    pub max_payload_bytes: usize,
+    /// Maximum decoded bytes in any record.
+    pub max_record_bytes: usize,
+}
+impl OpenPageRequest {
+    /// Build the expected page range for a source-captured target. This validates
+    /// nothing and must never substitute for decoding a source's exact wire echo.
+    pub fn for_target(&self, target: u64) -> PageRequest {
+        PageRequest {
+            scope: self.scope.clone(),
+            after: self.after,
+            target,
+            max_records: self.max_records,
+            max_payload_bytes: self.max_payload_bytes,
+            max_record_bytes: self.max_record_bytes,
+        }
+    }
+}
+/// Untrusted first page and the finite head captured for it by the source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedPage {
+    /// Full source echo; adapters must decode it rather than synthesize it locally.
+    pub request: OpenPageRequest,
+    /// Captured committed head; it does not itself advance receiver progress.
+    pub target: u64,
+    /// Contiguous bounded records; empty only when the receiver is already at head.
+    pub records: Vec<Record>,
+}
+
 /// Bounded response, correlated to one exact request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Page {
@@ -282,6 +321,8 @@ pub enum ValidationError {
     WrongRecord,
     /// Numeric position overflowed.
     PositionOverflow,
+    /// Source-captured head is behind the receiver's saved progress.
+    HeadBehindProgress,
 }
 
 /// Validates one request's range and configured count/decoded-byte ceilings.
@@ -372,4 +413,57 @@ pub fn validate_page(
         },
         records: page.records,
     })
+}
+
+/// Validate open-target budgets before source I/O. No target is supplied yet.
+pub fn validate_open_page_request(
+    request: &OpenPageRequest,
+    limits: Limits,
+) -> Result<(), ValidationError> {
+    if request.max_records == 0
+        || request.max_records > limits.max_records()
+        || request.max_payload_bytes == 0
+        || request.max_payload_bytes > limits.max_payload_bytes()
+        || request.max_record_bytes == 0
+        || request.max_record_bytes > limits.max_record_bytes()
+    {
+        return Err(ValidationError::InvalidRange);
+    }
+    Ok(())
+}
+
+/// Validate the exact open request, captured head and first page. Return the
+/// finite target and an optional atomic plan. A head-only response never moves
+/// progress. Nonempty pages reuse the canonical dense-page validator.
+pub fn validate_open_page(
+    expected: &Checkpoint,
+    request: &OpenPageRequest,
+    opened: OpenedPage,
+    limits: Limits,
+) -> Result<(u64, Option<CommitPlan>), ValidationError> {
+    validate_open_page_request(request, limits)?;
+    if request.scope != *expected.scope() || request.after != expected.position() {
+        return Err(ValidationError::InvalidRange);
+    }
+    if opened.request != *request {
+        return Err(ValidationError::WrongRequest);
+    }
+    if opened.target < request.after {
+        return Err(ValidationError::HeadBehindProgress);
+    }
+    if opened.target == request.after {
+        if !opened.records.is_empty() {
+            return Err(ValidationError::Noncontiguous);
+        }
+        return Ok((opened.target, None));
+    }
+    let captured = request.for_target(opened.target);
+    let page = Page {
+        request: opened.request.for_target(opened.target),
+        records: opened.records,
+    };
+    Ok((
+        opened.target,
+        Some(validate_page(expected, &captured, page, limits)?),
+    ))
 }

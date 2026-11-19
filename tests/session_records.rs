@@ -1,8 +1,8 @@
 #![cfg(all(feature = "transport", feature = "sqlite"))]
 use nessa_sync::replication::{
     application::{
-        begin_pass, finish_pass, Access, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError,
-        StoreError, SyncError, MAX_RECORD_BYTES,
+        begin_pass, begin_pass_with_page, finish_pass, Access, RecordSource, ReplicaStore,
+        ScopeAuthorizer, SourceError, StoreError, SyncError, MAX_RECORD_BYTES,
     },
     domain::{Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Scope},
     infrastructure::session::{
@@ -127,7 +127,9 @@ impl ScopeAuthorizer for Policy {
 struct LiveSource {
     inner: SqliteReferenceSource,
     live: Arc<AtomicUsize>,
-    deny_after_head: Option<Arc<AtomicU8>>,
+    deny_after_head: Option<(Arc<AtomicU8>, usize)>,
+    head_reads: Arc<AtomicUsize>,
+    append_after_capture: bool,
 }
 impl Drop for LiveSource {
     fn drop(&mut self) {
@@ -137,8 +139,16 @@ impl Drop for LiveSource {
 impl RecordSource for LiveSource {
     fn head(&mut self, scope: &Scope) -> Result<u64, SourceError> {
         let head = self.inner.head(scope);
-        if let Some(mode) = &self.deny_after_head {
-            mode.store(1, Ordering::SeqCst);
+        let number = self.head_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some((mode, trigger)) = &self.deny_after_head {
+            if number == *trigger {
+                mode.store(1, Ordering::SeqCst);
+            }
+        }
+        if self.append_after_capture && number == 2 {
+            self.inner
+                .append(&id("after-capture"), b"after captured target")
+                .unwrap();
         }
         head
     }
@@ -153,6 +163,9 @@ enum Fault {
     DenyAfterFragment,
     WrongVersion,
     DenyAfterHead,
+    DenyAfterCapture,
+    AppendAfterCapture,
+    BadOpenEcho(u8),
     BadBound(u8),
 }
 struct Channel {
@@ -225,8 +238,49 @@ impl Write for Channel {
             self.socket.write_all(&changed)?;
             return Ok(bytes.len());
         }
-        let page =
-            bytes.len() > 12 && &bytes[4..8] == b"NSR1" && bytes[10] == 131 && bytes[11] == 0;
+        if bytes.len() > 48
+            && &bytes[4..8] == b"NSR1"
+            && bytes[10] == 132
+            && bytes[11] == 0
+            && !self.fired
+        {
+            if let Fault::BadOpenEcho(case) = self.fault {
+                self.fired = true;
+                let scope = scope();
+                let scope_len = [
+                    scope.receiver(),
+                    scope.origin(),
+                    scope.stream(),
+                    scope.incarnation(),
+                    scope.schema(),
+                    scope.access_epoch(),
+                ]
+                .iter()
+                .map(|id| 1 + id.as_str().len())
+                .sum::<usize>();
+                let after = 48 + 1 + scope_len;
+                let mut changed = bytes.to_vec();
+                match case {
+                    0 => changed[after..after + 8].copy_from_slice(&1_u64.to_be_bytes()),
+                    1 => changed[after + 8..after + 16].copy_from_slice(&0_u64.to_be_bytes()),
+                    _ => {
+                        let count = after + 40;
+                        changed[count] = 0;
+                        changed.truncate(count + 1);
+                        let body = (changed.len() - 4) as u32;
+                        let payload = (changed.len() - 48) as u32;
+                        changed[..4].copy_from_slice(&body.to_be_bytes());
+                        changed[40..44].copy_from_slice(&payload.to_be_bytes());
+                    }
+                }
+                self.socket.write_all(&changed)?;
+                return Ok(bytes.len());
+            }
+        }
+        let page = bytes.len() > 12
+            && &bytes[4..8] == b"NSR1"
+            && [131, 132].contains(&bytes[10])
+            && bytes[11] == 0;
         if page && !self.fired {
             self.fired = true;
             match self.fault {
@@ -241,7 +295,13 @@ impl Write for Channel {
                     self.mode.store(1, Ordering::SeqCst);
                     return Ok(bytes.len());
                 }
-                Fault::None | Fault::WrongVersion | Fault::DenyAfterHead | Fault::BadBound(_) => {}
+                Fault::None
+                | Fault::WrongVersion
+                | Fault::DenyAfterHead
+                | Fault::BadBound(_)
+                | Fault::DenyAfterCapture
+                | Fault::AppendAfterCapture
+                | Fault::BadOpenEcho(_) => {}
             }
         }
         self.socket.write(bytes)
@@ -268,6 +328,7 @@ impl Server {
         let current = Arc::new(Mutex::new(scope()));
         let opens = Arc::new(AtomicUsize::new(0));
         let live = Arc::new(AtomicUsize::new(0));
+        let head_reads = Arc::new(AtomicUsize::new(0));
         let (m, c, o) = (mode.clone(), current.clone(), opens.clone());
         let join = thread::spawn(move || {
             for number in 1..=connections {
@@ -321,11 +382,13 @@ impl Server {
                         Ok(LiveSource {
                             inner,
                             live: live.clone(),
-                            deny_after_head: if matches!(fault, Fault::DenyAfterHead) {
-                                Some(m.clone())
-                            } else {
-                                None
+                            deny_after_head: match fault {
+                                Fault::DenyAfterHead => Some((m.clone(), 1)),
+                                Fault::DenyAfterCapture => Some((m.clone(), 2)),
+                                _ => None,
                             },
+                            head_reads: head_reads.clone(),
+                            append_after_capture: matches!(fault, Fault::AppendAfterCapture),
                         })
                     },
                 );
@@ -798,7 +861,7 @@ fn invalid_backend_gap_or_duplicate_identity_never_reaches_durable_cache() {
             })
         }
     }
-    for duplicate in [false, true] {
+    for (duplicate, first) in [(false, false), (true, false), (false, true), (true, true)] {
         let fixture = Fixture::new();
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
         let address = listener.local_addr().unwrap();
@@ -832,7 +895,18 @@ fn invalid_backend_gap_or_duplicate_identity_never_reaches_durable_cache() {
         let (mut a, mut s) = session.parts();
         let mut store = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
         assert_eq!(
-            catch_up(&scope(), &mut a, &mut s, &mut store, 128 * 1024),
+            if first {
+                begin_pass_with_page(
+                    &scope(),
+                    Limits::new(32, 128 * 1024, 128 * 1024).unwrap(),
+                    &mut a,
+                    &mut s,
+                    &mut store,
+                )
+                .map(|p| p.position())
+            } else {
+                catch_up(&scope(), &mut a, &mut s, &mut store, 128 * 1024)
+            },
             Err(SyncError::Source(if duplicate {
                 SourceError::IdentityChanged
             } else {
@@ -1030,4 +1104,267 @@ fn duplicate_bound_cannot_be_used_as_later_authorization() {
     assert_eq!(server.opens.load(Ordering::SeqCst), 1);
     session.close().unwrap();
     server.finish();
+}
+
+#[test]
+fn open_page_finite_target_survives_append_and_post_pass_recheck_finds_it() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::AppendAfterCapture);
+    let session = server.connect_mode(scope(), b"fixture-read", true).unwrap();
+    let (mut a, mut s) = session.parts();
+    let path = fixture.path("replica.db");
+    let mut store = SqliteReplicaStore::open(&path).unwrap();
+    let budget = Limits::new(2, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap();
+    let mut pass = begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut store).unwrap();
+    assert_eq!((pass.position(), pass.target()), (2, 7));
+    finish_pass(&mut pass, budget, &mut a, &mut s, &mut store).unwrap();
+    assert_eq!(pass.position(), 7);
+    let mut recheck = begin_pass(&scope(), &mut a, &mut s, &mut store).unwrap();
+    assert_eq!(recheck.target(), 8);
+    finish_pass(&mut recheck, budget, &mut a, &mut s, &mut store).unwrap();
+    assert_eq!(session.counters().unwrap().head_checks, 2);
+    drop(store);
+    let reopened = SqliteReplicaStore::open(&path).unwrap();
+    assert_eq!(
+        reopened.checkpoint(&scope()).unwrap().unwrap().position(),
+        8
+    );
+    assert_eq!(reopened.count(&scope()).unwrap(), 8);
+    session.close().unwrap();
+    server.finish();
+}
+#[test]
+fn open_page_policy_change_during_load_refuses_before_capture() {
+    struct LoadChange {
+        inner: SqliteReplicaStore,
+        mode: Arc<AtomicU8>,
+    }
+    impl ReplicaStore for LoadChange {
+        fn load(&mut self, s: &Scope) -> Result<Option<Checkpoint>, StoreError> {
+            let saved = self.inner.load(s)?;
+            self.mode.store(1, Ordering::SeqCst);
+            Ok(saved)
+        }
+        fn apply(&mut self, _: CommitPlan) -> Result<(), StoreError> {
+            panic!("denied apply")
+        }
+    }
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::None);
+    let session = server.connect(scope());
+    let (mut a, mut s) = session.parts();
+    let mut store = LoadChange {
+        inner: SqliteReplicaStore::open(fixture.path("replica.db")).unwrap(),
+        mode: server.mode.clone(),
+    };
+    assert_eq!(
+        begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store
+        ),
+        Err(SyncError::Denied)
+    );
+    assert_eq!(server.opens.load(Ordering::SeqCst), 1);
+    assert_eq!(session.counters().unwrap().head_checks, 0);
+    session.close().unwrap();
+    server.finish();
+}
+#[test]
+fn open_page_policy_change_after_capture_refuses_before_page_factory() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::DenyAfterCapture);
+    let session = server.connect(scope());
+    let (mut a, mut s) = session.parts();
+    let mut store = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
+    assert_eq!(
+        begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store
+        ),
+        Err(SyncError::Source(SourceError::Denied))
+    );
+    assert_eq!(server.opens.load(Ordering::SeqCst), 2);
+    assert!(store.checkpoint(&scope()).unwrap().is_none());
+    session.close().unwrap();
+    server.finish();
+}
+#[test]
+fn open_page_fragment_refusal_or_drop_cannot_commit_partial_records_or_target() {
+    for fault in [Fault::DenyAfterFragment, Fault::TruncatePage] {
+        let fixture = Fixture::new();
+        let path = fixture.path("source.db");
+        source(&path)
+            .append(&id("large"), &vec![3; MAX_RECORD_BYTES])
+            .unwrap();
+        let server = Server::spawn(path.clone(), 1, fault);
+        let session = server.connect(scope());
+        let (mut a, mut s) = session.parts();
+        let replica = fixture.path("replica.db");
+        let mut store = SqliteReplicaStore::open(&replica).unwrap();
+        assert!(begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store
+        )
+        .is_err());
+        assert!(store.checkpoint(&scope()).unwrap().is_none());
+        assert_eq!(store.count(&scope()).unwrap(), 0);
+        session.close().unwrap();
+        server.finish();
+        drop(store);
+        let server = Server::spawn(path, 1, Fault::None);
+        let session = server.connect(scope());
+        let (mut a, mut s) = session.parts();
+        let mut reopened = SqliteReplicaStore::open(&replica).unwrap();
+        let pass = begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut reopened,
+        )
+        .unwrap();
+        assert_eq!(pass.position(), 1);
+        assert!(pass.is_complete());
+        assert_eq!(reopened.count(&scope()).unwrap(), 1);
+        session.close().unwrap();
+        server.finish();
+    }
+}
+#[test]
+fn open_page_failed_or_uncertain_commit_reloads_real_sqlite_progress() {
+    for after in [false, true] {
+        let fixture = Fixture::new();
+        let replica = fixture.path("replica.db");
+        let server = Server::spawn(fixture.seven(), 2, Fault::None);
+        let session = server.connect(scope());
+        let (mut a, mut s) = session.parts();
+        let mut store = CommitBoundary {
+            inner: SqliteReplicaStore::open(&replica).unwrap(),
+            after,
+            once: true,
+        };
+        let budget = Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap();
+        assert_eq!(
+            begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut store),
+            Err(SyncError::Store(if after {
+                StoreError::Uncertain
+            } else {
+                StoreError::Failed
+            }))
+        );
+        session.close().unwrap();
+        drop(store);
+        let mut reopened = SqliteReplicaStore::open(&replica).unwrap();
+        assert_eq!(
+            reopened
+                .checkpoint(&scope())
+                .unwrap()
+                .map_or(0, |c| c.position()),
+            if after { 7 } else { 0 }
+        );
+        let session = server.connect(scope());
+        let (mut a, mut s) = session.parts();
+        assert_eq!(
+            begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut reopened)
+                .unwrap()
+                .position(),
+            7
+        );
+        assert_eq!(reopened.count(&scope()).unwrap(), 7);
+        assert_eq!(
+            session.counters().unwrap().payload_bytes,
+            if after { 0 } else { 4126 }
+        );
+        session.close().unwrap();
+        server.finish();
+    }
+}
+#[test]
+fn open_page_empty_has_no_apply_and_behind_progress_preserves_saved_cache() {
+    let fixture = Fixture::new();
+    let server = Server::spawn(fixture.seven(), 1, Fault::None);
+    let session = server.connect(scope());
+    let (mut a, mut s) = session.parts();
+    let replica = fixture.path("replica.db");
+    let mut store = SqliteReplicaStore::open(&replica).unwrap();
+    let budget = Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap();
+    assert_eq!(
+        begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut store)
+            .unwrap()
+            .position(),
+        7
+    );
+    let before = session.counters().unwrap();
+    let pass = begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut store).unwrap();
+    let after = session.counters().unwrap();
+    assert!(pass.is_complete());
+    assert_eq!(after.exchanges - before.exchanges, 3);
+    assert_eq!(after.payload_bytes - before.payload_bytes, 0);
+    assert_eq!(store.count(&scope()).unwrap(), 7);
+    let req = PageRequest {
+        scope: scope(),
+        after: 7,
+        target: 8,
+        max_records: 1,
+        max_payload_bytes: 16,
+        max_record_bytes: 16,
+    };
+    let record = nessa_sync::replication::domain::Record {
+        scope: scope(),
+        id: id("fixture-eight"),
+        position: 8,
+        payload: vec![8],
+    };
+    let plan = nessa_sync::replication::domain::validate_page(
+        &Checkpoint::new(scope(), 7),
+        &req,
+        Page {
+            request: req.clone(),
+            records: vec![record],
+        },
+        Limits::new(1, 16, 16).unwrap(),
+    )
+    .unwrap();
+    store.apply(plan).unwrap();
+    let before = server.opens.load(Ordering::SeqCst);
+    assert_eq!(
+        begin_pass_with_page(&scope(), budget, &mut a, &mut s, &mut store),
+        Err(SyncError::SourceBehindCheckpoint)
+    );
+    assert_eq!(server.opens.load(Ordering::SeqCst) - before, 1);
+    assert_eq!(store.checkpoint(&scope()).unwrap().unwrap().position(), 8);
+    assert_eq!(store.count(&scope()).unwrap(), 8);
+    session.close().unwrap();
+    server.finish();
+}
+#[test]
+fn open_page_wire_echo_target_and_empty_before_target_are_validated() {
+    for case in 0..3 {
+        let fixture = Fixture::new();
+        let server = Server::spawn(fixture.seven(), 1, Fault::BadOpenEcho(case));
+        let session = server.connect(scope());
+        let (mut a, mut s) = session.parts();
+        let mut store = SqliteReplicaStore::open(fixture.path("replica.db")).unwrap();
+        assert!(begin_pass_with_page(
+            &scope(),
+            Limits::new(32, MAX_RECORD_BYTES, MAX_RECORD_BYTES).unwrap(),
+            &mut a,
+            &mut s,
+            &mut store
+        )
+        .is_err());
+        assert!(store.checkpoint(&scope()).unwrap().is_none());
+        assert_eq!(store.count(&scope()).unwrap(), 0);
+        session.close().unwrap();
+        server.finish();
+    }
 }

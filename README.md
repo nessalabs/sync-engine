@@ -180,7 +180,10 @@ real serialized session read adapter and its ownership boundaries. Run
 `python3 scripts/verify-session-e2e.py` for actual direct/raw-relayed TCP paths to
 reopened SQLite caches. Add `--profiles --repetitions 2` for paired loopback/session
 measurements across loopback, separate Hello/Bind session and opt-in bounded Open,
-including the combined cold/warm/reconnect workload; timings are observations,
+including the combined cold/warm/reconnect workload and a separate idle row.
+The optional [first-page path](docs/design/session-open-page.md) uses
+`--modes session-open session-page` for matched weak-link before/after runs.
+Timings are observations,
 not CI thresholds. This uses plaintext
 loopback fixture authentication, not production device trust or an encrypted relay.
 `--require-complete` remains nonzero until the documented #54 coverage gaps close.

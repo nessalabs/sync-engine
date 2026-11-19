@@ -13,9 +13,12 @@ use super::{
     MAX_CONTROL_BYTES, MIN_CONTROL_BYTES,
 };
 use crate::replication::application::{
-    Access, RecordSource, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
+    Access, OpenRecordSource, RecordSource, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
 };
-use crate::replication::domain::{validate_page_request, Limits, Page, PageRequest, Scope};
+use crate::replication::domain::{
+    validate_open_page_request, validate_page_request, Limits, OpenPageRequest, OpenedPage, Page,
+    PageRequest, Record, Scope,
+};
 use crate::replication::infrastructure::loopback::{
     decode_source_error, encode_record_page, put_scope, source_error_code, Decoder, FrameError,
     WireCounters, MAX_FRAME_BYTES, MAX_PAGE_PAYLOAD, MAX_PAGE_RECORDS,
@@ -25,6 +28,7 @@ const HEADER: usize = 44;
 const AUTHORIZE: u8 = 1;
 const HEAD: u8 = 2;
 const PAGE: u8 = 3;
+const OPEN_PAGE: u8 = 4;
 const REPLY: u8 = 128;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
@@ -166,9 +170,11 @@ fn read_packet(reader: &mut impl Read, limit: usize) -> Result<Option<Packet>, R
         AUTHORIZE,
         HEAD,
         PAGE,
+        OPEN_PAGE,
         AUTHORIZE | REPLY,
         HEAD | REPLY,
         PAGE | REPLY,
+        OPEN_PAGE | REPLY,
     ]
     .contains(&kind)
     {
@@ -361,6 +367,27 @@ impl<S: Read + Write> Client<S> {
             }
             _ => SourceError::IdentityChanged,
         })
+    }
+    fn received(&mut self, records: &[Record]) {
+        let bytes: usize = records.iter().map(|r| r.payload.len()).sum();
+        let duplicates: usize = records
+            .iter()
+            .filter(|r| r.position <= self.seen)
+            .map(|r| r.payload.len())
+            .sum();
+        self.seen = records
+            .iter()
+            .map(|r| r.position)
+            .max()
+            .unwrap_or(self.seen)
+            .max(self.seen);
+        self.wire.counters.payload_bytes += bytes as u64;
+        self.wire.counters.duplicate_bytes += duplicates as u64;
+        self.wire.counters.protocol_bytes = self
+            .wire
+            .counters
+            .protocol_bytes
+            .saturating_sub(bytes as u64);
     }
     fn observe_close(&mut self) {
         if self.wire.io.is_none() {
@@ -619,31 +646,21 @@ impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
         }
         let result = {
             let Client { identity, wire, .. } = &mut *c;
-            wire.exchange(PAGE, identity, payload, page_bound(request))
-                .and_then(|body| decode_page(&body, request))
+            wire.exchange(
+                PAGE,
+                identity,
+                payload,
+                page_bound(
+                    &request.scope,
+                    request.max_records,
+                    request.max_payload_bytes,
+                ),
+            )
+            .and_then(|body| decode_page(&body, request))
         };
         let result = match result {
             Ok(page) => {
-                let seen = c.seen;
-                let bytes: usize = page.records.iter().map(|r| r.payload.len()).sum();
-                let duplicates: usize = page
-                    .records
-                    .iter()
-                    .filter(|r| r.position <= seen)
-                    .map(|r| r.payload.len())
-                    .sum();
-                let highest = page
-                    .records
-                    .iter()
-                    .map(|r| r.position)
-                    .max()
-                    .unwrap_or(seen)
-                    .max(seen);
-                c.wire.counters.payload_bytes += bytes as u64;
-                c.wire.counters.duplicate_bytes += duplicates as u64;
-                c.wire.counters.protocol_bytes =
-                    c.wire.counters.protocol_bytes.saturating_sub(bytes as u64);
-                c.seen = highest;
+                c.received(&page.records);
                 Ok(page)
             }
             Err(e) => {
@@ -660,6 +677,68 @@ impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
         result
     }
 }
+impl<S: Read + Write> OpenRecordSource for RecordSessionSource<S> {
+    fn open_page(&mut self, request: &OpenPageRequest) -> Result<OpenedPage, SourceError> {
+        let mut c = self.shared.lock().map_err(|_| SourceError::Unavailable)?;
+        c.scope(&request.scope)?;
+        validate_open_page_request(request, physical(c.wire.record_bytes))
+            .map_err(|_| SourceError::InvalidRequest)?;
+        c.wire.counters.head_checks += 1;
+        let mut payload = Vec::new();
+        for n in [
+            request.after,
+            request.max_records as u64,
+            request.max_payload_bytes as u64,
+            request.max_record_bytes as u64,
+        ] {
+            payload.extend_from_slice(&n.to_be_bytes());
+        }
+        let result = {
+            let Client { identity, wire, .. } = &mut *c;
+            wire.exchange(
+                OPEN_PAGE,
+                identity,
+                payload,
+                page_bound(
+                    &request.scope,
+                    request.max_records,
+                    request.max_payload_bytes,
+                ),
+            )
+            .and_then(|body| decode_page_envelope(&body, request, None))
+        };
+        let result = match result {
+            Ok(page) => {
+                c.received(&page.records);
+                Ok(OpenedPage {
+                    request: without_target(&page.request),
+                    target: page.request.target,
+                    records: page.records,
+                })
+            }
+            Err(e) => {
+                if matches!(
+                    &e,
+                    RecordSessionError::Protocol | RecordSessionError::TooLarge
+                ) {
+                    c.wire.close();
+                }
+                Err(source_error(e))
+            }
+        };
+        c.observe_close();
+        result
+    }
+}
+fn without_target(request: &PageRequest) -> OpenPageRequest {
+    OpenPageRequest {
+        scope: request.scope.clone(),
+        after: request.after,
+        max_records: request.max_records,
+        max_payload_bytes: request.max_payload_bytes,
+        max_record_bytes: request.max_record_bytes,
+    }
+}
 fn scope_bytes(scope: &Scope) -> usize {
     [
         scope.receiver(),
@@ -673,17 +752,24 @@ fn scope_bytes(scope: &Scope) -> usize {
     .map(|id| 1 + id.as_str().len())
     .sum()
 }
-fn page_bound(request: &PageRequest) -> usize {
+fn page_bound(scope: &Scope, max_records: usize, max_payload_bytes: usize) -> usize {
     // Caller validated physical limits before this calculation. Valid record scopes
     // equal the admitted scope; record IDs retain the domain-owned byte ceiling.
-    let scope = scope_bytes(&request.scope);
+    let scope = scope_bytes(scope);
     (1 + scope
         + 41
-        + request.max_records * (13 + crate::replication::domain::MAX_ID_BYTES + scope)
-        + request.max_payload_bytes)
+        + max_records * (13 + crate::replication::domain::MAX_ID_BYTES + scope)
+        + max_payload_bytes)
         .min(MAX_FRAME_BYTES)
 }
 fn decode_page(body: &[u8], request: &PageRequest) -> Result<Page, RecordSessionError> {
+    decode_page_envelope(body, &without_target(request), Some(request.target))
+}
+fn decode_page_envelope(
+    body: &[u8],
+    request: &OpenPageRequest,
+    target: Option<u64>,
+) -> Result<Page, RecordSessionError> {
     let mut d = Decoder::new(body);
     if d.byte()? != 0 {
         return Err(RecordSessionError::Protocol);
@@ -696,11 +782,11 @@ fn decode_page(body: &[u8], request: &PageRequest) -> Result<Page, RecordSession
         max_payload_bytes: usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)?,
         max_record_bytes: usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)?,
     };
-    if echoed != *request {
+    if without_target(&echoed) != *request || target.is_some_and(|target| target != echoed.target) {
         return Err(RecordSessionError::Protocol);
     }
     let count = d.byte()? as usize;
-    if count == 0 || count > request.max_records {
+    if (target.is_some() && count == 0) || count > request.max_records {
         return Err(RecordSessionError::Protocol);
     }
     let mut records = Vec::with_capacity(count);
@@ -772,6 +858,57 @@ fn respond<S: Write, A: ScopeAuthorizer>(
             return Ok(());
         }
         offset = end;
+    }
+}
+
+fn open_page_response<A, F, R>(
+    request: &OpenPageRequest,
+    policy: &mut A,
+    factory: &mut F,
+) -> Result<Vec<u8>, u8>
+where
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordSource,
+{
+    let scope = &request.scope;
+    let current = access_code(policy.authorize(scope), scope);
+    if current != 0 {
+        return Err(current);
+    }
+    let target = factory(scope)
+        .and_then(|mut source| source.head(scope))
+        .map_err(source_error_code)?;
+    let current = access_code(policy.authorize(scope), scope);
+    if current != 0 {
+        return Err(current);
+    }
+    let captured = request.for_target(target);
+    if target > request.after {
+        let current = access_code(policy.authorize(scope), scope);
+        if current != 0 {
+            return Err(current);
+        }
+        factory(scope)
+            .and_then(|mut source| source.page(&captured))
+            .and_then(|page| encode_record_page(&captured, page))
+            .map_err(source_error_code)
+    } else {
+        // Full source echo, including the captured target. No page or progress
+        // is fabricated for an at-head or behind-progress observation.
+        let mut body = vec![0];
+        put_scope(&mut body, scope);
+        for n in [
+            request.after,
+            target,
+            request.max_records as u64,
+            request.max_payload_bytes as u64,
+            request.max_record_bytes as u64,
+        ] {
+            body.extend_from_slice(&n.to_be_bytes());
+        }
+        body.push(0);
+        Ok(body)
     }
 }
 
@@ -921,6 +1058,32 @@ where
                         body
                     })
                     .map_err(source_error_code),
+                OPEN_PAGE => {
+                    let decoded = (|| -> Result<OpenPageRequest, RecordSessionError> {
+                        let mut d = Decoder::new(&request.payload);
+                        let r = OpenPageRequest {
+                            scope: scope.clone(),
+                            after: d.u64()?,
+                            max_records: usize::try_from(d.u64()?)
+                                .map_err(|_| RecordSessionError::TooLarge)?,
+                            max_payload_bytes: usize::try_from(d.u64()?)
+                                .map_err(|_| RecordSessionError::TooLarge)?,
+                            max_record_bytes: usize::try_from(d.u64()?)
+                                .map_err(|_| RecordSessionError::TooLarge)?,
+                        };
+                        d.finish()?;
+                        Ok(r)
+                    })();
+                    match decoded {
+                        Ok(r)
+                            if validate_open_page_request(&r, physical(MAX_RECORD_BYTES))
+                                .is_ok() =>
+                        {
+                            open_page_response(&r, policy, &mut open_source)
+                        }
+                        _ => Err(4),
+                    }
+                }
                 PAGE => {
                     let decoded = (|| -> Result<PageRequest, RecordSessionError> {
                         let mut d = Decoder::new(&request.payload);

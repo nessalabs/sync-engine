@@ -1222,7 +1222,8 @@ pub struct WireCounters {
     /// Payload bytes repeated at a position already received by this process.
     /// A fresh process has no memory of earlier wire traffic.
     pub duplicate_bytes: u64,
-    /// Explicit remote head checks.
+    /// Requested pass-head observations, including open-page captures and rechecks.
+    /// The advisory head read during binding is excluded; failed attempts count.
     pub head_checks: u64,
     /// Catalogue descriptor bytes received, including repeated pages.
     pub catalogue_manifest_bytes: u64,

@@ -22,6 +22,9 @@ scheduling remain open. The strict E2E completion gate still refuses completion;
 these narrower passing checks do not close #54. Opt-in bounded Open now combines
 first hello/binding metadata while retaining every current-policy and head check;
 its matched E2E measurements include the complete cold/warm/reconnect workload.
+The opt-in [open-target first-page slice](design/session-open-page.md) now extends
+the application port explicitly, rather than caching a binding head, with both
+pre-read access checks, canonical validation and unchanged durable-apply ownership.
 
 ## Outcome we are building toward
 

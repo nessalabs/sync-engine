@@ -223,11 +223,11 @@ def case(base, mode, path, kbit, rtt):
         assert result.returncode == 0, (mode, path, kbit, result.stderr)
         report = json.loads(result.stdout)
         assert report["transport"] == mode
-        expected_exchanges = {"loopback": [7, 7, 7], "session": [9, 6, 9], "session-open": [8, 6, 8]}[mode]
-        for position, exchanges, phase in zip([7, 14, 21], expected_exchanges, report["phases"], strict=True):
+        expected_exchanges = {"loopback": [7, 7, 7, 5], "session": [9, 6, 9, 4], "session-open": [8, 6, 8, 4], "session-page": [7, 5, 7, 5]}[mode]
+        for position, exchanges, phase in zip([7, 14, 21, 21], expected_exchanges, report["phases"], strict=True):
             assert phase["exchanges"] == exchanges, phase
             assert phase["checkpoint"] == phase["records"] == position and phase["ordered_complete"], phase
-            assert phase["payload_bytes"] == 4126 and phase["duplicate_bytes"] == 0, phase
+            assert phase["payload_bytes"] == (0 if phase["phase"] == "idle" else 4126) and phase["duplicate_bytes"] == 0, phase
             assert phase["total_bytes"] == phase["protocol_bytes"] + phase["payload_bytes"]
             assert phase["head_checks"] == 2
         inspected = subprocess.run([str(BIN), "inspect", str(replica)], cwd=ROOT, text=True, capture_output=True, check=True)
@@ -236,7 +236,7 @@ def case(base, mode, path, kbit, rtt):
             requests = dict(shaper.requests)
             connections = shaper.connections
         assert sum(requests.values()) == sum(p["exchanges"] for p in report["phases"]), (requests, report)
-        assert connections == (21 if mode == "loopback" else 2), (connections, report)
+        assert connections == (26 if mode == "loopback" else 2), (connections, report)
         return {"transport": mode, "path": path, "kbit_per_second": kbit, "rtt_seconds": rtt,
                 "connections": connections, "observed_requests": requests, "phases": report["phases"],
                 "fresh_process_cache_inspection": True}
@@ -251,11 +251,11 @@ def case(base, mode, path, kbit, rtt):
 def summarize(cases):
     groups = defaultdict(list)
     for run in cases:
-        phases = list(run["phases"])
+        phases = [p for p in run["phases"] if p["phase"] != "idle"]
         aggregate = {k: sum(p[k] for p in phases) for k in ["elapsed_ms", "exchanges", "protocol_exchanges", "host_auth_exchanges", "protocol_bytes", "total_bytes", "payload_bytes", "duplicate_bytes"]}
         aggregate["elapsed_ms"] = round(aggregate["elapsed_ms"], 3)
         aggregate["phase"] = "short_session"
-        for phase in [*phases, aggregate]:
+        for phase in [*run["phases"], aggregate]:
             groups[(run["transport"], run["path"], run["kbit_per_second"], run["rtt_seconds"], phase["phase"])].append(phase)
     rows = []
     for (transport, path, kbit, rtt, phase), samples in sorted(groups.items()):
@@ -270,27 +270,29 @@ def summarize(cases):
 
 def markdown(report):
     rows = {(r["path"], r["kbit_per_second"], r["rtt_seconds"], r["phase"], r["transport"]): r for r in report["summary"]}
-    output = ["L = loopback; S = existing Hello+Bind session; O = opt-in combined Open. Payload per phase: 4,126 bytes. Short session sums each run's cold + warm catch-up + reconnect (12,378 payload bytes); timing excludes inter-phase append/verification. Every row passed reopened-cache correctness. Timing is evidence, not a CI threshold.", "",
-              "| Path / profile | Phase | L/S/O exchanges | L protocol/total B | S protocol/total B | O protocol/total B | L ms median [min,max] | S ms median [min,max] | O ms median [min,max] | n |",
-              "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
-    for path, kbit, rtt, phase in sorted({key[:4] for key in rows}):
-        samples = [rows[(path,kbit,rtt,phase,mode)] for mode in ["loopback", "session", "session-open"]]
-        profile = f"{kbit} kbit/s, {rtt}s RTT" if kbit else "unshaped"
-        exchanges = "/".join(str(r["exchanges"]) for r in samples)
-        sizes = [f"{r['protocol_bytes']}/{r['total_bytes']}" for r in samples]
-        times = [f"{r['elapsed_ms_median']} [{r['elapsed_ms_min']},{r['elapsed_ms_max']}]" for r in samples]
-        output.append(f"| {path} / {profile} | {phase} | {exchanges} | " + " | ".join([*sizes, *times, str(samples[0]["samples"])]) + " |")
-    return "\n".join(output) + "\n"
+    modes = report["modes"]
+    output = ["Modes: " + ", ".join(modes) + ". Payload per delivery phase: 4,126 B; idle: 0 B. Short session sums each run's cold + warm catch-up + reconnect (12,378 B), excluding idle and inter-phase append/verification. All rows passed reopened-cache correctness; timings are evidence, not CI thresholds.", "",
+              "| Path / profile | Phase | " + " | ".join(f"{m}: exchanges; protocol/total B; ms median [min,max]" for m in modes) + " | n |",
+              "| --- | --- | " + " | ".join("---" for _ in modes) + " | ---: |"]
+    for path,kbit,rtt,phase in sorted({key[:4] for key in rows}):
+        samples=[rows[(path,kbit,rtt,phase,m)] for m in modes]
+        profile=f"{kbit} kbit/s, {rtt}s RTT" if kbit else "unshaped"
+        values=[f"{r['exchanges']}; {r['protocol_bytes']}/{r['total_bytes']}; {r['elapsed_ms_median']} [{r['elapsed_ms_min']},{r['elapsed_ms_max']}]" for r in samples]
+        output.append(f"| {path} / {profile} | {phase} | " + " | ".join([*values,str(samples[0]["samples"])]) + " |")
+    return "\n".join(output)+"\n"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", action="store_true", help="add real-time 32/64 kbit application-frame delay profiles")
     parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--modes", nargs="+", choices=["loopback","session","session-open","session-page"], default=["loopback","session","session-open","session-page"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--markdown", type=Path)
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
+    if len(set(args.modes)) != len(args.modes):
+        parser.error("modes must not repeat")
     if not 1 <= args.repetitions <= 20:
         parser.error("repetitions must be 1..20")
     measured = [*ROOT.glob("src/**/*.rs"), ROOT/"Cargo.toml", ROOT/"Cargo.lock", ROOT/"examples/session_records.rs", ROOT/"examples/loopback_sync.rs", Path(__file__).resolve()]
@@ -307,7 +309,7 @@ def main():
         for repeat in range(args.repetitions):
             for kbit, rtt in profiles:
                 for path in ["direct", "relay"]:
-                    for mode in ["loopback", "session", "session-open"]:
+                    for mode in args.modes:
                         label = f"{repeat}-{kbit}-{path}-{mode}"
                         print("measuring " + label, file=sys.stderr, flush=True)
                         run = case(Path(folder) / label, mode, path, kbit, rtt)
@@ -317,17 +319,25 @@ def main():
     summary = summarize(cases)
     comparable = {(r["path"], r["kbit_per_second"], r["rtt_seconds"], r["phase"], r["transport"]): r for r in summary}
     for key, old in comparable.items():
-        if key[-1] != "session":
+        if key[-1] != "session" or "session-open" not in args.modes:
             continue
         new = comparable[(*key[:-1], "session-open")]
-        openings = 0 if old["phase"] == "warm_catch_up" else (2 if old["phase"] == "short_session" else 1)
+        openings = 0 if old["phase"] in ["warm_catch_up", "idle"] else (2 if old["phase"] == "short_session" else 1)
         assert old["exchanges"] - new["exchanges"] == openings
         assert old["protocol_bytes"] - new["protocol_bytes"] == 19 * openings
         assert old["total_bytes"] - new["total_bytes"] == 19 * openings
         assert old["payload_bytes"] == new["payload_bytes"]
-    report = {"source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "record-session bounded opening comparison; not full #54 completion", "completion_ready": False,
+    for key, old in comparable.items():
+        if key[-1] != "session-open" or "session-page" not in args.modes:
+            continue
+        new=comparable[(*key[:-1],"session-page")]
+        saved=-1 if old["phase"]=="idle" else (3 if old["phase"]=="short_session" else 1)
+        assert old["exchanges"]-new["exchanges"]==saved
+        assert old["protocol_bytes"]-new["protocol_bytes"]==(-225 if old["phase"]=="idle" else 175*saved)
+        assert old["payload_bytes"]==new["payload_bytes"]
+    report = {"modes": args.modes, "source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "open-target first-page comparison; not full #54 completion", "completion_ready": False,
               "coverage_gaps": GAPS, "contract_tests_passed": int(count.group(1)), "environment": platform.platform(),
-              "command": "python3 scripts/verify-session-e2e.py" + (" --profiles" if args.profiles else "") + f" --repetitions {args.repetitions}",
+              "command": "python3 scripts/verify-session-e2e.py" + (" --profiles" if args.profiles else "") + f" --repetitions {args.repetitions} --modes " + " ".join(args.modes),
               "conditions": ["real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",
                   "direct path includes a zero/delayed fixture frame shaper; relay adds an opaque raw TCP forwarding hop",
                   "loopback-only plaintext token fixture: session bytes/exchanges include its separate cold/reconnect preamble+ACK",
@@ -335,7 +345,8 @@ def main():
                   "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends and verification reopen",
                   "application-frame half-RTT delay per direction and 256-byte throttling; no IP/TCP/TLS overhead, packet loss, mobile power or shared duplex contention model",
                   "one Open request produces two reply frames; application-frame delay is charged per frame, not per logical exchange",
-                  "short_session sums each run cold/warm/reconnect timed intervals, excluding inter-phase append/verification; not wall-clock session lifetime",
+                  "short_session sums each run cold/warm/reconnect timed intervals, excluding idle and inter-phase append/verification; not wall-clock session lifetime",
+                  "session-page captures target with first page and retains both pre-read authorization checks; idle therefore adds one authorize versus session-open",
                   "min/median/max of observed runs; no percentiles, overall speedup claim or timing pass/fail threshold"],
               "cases": cases, "summary": summary}
     if args.output:
