@@ -74,6 +74,8 @@ class Proxy:
         self.kbit = kbit
         self.outage = outage
         self.subscriptions = 0
+        self.request_counts = {}
+        self.metrics_lock = threading.Lock()
         self.page_seen = threading.Event()
         self.release_page = threading.Event()
         self.subscribe_seen = threading.Event()
@@ -117,6 +119,8 @@ class Proxy:
                     return
                 request = recv_frame(client)
                 operation = request[4]
+                with self.metrics_lock:
+                    self.request_counts[operation] = self.request_counts.get(operation, 0) + 1
                 if operation == 4:
                     self.subscriptions += 1
                 with socket.create_connection(("127.0.0.1", self.source_port), 2) as server:
@@ -267,8 +271,16 @@ def main():
                     result = command("sync", f"127.0.0.1:{profile.port}", profile_store,
                                      "device-a", READ)
                     assert result["checkpoint"] == 7
+                    with profile.metrics_lock:
+                        counts = dict(profile.request_counts)
+                    assert counts == {1: 3, 2: 2, 3: 1, 4: 1}, counts
+                    assert result["head_checks"] == 2 and result["duplicate_bytes"] == 0
                     profiles.append({"kbit_per_second": kbit, "rtt_seconds": rtt,
                                      "elapsed_seconds": round(time.monotonic() - start, 3),
+                                     "request_counts": counts,
+                                     "exchanges": sum(counts.values()),
+                                     "head_checks": result["head_checks"],
+                                     "duplicate_bytes": result["duplicate_bytes"],
                                      "protocol_bytes": result["protocol_bytes"],
                                      "payload_bytes": result["payload_bytes"]})
                     assert result["payload_bytes"] == 4126

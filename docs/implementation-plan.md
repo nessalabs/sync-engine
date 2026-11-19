@@ -8,6 +8,12 @@ and [product target contract](design/sync-engine.md) also cover later Nessa
 integration; the reference adapters do not supply its pairing, permissions,
 command execution or backup.
 
+## Proposed next work
+
+[Session transport #54](design/session-protocol.md) begins with a measured loopback
+baseline and proposed state/ownership contract. Its slice plan is future work;
+none of the production session protocol is implemented by the seven slices below.
+
 ## Outcome we are building toward
 
 An app opens its saved data immediately. One device can disconnect while another
