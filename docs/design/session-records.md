@@ -6,7 +6,10 @@ optional `transport` feature. It connects existing `ScopeAuthorizer` and
 application validates pages and owns durable apply through `ReplicaStore`.
 It is a real data path, with an intentionally small scope: one connection, one
 scope and one synchronous operation at a time. Legacy loopback remains available.
-Issue #54 remains open.
+Issue #54 remains open. The optional [source-captured first-page path](session-open-page.md)
+adds a real bounded request that captures its target with data; it retains both
+application access checks and the post-pass head recheck. Its empty-pass extra
+authorize cost is measured separately.
 
 ## Host and ownership contract
 

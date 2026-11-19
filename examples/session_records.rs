@@ -3,8 +3,8 @@
 //! The protocol adapter requires a real host-authenticated channel in production.
 use nessa_sync::replication::{
     application::{
-        begin_pass, finish_pass, Access, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError,
-        SyncError,
+        begin_pass, begin_pass_with_page, finish_pass, Access, OpenRecordSource, Pass,
+        RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, SyncError,
     },
     domain::{Id, Limits, Scope, MAX_ID_BYTES},
     infrastructure::session::{
@@ -113,7 +113,30 @@ fn catch_up<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
     d: &mut D,
 ) -> Result<u64, SyncError> {
     let target = scope("device-a");
-    let mut pass = begin_pass(&target, a, s, d)?;
+    let pass = begin_pass(&target, a, s, d)?;
+    finish_and_recheck(pass, a, s, d)
+}
+fn catch_up_page<A: ScopeAuthorizer, S: OpenRecordSource, D: ReplicaStore>(
+    a: &mut A,
+    s: &mut S,
+    d: &mut D,
+) -> Result<u64, SyncError> {
+    let pass = begin_pass_with_page(
+        &scope("device-a"),
+        Limits::new(32, 128 * 1024, 128 * 1024).unwrap(),
+        a,
+        s,
+        d,
+    )?;
+    finish_and_recheck(pass, a, s, d)
+}
+fn finish_and_recheck<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
+    mut pass: Pass,
+    a: &mut A,
+    s: &mut S,
+    d: &mut D,
+) -> Result<u64, SyncError> {
+    let target = scope("device-a");
     loop {
         finish_pass(
             &mut pass,
@@ -138,6 +161,7 @@ enum Ports {
         session: RecordSession<TcpStream>,
         a: RecordSessionAuthorizer<TcpStream>,
         s: RecordSessionSource<TcpStream>,
+        first_page: bool,
     },
 }
 impl Ports {
@@ -151,12 +175,21 @@ impl Ports {
                 0,
                 0,
             ))
-        } else if ["session", "session-open"].contains(&mode) {
-            let (session, auth_bytes) = dial(endpoint, token, mode == "session-open")?;
+        } else if ["session", "session-open", "session-page"].contains(&mode) {
+            let (session, auth_bytes) = dial(endpoint, token, mode != "session")?;
             let (a, s) = session.parts();
-            Ok((Self::Session { session, a, s }, auth_bytes, 1))
+            Ok((
+                Self::Session {
+                    session,
+                    a,
+                    s,
+                    first_page: mode == "session-page",
+                },
+                auth_bytes,
+                1,
+            ))
         } else {
-            Err("mode must be loopback, session or session-open".into())
+            Err("mode must be loopback, session, session-open or session-page".into())
         }
     }
     fn counters(&self) -> Result<WireCounters, Error> {
@@ -181,7 +214,15 @@ impl Ports {
                 let _subscription = s.subscribe(&scope("device-a")).map_err(error)?;
                 Ok(catch_up(a.as_mut(), s.as_mut(), store).map_err(error)?)
             }
-            Self::Session { a, s, .. } => Ok(catch_up(a, s, store).map_err(error)?),
+            Self::Session {
+                a, s, first_page, ..
+            } => {
+                if *first_page {
+                    Ok(catch_up_page(a, s, store).map_err(error)?)
+                } else {
+                    Ok(catch_up(a, s, store).map_err(error)?)
+                }
+            }
         }
     }
     fn close(&self) -> Result<(), Error> {
@@ -259,8 +300,8 @@ fn bench(
     }
     let mut ports: Option<Ports> = None;
     let mut reports = Vec::new();
-    for phase in 0..3 {
-        for position in phase * 7 + 1..=phase * 7 + 7 {
+    for phase in 0..4 {
+        for position in phase * 7 + 1..=if phase < 3 { phase * 7 + 7 } else { phase * 7 } {
             let (record, payload) = fact(position);
             if producer.append(&record, &payload).map_err(error)? != position as u64 {
                 return Err("fixture source changed unexpectedly".into());
@@ -289,7 +330,7 @@ fn bench(
         let applied = ports.as_mut().unwrap().catch_up(&mut store)?;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         drop(store); // Verification reopens the durable cache after the measured commit.
-        let expected = (phase * 7 + 7) as u64;
+        let expected = (phase.min(2) * 7 + 7) as u64;
         let verified = inspect(replica)?;
         if applied != expected || verified != (expected, expected, expected / 7 * 4126) {
             return Err("fixture convergence failed".into());
@@ -298,10 +339,10 @@ fn bench(
         let protocol = after.protocol_bytes - before.protocol_bytes + auth_bytes;
         let payload = after.payload_bytes - before.payload_bytes;
         let duplicate = after.duplicate_bytes - before.duplicate_bytes;
-        if payload != 4126 || duplicate != 0 {
+        if payload != if phase < 3 { 4126 } else { 0 } || duplicate != 0 {
             return Err("fixture payload accounting mismatch".into());
         }
-        let phase_name = ["cold_connect", "warm_catch_up", "reconnect"][phase];
+        let phase_name = ["cold_connect", "warm_catch_up", "reconnect", "idle"][phase];
         reports.push(format!("{{\"phase\":\"{phase_name}\",\"elapsed_ms\":{elapsed_ms:.3},\"exchanges\":{},\"protocol_exchanges\":{},\"host_auth_exchanges\":{auth_exchanges},\"protocol_bytes\":{protocol},\"host_auth_bytes\":{auth_bytes},\"payload_bytes\":{payload},\"total_bytes\":{},\"duplicate_bytes\":{duplicate},\"head_checks\":{},\"checkpoint\":{applied},\"records\":{},\"ordered_complete\":true}}",after.exchanges-before.exchanges+auth_exchanges,after.exchanges-before.exchanges,protocol+payload,after.head_checks-before.head_checks,verified.1));
     }
     if let Some(client) = ports.take() {
@@ -343,7 +384,7 @@ fn run() -> Result<(), Error> {
         }
         Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("inspect") if args.len()==3=>{let(c,n,p)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{p},\"ordered_complete\":true}}");Ok(())}
-        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
+        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
     }
 }
 fn main() {

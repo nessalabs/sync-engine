@@ -4,7 +4,8 @@
 //! by current authorization; every page is validated before atomic store apply.
 
 use crate::replication::domain::{
-    validate_page, Checkpoint, CommitPlan, Limits, Page, PageRequest, Scope, ValidationError,
+    validate_open_page, validate_open_page_request, validate_page, Checkpoint, CommitPlan, Limits,
+    OpenPageRequest, OpenedPage, Page, PageRequest, Scope, ValidationError,
 };
 
 /// Current host policy decision for this exact receiver and stream.
@@ -54,6 +55,15 @@ pub trait RecordSource {
     fn head(&mut self, scope: &Scope) -> Result<u64, SourceError>;
     /// Reads at most one bounded page within the captured target.
     fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError>;
+}
+
+/// Optional first-page port. The authoritative adapter captures one committed
+/// head and reads only through it, checking current policy before each underlying
+/// read and emitted batch. Responses are untrusted until canonical validation.
+pub trait OpenRecordSource: RecordSource {
+    /// Read one bounded first page, echoing the full request and captured target.
+    /// A target at/below `after` has no records; it cannot reset saved progress.
+    fn open_page(&mut self, request: &OpenPageRequest) -> Result<OpenedPage, SourceError>;
 }
 
 /// Atomic replica-store refusal.
@@ -161,6 +171,69 @@ pub fn begin_pass<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
         scope: scope.clone(),
         target,
         next: position,
+    })
+}
+
+/// Opt-in pass start that captures a target with the first page. Check current
+/// authority before local progress and again before the combined source read,
+/// then validate and atomically apply at most one page. Empty/behind-head replies
+/// cannot advance progress. Errors return no pass; after an uncertain commit,
+/// reload actual durable progress on a fresh explicit attempt. Remaining pages
+/// use `step`; hosts must retain their normal post-pass `begin_pass` head recheck.
+/// This preserves the existing non-atomic policy/commit boundary. Empty requests
+/// still pay both access checks; no grant or advisory head is cached for speed.
+pub fn begin_pass_with_page<A: ScopeAuthorizer, S: OpenRecordSource, R: ReplicaStore>(
+    scope: &Scope,
+    limits: Limits,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut R,
+) -> Result<Pass, SyncError> {
+    check_access(scope, authorizer)?;
+    let saved = store.load(scope).map_err(SyncError::Store)?;
+    let position = match saved {
+        None => 0,
+        Some(saved) if saved.scope() == scope => saved.position(),
+        Some(saved) => {
+            return Err(SyncError::Store(StoreError::ScopeMismatch {
+                saved: Box::new(saved.scope().clone()),
+                requested: Box::new(scope.clone()),
+            }))
+        }
+    };
+    let request = OpenPageRequest {
+        scope: scope.clone(),
+        after: position,
+        max_records: limits.max_records(),
+        max_payload_bytes: limits.max_payload_bytes(),
+        max_record_bytes: limits.max_record_bytes(),
+    };
+    validate_open_page_request(&request, limits).map_err(SyncError::Validation)?;
+    check_access(scope, authorizer)?;
+    let opened = source.open_page(&request).map_err(SyncError::Source)?;
+    let (target, plan) = validate_open_page(
+        &Checkpoint::new(scope.clone(), position),
+        &request,
+        opened,
+        limits,
+    )
+    .map_err(|error| {
+        if error == ValidationError::HeadBehindProgress {
+            SyncError::SourceBehindCheckpoint
+        } else {
+            SyncError::Validation(error)
+        }
+    })?;
+    let mut next = position;
+    if let Some(plan) = plan {
+        let committed = plan.next().position();
+        store.apply(plan).map_err(SyncError::Store)?;
+        next = committed;
+    }
+    Ok(Pass {
+        scope: scope.clone(),
+        target,
+        next,
     })
 }
 
