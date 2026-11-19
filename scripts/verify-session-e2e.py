@@ -223,7 +223,7 @@ def case(base, mode, path, kbit, rtt):
         assert result.returncode == 0, (mode, path, kbit, result.stderr)
         report = json.loads(result.stdout)
         assert report["transport"] == mode
-        expected_exchanges = {"loopback": [7, 7, 7, 5], "session": [9, 6, 9, 4], "session-open": [8, 6, 8, 4], "session-page": [7, 5, 7, 5]}[mode]
+        expected_exchanges = {"loopback": [7, 7, 7, 5], "session": [9, 6, 9, 4], "session-open": [8, 6, 8, 4], "session-page": [7, 5, 7, 5], "session-io": [7, 5, 7, 5]}[mode]
         for position, exchanges, phase in zip([7, 14, 21, 21], expected_exchanges, report["phases"], strict=True):
             assert phase["exchanges"] == exchanges, phase
             assert phase["checkpoint"] == phase["records"] == position and phase["ordered_complete"], phase
@@ -286,7 +286,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", action="store_true", help="add real-time 32/64 kbit application-frame delay profiles")
     parser.add_argument("--repetitions", type=int, default=1)
-    parser.add_argument("--modes", nargs="+", choices=["loopback","session","session-open","session-page"], default=["loopback","session","session-open","session-page"])
+    parser.add_argument("--modes", nargs="+", choices=["loopback","session","session-open","session-page","session-io"], default=["loopback","session","session-open","session-page","session-io"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--markdown", type=Path)
     parser.add_argument("--require-complete", action="store_true")
@@ -335,14 +335,20 @@ def main():
         assert old["exchanges"]-new["exchanges"]==saved
         assert old["protocol_bytes"]-new["protocol_bytes"]==(-225 if old["phase"]=="idle" else 175*saved)
         assert old["payload_bytes"]==new["payload_bytes"]
-    report = {"modes": args.modes, "source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "open-target first-page comparison; not full #54 completion", "completion_ready": False,
+    for key,old in comparable.items():
+        if key[-1]!="session-page" or "session-io" not in args.modes:
+            continue
+        new=comparable[(*key[:-1],"session-io")]
+        for field in ["exchanges","protocol_exchanges","host_auth_exchanges","protocol_bytes","total_bytes","payload_bytes","duplicate_bytes"]:
+            assert old[field]==new[field],(field,old,new)
+    report = {"modes": args.modes, "source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "interruptible session I/O prerequisite; no hint/follow transport yet", "completion_ready": False,
               "coverage_gaps": GAPS, "contract_tests_passed": int(count.group(1)), "environment": platform.platform(),
               "command": "python3 scripts/verify-session-e2e.py" + (" --profiles" if args.profiles else "") + f" --repetitions {args.repetitions} --modes " + " ".join(args.modes),
               "conditions": ["real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",
                   "direct path includes a zero/delayed fixture frame shaper; relay adds an opaque raw TCP forwarding hop",
                   "loopback-only plaintext token fixture: session bytes/exchanges include its separate cold/reconnect preamble+ACK",
                   "legacy sync includes one-shot subscribe; session supports explicit catch-up only, not hints/follow yet",
-                  "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends and verification reopen",
+                  "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends, verification reopen and inter-phase close/interruption cleanup",
                   "application-frame half-RTT delay per direction and 256-byte throttling; no IP/TCP/TLS overhead, packet loss, mobile power or shared duplex contention model",
                   "one Open request produces two reply frames; application-frame delay is charged per frame, not per logical exchange",
                   "short_session sums each run cold/warm/reconnect timed intervals, excluding idle and inter-phase append/verification; not wall-clock session lifetime",

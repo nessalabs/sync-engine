@@ -9,7 +9,7 @@ use nessa_sync::replication::{
     domain::{Id, Limits, Scope, MAX_ID_BYTES},
     infrastructure::session::{
         serve_record_session, RecordSession, RecordSessionAuthorizer, RecordSessionSource,
-        SessionLimits,
+        SessionLimits, TcpSessionIo,
     },
     infrastructure::{LoopbackClient, SqliteReferenceSource, SqliteReplicaStore, WireCounters},
 };
@@ -90,6 +90,16 @@ fn dial(
     token: &Id,
     opening: bool,
 ) -> Result<(RecordSession<TcpStream>, u64), Error> {
+    let (socket, auth_bytes) = dial_socket(endpoint, token)?;
+    let session = if opening {
+        RecordSession::connect_open(socket, scope("device-a"), limits())
+    } else {
+        RecordSession::connect(socket, scope("device-a"), limits())
+    }
+    .map_err(error)?;
+    Ok((session, auth_bytes))
+}
+fn dial_socket(endpoint: SocketAddrV4, token: &Id) -> Result<(TcpStream, u64), Error> {
     let mut socket = TcpStream::connect_timeout(&endpoint.into(), Duration::from_secs(5))?;
     setup(&socket)?;
     socket.write_all(&[token.as_str().len() as u8])?;
@@ -99,13 +109,7 @@ fn dial(
     if ack != [0] {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
     }
-    let session = if opening {
-        RecordSession::connect_open(socket, scope("device-a"), limits())
-    } else {
-        RecordSession::connect(socket, scope("device-a"), limits())
-    }
-    .map_err(error)?;
-    Ok((session, (token.as_str().len() + 2) as u64))
+    Ok((socket, (token.as_str().len() + 2) as u64))
 }
 fn catch_up<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
     a: &mut A,
@@ -153,6 +157,11 @@ fn finish_and_recheck<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
     }
 }
 enum Ports {
+    Managed {
+        session: RecordSession<TcpSessionIo>,
+        a: RecordSessionAuthorizer<TcpSessionIo>,
+        s: RecordSessionSource<TcpSessionIo>,
+    },
     Loopback {
         a: Box<LoopbackClient>,
         s: Box<LoopbackClient>,
@@ -166,7 +175,17 @@ enum Ports {
 }
 impl Ports {
     fn connect(mode: &str, endpoint: SocketAddrV4, token: &Id) -> Result<(Self, u64, u64), Error> {
-        if mode == "loopback" {
+        if mode == "session-io" {
+            let (socket, auth_bytes) = dial_socket(endpoint, token)?;
+            let session = RecordSession::connect_open_interruptible(
+                TcpSessionIo::new(socket)?,
+                scope("device-a"),
+                limits(),
+            )
+            .map_err(error)?;
+            let (a, s) = session.parts();
+            Ok((Self::Managed { session, a, s }, auth_bytes, 1))
+        } else if mode == "loopback" {
             Ok((
                 Self::Loopback {
                     a: Box::new(LoopbackClient::new(endpoint, token.clone())?),
@@ -189,7 +208,7 @@ impl Ports {
                 1,
             ))
         } else {
-            Err("mode must be loopback, session, session-open or session-page".into())
+            Err("mode must be loopback, session, session-open, session-page or session-io".into())
         }
     }
     fn counters(&self) -> Result<WireCounters, Error> {
@@ -206,6 +225,7 @@ impl Ports {
                 })
             }
             Self::Session { session, .. } => Ok(session.counters().map_err(error)?),
+            Self::Managed { session, .. } => Ok(session.counters().map_err(error)?),
         }
     }
     fn catch_up(&mut self, store: &mut SqliteReplicaStore) -> Result<u64, Error> {
@@ -214,6 +234,7 @@ impl Ports {
                 let _subscription = s.subscribe(&scope("device-a")).map_err(error)?;
                 Ok(catch_up(a.as_mut(), s.as_mut(), store).map_err(error)?)
             }
+            Self::Managed { a, s, .. } => Ok(catch_up_page(a, s, store).map_err(error)?),
             Self::Session {
                 a, s, first_page, ..
             } => {
@@ -226,8 +247,10 @@ impl Ports {
         }
     }
     fn close(&self) -> Result<(), Error> {
-        if let Self::Session { session, .. } = self {
-            session.close().map_err(error)?;
+        match self {
+            Self::Session { session, .. } => session.close().map_err(error)?,
+            Self::Managed { session, .. } => session.close().map_err(error)?,
+            _ => {}
         }
         Ok(())
     }
@@ -384,7 +407,7 @@ fn run() -> Result<(), Error> {
         }
         Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("inspect") if args.len()==3=>{let(c,n,p)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{p},\"ordered_complete\":true}}");Ok(())}
-        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
+        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page|session-io ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
     }
 }
 fn main() {

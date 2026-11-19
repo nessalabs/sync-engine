@@ -24,8 +24,10 @@ security, device pairing, relay authentication or encryption.
 The client and its two port handles share one mutex-owned connection/lifecycle.
 Every part keeps that owner/channel alive; dropping one handle does not cancel
 the other parts. An RPC holds this owner until a complete reply or refusal. No background read task
-can relabel old replies onto a replacement owner. `close` is serialized behind an
-in-flight operation and cannot preempt blocked I/O; deadlines remain necessary.
+can relabel old replies onto a replacement owner. Generic constructors still wait
+behind in-flight I/O. The optional [interruptible I/O constructors](session-io.md)
+request connection interruption before taking that mutex; finite host deadlines
+remain necessary, including cleanup after an interrupt error.
 Dropping the held generic channel does not guarantee physical shutdown of a
 borrowed or externally shared transport; its host must dispose it after errors or
 close. No retry, reconnect, scope reset, wire cancellation or commit acknowledgment occurs

@@ -386,3 +386,9 @@ pub use records::{
     serve_record_session, RecordSession, RecordSessionAuthorizer, RecordSessionError,
     RecordSessionSource,
 };
+
+mod channel;
+pub use channel::{
+    DuplexSessionIo, InterruptibleSessionIo, SessionInterrupt, TcpSessionIo, TcpSessionReader,
+    TcpSessionWriter,
+};

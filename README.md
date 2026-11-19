@@ -187,3 +187,8 @@ Timings are observations,
 not CI thresholds. This uses plaintext
 loopback fixture authentication, not production device trust or an encrypted relay.
 `--require-complete` remains nonzero until the documented #54 coverage gaps close.
+
+The [session I/O ownership prerequisite](docs/design/session-io.md) adds explicit
+interruptible constructors and native split channel owners for the future hint
+reader. Compare `--modes session-page session-io` with the same E2E runner. Persistent
+hints/follow and notification-to-applied measurements remain pending.
