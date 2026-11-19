@@ -83,7 +83,7 @@ fn non_sqlite_source_round_trips_and_denials_never_open_it() {
         bad.authorize(&scope()),
         nessa_sync::replication::application::Access::Denied
     ));
-    assert_eq!(bad.head(&scope()), Err(SourceError::Unavailable));
+    assert_eq!(bad.head(&scope()), Err(SourceError::Denied));
     let mut client = LoopbackClient::new(addr, id("read")).unwrap();
     let wrong_receiver = Scope::new(
         id("stranger"),
@@ -101,8 +101,40 @@ fn non_sqlite_source_round_trips_and_denials_never_open_it() {
         id("schema"),
         id("old"),
     );
-    assert_eq!(client.head(&wrong_receiver), Err(SourceError::Unavailable));
-    assert_eq!(client.head(&wrong_epoch), Err(SourceError::Unavailable));
+    assert_eq!(client.head(&wrong_receiver), Err(SourceError::Denied));
+    assert_eq!(client.head(&wrong_epoch), Err(SourceError::IdentityChanged));
+    for stale in [
+        wrong_epoch,
+        Scope::new(
+            id("receiver"),
+            id("origin"),
+            id("stream"),
+            id("old"),
+            id("schema"),
+            id("epoch"),
+        ),
+        Scope::new(
+            id("receiver"),
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("old"),
+            id("epoch"),
+        ),
+    ] {
+        assert_eq!(
+            client.authorize(&stale),
+            nessa_sync::replication::application::Access::IdentityChanged
+        );
+        assert_eq!(client.head(&stale), Err(SourceError::IdentityChanged));
+        let mut page = request();
+        page.scope = stale;
+        assert_eq!(client.page(&page), Err(SourceError::IdentityChanged));
+    }
+    assert_eq!(bad.page(&request()), Err(SourceError::Denied));
+    let mut page = request();
+    page.scope = wrong_receiver;
+    assert_eq!(client.page(&page), Err(SourceError::Denied));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(client.head(&scope()), Ok(1));
     let page = client.page(&request()).unwrap();
@@ -150,6 +182,7 @@ impl RecordSource for Scripted {
 #[test]
 fn typed_source_errors_and_oversized_reply_round_trip() {
     for error in [
+        SourceError::Denied,
         SourceError::Unavailable,
         SourceError::Pruned,
         SourceError::InvalidRequest,

@@ -298,6 +298,28 @@ def main():
             assert command("sync", addr, second, "device-b", READ)["checkpoint"] == 8
             final = command("show", first, "device-a")
             assert final == {"checkpoint": 8, "count": 8}
+            # One-shot wake EOF must lead to another subscription before the
+            # ten-second fallback. Wait for each committed result before the
+            # next append, so one catch-up cannot cover both updates.
+            prompt_proxy = Proxy(port)
+            proxies.append(prompt_proxy)
+            prompt_store = base / "prompt.db"
+            prompt = subprocess.Popen([str(BIN), "follow", f"127.0.0.1:{prompt_proxy.port}",
+                                       str(prompt_store), "device-a", READ, "10000"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            processes.append(prompt)
+            wait_until(lambda: command("show", prompt_store, "device-a")["checkpoint"] == 8)
+            hint_latencies = []
+            for position in [9, 10]:
+                start = time.monotonic()
+                command("append", addr, WRITE, f"prompt-{position}", "wake")
+                wait_until(lambda: command("show", prompt_store, "device-a")["checkpoint"] == position,
+                           timeout=3)
+                elapsed = time.monotonic() - start
+                assert elapsed < 3, "hint waited for fallback"
+                hint_latencies.append(round(elapsed, 3))
+                # Establish the next subscription before appending again.
+                wait_until(lambda: prompt_proxy.subscriptions >= position - 7, timeout=3)
             print(json.dumps({"slice": 3, "converged": True, "final": final,
                               "offline_payload_bytes": resumed["payload_bytes"],
                               "unchanged_payload_bytes": unchanged["payload_bytes"],
@@ -305,6 +327,7 @@ def main():
                               "all_hints_dropped_recovered": True,
                               "slow_receiver_isolated": True,
                               "subscribe_race_recovered": True,
+                              "successive_hint_seconds": hint_latencies,
                               "auth_precedes_source_read": True,
                               "outage_recovered": bool(args.profiles), "profiles": profiles}))
         finally:

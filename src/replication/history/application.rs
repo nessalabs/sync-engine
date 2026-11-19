@@ -12,6 +12,8 @@ use super::{
 /// Reference source outcome for bounded history reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistorySourceError {
+    /// Authentication or receiver policy refused this request.
+    Denied,
     /// Source cannot currently answer.
     Unavailable,
     /// Requested history was pruned; an explicit compatible reset is needed.
@@ -46,6 +48,8 @@ pub enum HistoryStoreError {
 /// Authorization, source, validation, or store refusal with owner preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryError {
+    /// Authorization returned an unsupported or malformed reply.
+    InvalidAccessResponse,
     /// Current policy denied delivery.
     Denied,
     /// Current policy could not be verified.
@@ -124,6 +128,8 @@ fn check_access<A: ScopeAuthorizer>(scope: &Scope, authorizer: &mut A) -> Result
         Access::Allowed(current) if current == *scope => Ok(()),
         Access::Allowed(_) => Err(HistoryError::WrongAccessScope),
         Access::Denied => Err(HistoryError::Denied),
+        Access::IdentityChanged => Err(HistoryError::WrongAccessScope),
+        Access::InvalidResponse => Err(HistoryError::InvalidAccessResponse),
         Access::Unverifiable => Err(HistoryError::Unverifiable),
     }
 }

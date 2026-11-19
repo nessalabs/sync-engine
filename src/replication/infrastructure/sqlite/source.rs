@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
-use crate::replication::application::{RecordSource, SourceError, StoreError};
+use crate::replication::application::{RecordSource, SourceError, StoreError, MAX_RECORD_BYTES};
 use crate::replication::domain::{
     validate_page_request, Id, Limits, Page, PageRequest, Record, Scope,
 };
@@ -126,9 +126,9 @@ impl SqliteReferenceSource {
 
     /// Appends one committed fact. Repeating the same ID and bytes returns its
     /// original position; different bytes under that ID are refused. Payloads
-    /// above the reference adapter's one-megabyte record cap are refused.
+    /// above [`MAX_RECORD_BYTES`] are refused.
     pub fn append(&mut self, id: &Id, payload: &[u8]) -> Result<u64, StoreError> {
-        if payload.len() > MAX_PAGE_BYTES {
+        if payload.len() > MAX_RECORD_BYTES {
             return Err(StoreError::Failed);
         }
         let tx = self
