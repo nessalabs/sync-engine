@@ -1,10 +1,10 @@
 # Session transport: first measurement and state contract (#54)
 
-**Status: proposed session protocol with a bounded control-codec skeleton.**
-The control vocabulary, bounded passive binding lifecycle, current-policy
-authorizer composition and in-memory labs below are implemented. No live
-replication session, production socket, pairing, relay service or new
-authentication/policy service is implemented here.
+**Status: experimental control, binding, current-policy gate and serialized record reads.**
+The [record-session milestone](session-records.md) adds real scoped reads over a
+host-authenticated duplex channel and TCP/SQLite end-to-end fixture paths. It does
+not supply production channel authentication, encryption, pairing or relay trust.
+The earlier control/lifecycle labs below retain their narrower scope.
 The seven [reference slices](../implementation-plan.md) remain the implemented
 baseline. [Issue #54](https://github.com/nessalabs/sync-engine/issues/54) remains
 open; this note is the decision/test boundary for its first implementation slice.
@@ -17,8 +17,8 @@ The optional `transport` feature exposes
 `infrastructure::session::{read_control, write_control, ControlFrame}`. This is
 an experimental control codec, not an implementation of any source, store or
 `ScopeAuthorizer` port. Existing loopback and all authorization/read/apply call
-orders remain unchanged. The earlier authorization-composition dependency is
-not resolved by this skeleton.
+orders remain unchanged. The control codec alone does not resolve authorization composition. The later
+[record adapter](session-records.md) retains current checks at both endpoints.
 
 The only supported mode is **explicit per-operation authorization**. Hello and
 Welcome encode mode byte 1; another mode is incompatible. A decoded Welcome or
@@ -62,6 +62,7 @@ UTF-8 byte length followed by exact text; `Id::new` owns its admissibility and
 | 2 Welcome | session u64, limits, record_bytes u32 | Nonzero namespace, same mode/limits validation, supported record ceiling. |
 | 3 Bind | correlation, scope | Nonzero IDs and valid exact scope representation. |
 | 4 Bound | correlation, handle u32, generation u64, scope, head u64 | Nonzero handle/generation; head zero is allowed for an empty source. |
+| 5 Refused | correlation, reason u8 | Metadata-free binding refusal; canonical source codes 1–6 only, unknown codes are incompatible. |
 
 Unknown magic/version/kind/mode is `Incompatible`, not retryable unavailability.
 Invalid numerical/identity values and trailing fields refuse; malformed input
@@ -189,8 +190,9 @@ lifecycle events before starting an operation, and drop the gate before applying
 such events. Policy may change independently through its own authority. This
 adds no atomic policy/commit transaction or globally instantaneous revocation;
 source-side checks, generation validation and existing uncertain-commit recovery
-remain required. Full duplex/multiplexed transport ownership still needs a separate
-composition proof before a live read route is wired.
+remain required. Full duplex/multiplexed transport ownership still needs a separate composition
+proof. The [record adapter](session-records.md) instead serializes a single scope
+and operation while retaining these checks.
 
 Run `python3 scripts/verify-session-authorization.py`. The benign lab/tests use
 scripted current-policy decisions and

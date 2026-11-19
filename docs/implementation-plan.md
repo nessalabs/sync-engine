@@ -14,9 +14,12 @@ command execution or backup.
 baseline, proposed state/ownership contract, bounded control codec and passive
 binding lifecycle and current-policy authorizer prerequisite labs. Binding
 metadata grants no authority; the authorizer delegates current host policy on
-every admitted call. No source or live replication session is implemented. The
-remaining slice plan is future work; none of the production session protocol is
-implemented by the seven slices below.
+every admitted call. The [serialized record adapter](design/session-records.md)
+now carries real scoped reads over host-authenticated streams, with direct and
+raw-relayed TCP/SQLite fixture E2E checks and paired measurements. Production
+channel security, hints, catalogue/history/artifact routes and multiplexed
+scheduling remain open. The strict E2E completion gate still refuses completion;
+these narrower passing checks do not close #54.
 
 ## Outcome we are building toward
 
