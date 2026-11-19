@@ -18,12 +18,34 @@ The server captures the host signal version before its initial authorized head
 read; after Bound is flushed it starts the signal worker with that cursor. A
 commit between head capture and subscription activation therefore remains pending.
 The client creates one physical reader before opening, but exposes no ports or
-hints until the normal lifecycle accepts Bound. One bounded pre-activation wake
-can be retained after Bound is queued. A hint before Bound is a protocol failure. An immediate EOF after an early
-refusal is retained until Bound and the hint context are validated, preserving
-Denied/IdentityChanged without trusting unvalidated setup metadata. Validation,
-activation publication and terminal selection are one state-lock transition; EOF
-cannot intervene between publishing identity and selecting the typed outcome.
+hints until the normal lifecycle accepts Bound. Setup uses one ownership rule:
+once it decodes an on-time complete correlated Bound or Refused, the reader hands
+that result to the connecting owner and stops reading after publishing it in the
+reply slot. Ownership includes the bounded reader-local frame while an earlier
+Welcome still occupies that slot. The owner alone performs full lifecycle validation. A validated refusal returns its exact typed error and closes;
+a validated Bound publishes immutable identity and the close fence under the state
+lock before releasing the reader. Bound is passive metadata, never authority for a
+read. The ordinary authorize/read path remains mandatory.
+
+There is no pre-activation hint buffer, deferred EOF state or setup-error priority
+exception. Frames after Bound, including terminal hints and EOF, remain on the
+channel until activation. This keeps complete result validation separate from
+incomplete network reply failure.
+
+| Setup event | Owner and precedence |
+| --- | --- |
+| Welcome only, then missing/partial final result or EOF | No completed outcome exists; transport/deadline failure is unavailable. Unknown/malformed Welcome remains Protocol. |
+| Complete correlated Refused queued, then peer closes | Reader stays parked; connecting owner validates correlation/reason and returns the exact refusal. EOF cannot erase it. No ports exist. |
+| Complete Bound queued, then EOF/hint already in the channel | Reader stays parked until full Bound validation and identity publication. Invalid scope or zero handle/generation fails Protocol and closes without reading more. |
+| Validated Bound followed by normal EOF | Setup supplied passive binding only; channel becomes terminal. Future operations are unavailable; no cache progress or authority is created. |
+| Validated Bound followed by terminal hint then EOF | Reader decodes the exact bound hint first and preserves its typed terminal outcome; EOF cannot replace the first terminal reason. |
+| Unsolicited/wrong-correlated/unknown setup reply or pre-Bound hint | Protocol failure. No generic preservation of arbitrary frames or late grants. |
+| Explicit close/drop while a final result is parked | Close wins cancellation, wakes the handoff even if physical interruption fails, and supplies no ports. |
+
+The fixed reply deadline bounds waiting for frame arrival. Once a complete setup
+outcome is decoded on time, neither local queue publication nor owner validation
+uses the network-arrival deadline to overwrite it; the normal finite connecting
+owner must finish or close.
 
 NSR1 kind 64 is one unsolicited advisory frame bound to the exact selected session,
 first binding request, handle and generation. Success contains exactly one u64
@@ -124,4 +146,4 @@ still open. The source host's origin epoch fencing remains separate #50 work.
 [Raw paired measurements](../verification/session-follow-e2e.json) retain all
 24 runs and measured-source fingerprints. [Qualification and reverted-regression
 evidence](../verification/session-follow-reversion.json) records the 29 gates,
-seven deliberately reverted guards and clean restored tree.
+eight deliberately reverted guards and clean restored tree.

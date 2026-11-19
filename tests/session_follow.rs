@@ -188,6 +188,9 @@ struct HeadSource {
 }
 impl RecordSource for HeadSource {
     fn head(&mut self, s: &Scope) -> Result<u64, SourceError> {
+        if self.after.load(Ordering::SeqCst) == 3 {
+            return Err(SourceError::Pruned);
+        }
         let result = self.inner.head(s);
         let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         match (self.after.load(Ordering::SeqCst), call) {
@@ -436,4 +439,45 @@ fn stale_epoch_is_typed_and_explicit_reconnect_resumes_saved_progress() {
             .unwrap(),
         2
     );
+}
+
+#[test]
+fn initial_policy_and_source_refusals_stay_typed_when_the_server_closes() {
+    for expected in [
+        SourceError::Denied,
+        SourceError::Unavailable,
+        SourceError::IdentityChanged,
+        SourceError::Pruned,
+    ] {
+        let f = Fixture::new();
+        let server = Server::new(f.path("source.db"), 1);
+        let store = SqliteReplicaStore::open(f.path("replica.db")).unwrap();
+        match expected {
+            SourceError::Denied => server.mode.store(1, Ordering::SeqCst),
+            SourceError::Unavailable => server.mode.store(2, Ordering::SeqCst),
+            SourceError::IdentityChanged => {
+                *server.current.lock().unwrap() = Scope::new(
+                    id("device-a"),
+                    id("origin"),
+                    id("stream"),
+                    id("first"),
+                    id("schema"),
+                    id("next-epoch"),
+                );
+            }
+            SourceError::Pruned => server.after_head.store(3, Ordering::SeqCst),
+            _ => unreachable!(),
+        }
+        let result = connect_follow(server.dial(), scope(), limits(), Duration::from_secs(2));
+        match result {
+            Err(actual) => assert_eq!(actual, FollowError::Refused(expected)),
+            Ok(s) => {
+                s.close().unwrap();
+                panic!("initial refusal supplied ports")
+            }
+        }
+        assert!(store.checkpoint(&scope()).unwrap().is_none());
+        assert_eq!(store.count(&scope()).unwrap(), 0);
+        server.finish();
+    }
 }

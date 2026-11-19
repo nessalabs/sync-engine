@@ -1,9 +1,11 @@
 {
-  "scope": "seven controlled guard reversion proofs; owned benign fixtures only",
-  "source_commit": "fbc520a6ea842d78f05a350d005c821564856f4a",
+  "scope": "simplified setup-result ownership and eight controlled guard reversions; benign owned fixtures only",
+  "source_commit": "b1c70f08edfeb78e8a0ab31f22f8c518c988b24b",
   "source_sha256": {
-    "src/replication/infrastructure/session/records/follow.rs": "0fe0512edd9eb1e6b48f8685d68569a5a5403593a716dc33c8007c4032e6d92c"
+    "src/replication/infrastructure/session/records/follow.rs": "d8be735129aa1c060b83d41ed18eeed2bbb93954e2cb0c844d3e4b93bc8525ba"
   },
+  "addressed_review": "https://github.com/nessalabs/sync-engine/pull/64#discussion_r4636406812",
+  "ownership_rule": "A fully decoded on-time correlated final setup outcome belongs to the connecting owner, including its bounded reader-local frame until queue publication. The reader stops before subsequent physical reads until full validation/activation or close. No early-hint or deferred-EOF state.",
   "results": [
     {
       "case": "baseline",
@@ -17,7 +19,7 @@
         "--lib"
       ],
       "exit_code": 0,
-      "seconds": 8.962,
+      "seconds": 10.966,
       "expected": "pass",
       "assertion_failure": false
     },
@@ -32,37 +34,52 @@
         "queued_rpc_rechecks_policy_after_acquiring_the_frame_writer"
       ],
       "exit_code": 101,
-      "seconds": 0.674,
+      "seconds": 0.819,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
     {
-      "case": "early-refusal-eof",
+      "case": "refused-setup-handoff",
       "command": [
         "cargo",
         "test",
         "--locked",
         "--all-features",
         "--lib",
-        "early_terminal_hint_survives_eof_until_bound_is_validated"
+        "complete_setup_refusals_belong_to_the_connecting_owner_across_eof"
       ],
       "exit_code": 101,
-      "seconds": 0.764,
+      "seconds": 0.612,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
     {
-      "case": "atomic-activation",
+      "case": "bound-setup-handoff",
       "command": [
         "cargo",
         "test",
         "--locked",
         "--all-features",
         "--lib",
-        "activation_validates_early_refusal_and_publishes_terminal_state_atomically"
+        "bound_handoff_precedes_terminal_hint_and_eof"
       ],
       "exit_code": 101,
-      "seconds": 0.686,
+      "seconds": 0.597,
+      "expected": "regression assertion fails",
+      "assertion_failure": true
+    },
+    {
+      "case": "decoded-setup-local-publication",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "decoded_setup_outcome_owns_its_reader_local_frame_before_publication"
+      ],
+      "exit_code": 101,
+      "seconds": 1.112,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
@@ -78,7 +95,7 @@
         "setup_notification_is_retained_before_initial_catch_up"
       ],
       "exit_code": 101,
-      "seconds": 2.932,
+      "seconds": 2.719,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
@@ -94,7 +111,7 @@
         "policy_is_rechecked_after_hint_head_capture_before_emission"
       ],
       "exit_code": 101,
-      "seconds": 0.932,
+      "seconds": 0.973,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
@@ -110,7 +127,7 @@
         "persistent_hint_only_wakes_authorized_reads_and_idle_timeout_keeps_subscription"
       ],
       "exit_code": 101,
-      "seconds": 0.977,
+      "seconds": 1.016,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
@@ -125,7 +142,7 @@
         "hint_traffic_cannot_extend_an_admitted_rpc_deadline"
       ],
       "exit_code": 101,
-      "seconds": 1.96,
+      "seconds": 2.106,
       "expected": "regression assertion fails",
       "assertion_failure": true
     },
@@ -141,22 +158,17 @@
         "--lib"
       ],
       "exit_code": 0,
-      "seconds": 8.393,
+      "seconds": 8.415,
       "expected": "pass",
       "assertion_failure": false
     }
   ],
   "restored_worktree_clean": true,
   "independent_review": {
-    "rounds": 3,
-    "round1": [
-      "queued RPC send admission after writer wait",
-      "early correlated terminal hint followed by EOF during setup"
-    ],
-    "round2": [
-      "activation publication and early hint validation must be one locked transition"
-    ],
-    "round3": "clean; read-only review of final source and recorded evidence; reviewer did not independently rerun tests"
+    "prior_cycle": "Three local review rounds and an additional exact-head finding triggered model simplification before more changes.",
+    "redesign_contract_review": "Single result handoff accepted with retained normal validation, deadlines, terminal hints and close bounds.",
+    "redesign_round1": "Decoded outcome ownership must include reader-local to queue publication; controlled regression added.",
+    "redesign_round2": "clean at b1c70f08edfeb78e8a0ab31f22f8c518c988b24b; read-only inspection of source and recorded evidence; tests not independently rerun"
   },
   "qualification": [
     {
@@ -171,7 +183,7 @@
         "test_*.py"
       ],
       "exit_code": 0,
-      "seconds": 0.117,
+      "seconds": 0.136,
       "log": "qualification-00.log"
     },
     {
@@ -184,7 +196,7 @@
         "--check"
       ],
       "exit_code": 0,
-      "seconds": 0.32,
+      "seconds": 0.327,
       "log": "qualification-01.log"
     },
     {
@@ -200,7 +212,7 @@
         "warnings"
       ],
       "exit_code": 0,
-      "seconds": 0.054,
+      "seconds": 0.063,
       "log": "qualification-02.log"
     },
     {
@@ -213,7 +225,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 0.245,
+      "seconds": 0.259,
       "log": "qualification-03.log"
     },
     {
@@ -228,7 +240,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 0.646,
+      "seconds": 0.561,
       "log": "qualification-04.log"
     },
     {
@@ -243,7 +255,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 1.906,
+      "seconds": 3.048,
       "log": "qualification-05.log"
     },
     {
@@ -256,7 +268,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 10.369,
+      "seconds": 13.376,
       "log": "qualification-06.log"
     },
     {
@@ -269,7 +281,7 @@
         "--doc"
       ],
       "exit_code": 0,
-      "seconds": 0.333,
+      "seconds": 0.389,
       "log": "qualification-07.log"
     },
     {
@@ -277,7 +289,7 @@
         "./scripts/verify-slice-1"
       ],
       "exit_code": 0,
-      "seconds": 0.041,
+      "seconds": 0.031,
       "log": "qualification-08.log"
     },
     {
@@ -286,7 +298,7 @@
         "scripts/verify-slice-2.py"
       ],
       "exit_code": 0,
-      "seconds": 0.111,
+      "seconds": 0.114,
       "log": "qualification-09.log"
     },
     {
@@ -295,7 +307,7 @@
         "scripts/verify-slice-3.py"
       ],
       "exit_code": 0,
-      "seconds": 0.818,
+      "seconds": 0.905,
       "log": "qualification-10.log"
     },
     {
@@ -304,7 +316,7 @@
         "scripts/verify-slice-4.py"
       ],
       "exit_code": 0,
-      "seconds": 0.836,
+      "seconds": 0.856,
       "log": "qualification-11.log"
     },
     {
@@ -313,7 +325,7 @@
         "scripts/verify-slice-5.py"
       ],
       "exit_code": 0,
-      "seconds": 0.489,
+      "seconds": 0.562,
       "log": "qualification-12.log"
     },
     {
@@ -322,7 +334,7 @@
         "scripts/verify-slice-6.py"
       ],
       "exit_code": 0,
-      "seconds": 0.389,
+      "seconds": 0.402,
       "log": "qualification-13.log"
     },
     {
@@ -331,7 +343,7 @@
         "scripts/verify-slice-7.py"
       ],
       "exit_code": 0,
-      "seconds": 2.901,
+      "seconds": 2.919,
       "log": "qualification-14.log"
     },
     {
@@ -340,7 +352,7 @@
         "scripts/verify-record-server.py"
       ],
       "exit_code": 0,
-      "seconds": 0.24,
+      "seconds": 0.284,
       "log": "qualification-15.log"
     },
     {
@@ -352,7 +364,7 @@
         "artifact_contract"
       ],
       "exit_code": 0,
-      "seconds": 0.028,
+      "seconds": 0.077,
       "log": "qualification-16.log"
     },
     {
@@ -361,7 +373,7 @@
         "scripts/verify-artifact-transfer.py"
       ],
       "exit_code": 0,
-      "seconds": 0.554,
+      "seconds": 0.556,
       "log": "qualification-17.log"
     },
     {
@@ -370,7 +382,7 @@
         "scripts/verify-wire-contract.py"
       ],
       "exit_code": 0,
-      "seconds": 0.069,
+      "seconds": 0.057,
       "log": "qualification-18.log"
     },
     {
@@ -379,7 +391,7 @@
         "scripts/verify-session-control.py"
       ],
       "exit_code": 0,
-      "seconds": 0.176,
+      "seconds": 0.165,
       "log": "qualification-19.log"
     },
     {
@@ -397,7 +409,7 @@
         "scripts/verify-session-authorization.py"
       ],
       "exit_code": 0,
-      "seconds": 0.159,
+      "seconds": 0.169,
       "log": "qualification-21.log"
     },
     {
@@ -406,7 +418,7 @@
         "scripts/verify-session-e2e.py"
       ],
       "exit_code": 0,
-      "seconds": 2.197,
+      "seconds": 2.077,
       "log": "qualification-22.log"
     },
     {
@@ -415,7 +427,7 @@
         "scripts/verify-session-follow.py"
       ],
       "exit_code": 0,
-      "seconds": 25.394,
+      "seconds": 25.798,
       "log": "qualification-23.log"
     },
     {
@@ -428,7 +440,7 @@
         "--no-deps"
       ],
       "exit_code": 0,
-      "seconds": 0.642,
+      "seconds": 0.864,
       "log": "qualification-24.log"
     },
     {
@@ -441,7 +453,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 0.091,
+      "seconds": 0.175,
       "log": "qualification-25.log"
     },
     {
@@ -456,7 +468,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 0.831,
+      "seconds": 1.381,
       "log": "qualification-26.log"
     },
     {
@@ -469,7 +481,7 @@
         "--all-targets"
       ],
       "exit_code": 0,
-      "seconds": 1.108,
+      "seconds": 1.827,
       "log": "qualification-27.log"
     },
     {
@@ -479,7 +491,7 @@
         "--check"
       ],
       "exit_code": 0,
-      "seconds": 0.003,
+      "seconds": 0.004,
       "log": "qualification-28.log"
     }
   ],
@@ -495,7 +507,7 @@
     "remaining_coverage_gaps": 7
   },
   "limits": [
-    "Rust/TCP fixture tests and SQLite atomic adapter; no deployed encrypted transport or arbitrary host callback cancellation",
-    "qualification timings and process logs are local evidence; elapsed performance observations are separately retained in session-follow-e2e.json"
+    "Setup handoff relies on the normal finite local validation owner finishing or closing; no network-arrival deadline is reapplied to a completed outcome.",
+    "Native TCP/SQLite fixture qualification; deployed encrypted transport, broad outage/loss and arbitrary host callback cancellation are not qualified."
   ]
 }

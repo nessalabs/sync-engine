@@ -76,6 +76,11 @@ struct Rpc {
     deadline: Instant,
     complete: bool,
 }
+impl Rpc {
+    fn setup_outcome(&self) -> bool {
+        self.complete && matches!(self.expected, Expect::Handshake { .. })
+    }
+}
 struct Dispatch {
     frame: Option<Vec<u8>>,
     rpc: Option<Rpc>,
@@ -83,9 +88,6 @@ struct Dispatch {
     error: Option<FollowError>,
     identity: Option<ScopeIdentity>,
     closing: Option<Arc<AtomicBool>>,
-    saw_bound: bool,
-    early: Option<Pending>,
-    ended_before_activation: Option<FollowError>,
     stats: HintStats,
     rx: u64,
     tx: u64,
@@ -111,24 +113,6 @@ impl Shared {
             self.ready.notify_all();
         }
         self.physical.interrupt()
-    }
-    fn reader_failed(&self, error: FollowError) {
-        if let Ok(mut s) = self.state.lock() {
-            // Bound must still pass the original lifecycle before an early
-            // refusal is trusted. Preserve that one bounded validation path
-            // when the peer closes immediately after its terminal hint.
-            if !s.closed
-                && s.saw_bound
-                && s.identity.is_none()
-                && s.early.is_some()
-                && matches!(error, FollowError::Closed | FollowError::Unavailable)
-            {
-                s.ended_before_activation = Some(error);
-                self.ready.notify_all();
-                return;
-            }
-        }
-        let _ = self.fail(error);
     }
     fn error(&self) -> Option<FollowError> {
         self.state
@@ -196,7 +180,7 @@ impl Shared {
         if Instant::now() > rpc.deadline {
             return Err(FollowError::Unavailable);
         }
-        let mut bound = false;
+        let mut handoff = false;
         let mut selected = None;
         match &mut rpc.expected {
             Expect::Handshake { session } => {
@@ -214,13 +198,14 @@ impl Shared {
                             && correlation.request == FIRST_REQUEST =>
                     {
                         rpc.complete = true;
-                        bound = true;
+                        handoff = true;
                     }
                     ControlFrame::Refused { correlation, .. }
                         if *session == Some(correlation.session)
                             && correlation.request == FIRST_REQUEST =>
                     {
-                        rpc.complete = true
+                        rpc.complete = true;
+                        handoff = true;
                     }
                     _ => return Err(FollowError::Protocol),
                 }
@@ -267,103 +252,49 @@ impl Shared {
         if let Some(selected) = selected {
             s.limit = s.limit.min(selected);
         }
-        Ok(bound)
+        Ok(handoff)
     }
     fn activate(
         &self,
         identity: ScopeIdentity,
         closing: Arc<AtomicBool>,
     ) -> Result<(), FollowError> {
-        self.activate_at(identity, closing, || {})
-    }
-    fn activate_at(
-        &self,
-        identity: ScopeIdentity,
-        closing: Arc<AtomicBool>,
-        at_boundary: impl FnOnce(),
-    ) -> Result<(), FollowError> {
         let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
         if s.closed {
             return Err(s.error.clone().unwrap_or(FollowError::Closed));
         }
+        if s.identity.is_some() || !s.rpc.as_ref().is_some_and(Rpc::setup_outcome) {
+            return Err(FollowError::Protocol);
+        }
+        // Only the connecting owner calls this after complete lifecycle
+        // validation. Publication releases the reader's setup-result handoff.
         s.identity = Some(identity);
         s.closing = Some(closing);
-        let early = s.early.take();
-        let ended = s.ended_before_activation.take();
-        at_boundary();
-        // Publication, exact hint validation and terminal outcome are one
-        // transition. EOF cannot install a generic error between those decisions.
-        let result = early
-            .map_or(Ok(()), |p| Self::hint_state(&mut s, p, false))
-            .and_then(|()| ended.map_or(Ok(()), Err));
-        if let Err(error) = &result {
-            s.closed = true;
-            s.error = Some(error.clone());
-            s.frame = None;
-            s.stats.pending_head = None;
-            if let Some(f) = &s.closing {
-                f.store(true, Ordering::Release);
-            }
-        }
-        self.ready.notify_all();
-        result
-    }
-
-    fn hint(&self, p: Pending, count: bool) -> Result<(), FollowError> {
-        let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
-        Self::hint_state(&mut s, p, count)?;
         self.ready.notify_all();
         Ok(())
     }
-    fn hint_state(s: &mut Dispatch, p: Pending, count: bool) -> Result<(), FollowError> {
+    fn hint(&self, p: Pending) -> Result<(), FollowError> {
+        let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
         if s.closed {
             return Err(s.error.clone().unwrap_or(FollowError::Closed));
         }
-        if !s.saw_bound {
+        let identity = s.identity.as_ref().ok_or(FollowError::Protocol)?;
+        if p.meta != Meta::for_scope(identity, FIRST_REQUEST) {
             return Err(FollowError::Protocol);
         }
-        if count {
-            s.stats.frames_received += 1;
-        }
-        if let Some(identity) = &s.identity {
-            if p.meta != Meta::for_scope(identity, FIRST_REQUEST) {
-                return Err(FollowError::Protocol);
-            }
-            match p.result {
-                Ok(head) => {
-                    if let Some(old) = s.stats.pending_head {
-                        s.stats.coalesced += 1;
-                        s.stats.pending_head = Some(old.max(head));
-                    } else {
-                        s.stats.pending_head = Some(head);
-                    }
-                }
-                Err(error) => return Err(FollowError::Refused(error)),
-            }
-        } else {
-            if let Some(old) = &s.early {
-                if old.meta != p.meta {
-                    return Err(FollowError::Protocol);
-                }
-                if old.result.is_err() {
-                    return Ok(());
-                }
-                if p.result.is_ok() {
+        s.stats.frames_received += 1;
+        match p.result {
+            Ok(head) => {
+                if let Some(old) = s.stats.pending_head {
                     s.stats.coalesced += 1;
+                    s.stats.pending_head = Some(old.max(head));
+                } else {
+                    s.stats.pending_head = Some(head);
                 }
             }
-            let merged = match (s.early.take(), p.result) {
-                (Some(old), Ok(head)) => Pending {
-                    meta: p.meta,
-                    result: old.result.map(|n| n.max(head)),
-                },
-                (_, result) => Pending {
-                    meta: p.meta,
-                    result,
-                },
-            };
-            s.early = Some(merged);
+            Err(error) => return Err(FollowError::Refused(error)),
         }
+        self.ready.notify_all();
         Ok(())
     }
 }
@@ -407,6 +338,17 @@ impl<W: Write> Read for FollowIo<W> {
                 .map_err(|_| io::ErrorKind::NotConnected)?;
             let until = s.rpc.as_ref().ok_or(io::ErrorKind::InvalidData)?.deadline;
             while s.frame.is_none() && !s.closed {
+                if s.rpc.as_ref().is_some_and(Rpc::setup_outcome) {
+                    // The complete correlated outcome arrived on time. The
+                    // connecting owner now owns even its reader-local frame;
+                    // this wait is local publication, not network arrival.
+                    s = self
+                        .shared
+                        .ready
+                        .wait(s)
+                        .map_err(|_| io::ErrorKind::NotConnected)?;
+                    continue;
+                }
                 let left = until.saturating_duration_since(Instant::now());
                 if left.is_zero() {
                     drop(s);
@@ -498,6 +440,9 @@ impl<R: Read> Read for CountRead<R> {
     }
 }
 fn reader<R: Read>(inner: R, shared: Arc<Shared>) {
+    reader_frames(inner, shared, |_| {});
+}
+fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: impl FnMut(bool)) {
     let mut r = CountRead {
         inner,
         shared: shared.clone(),
@@ -566,16 +511,14 @@ fn reader<R: Read>(inner: R, shared: Arc<Shared>) {
                     }
                     Err(decode_source_error(packet.status))
                 };
-                shared.hint(
-                    Pending {
-                        meta: packet.meta,
-                        result,
-                    },
-                    true,
-                )?;
+                shared.hint(Pending {
+                    meta: packet.meta,
+                    result,
+                })?;
                 continue;
             }
-            let bound = shared.route(&frame)?;
+            let handoff = shared.route(&frame)?;
+            before_publish(handoff);
             let mut s = shared.state.lock().map_err(|_| FollowError::Closed)?;
             while s.frame.is_some() && !s.closed {
                 s = shared.ready.wait(s).map_err(|_| FollowError::Closed)?;
@@ -584,14 +527,16 @@ fn reader<R: Read>(inner: R, shared: Arc<Shared>) {
                 return Err(s.error.clone().unwrap_or(FollowError::Closed));
             }
             s.frame = Some(frame);
-            if bound {
-                s.saw_bound = true;
-            }
             shared.ready.notify_all();
+            // A complete correlated setup result belongs to the connecting
+            // owner until validation. Do not read ahead into EOF or hints.
+            while handoff && s.identity.is_none() && !s.closed {
+                s = shared.ready.wait(s).map_err(|_| FollowError::Closed)?;
+            }
         }
     })();
     if let Err(e) = result {
-        shared.reader_failed(e);
+        let _ = shared.fail(e);
     }
 }
 /// Independent advisory receiver. Waiting/consuming never loads or applies data.
@@ -793,9 +738,6 @@ pub fn connect_follow<D: DuplexSessionIo>(
             error: None,
             identity: None,
             closing: None,
-            saw_bound: false,
-            early: None,
-            ended_before_activation: None,
             stats: HintStats::default(),
             rx: 0,
             tx: 0,
@@ -1241,6 +1183,17 @@ mod tests {
             .unwrap()
     }
     fn fixture() -> (Arc<Shared>, TcpStream, JoinHandle<()>) {
+        fixture_with_interrupt(None)
+    }
+    fn fixture_with_interrupt(
+        override_interrupt: Option<Arc<dyn SessionInterrupt>>,
+    ) -> (Arc<Shared>, TcpStream, JoinHandle<()>) {
+        fixture_with_publish(override_interrupt, |_| {})
+    }
+    fn fixture_with_publish(
+        override_interrupt: Option<Arc<dyn SessionInterrupt>>,
+        before_publish: impl FnMut(bool) + Send + 'static,
+    ) -> (Arc<Shared>, TcpStream, JoinHandle<()>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (socket, _) = listener.accept().unwrap();
@@ -1250,7 +1203,7 @@ mod tests {
         peer.set_write_timeout(Some(Duration::from_secs(1)))
             .unwrap();
         let io = TcpSessionIo::new(socket).unwrap();
-        let physical = io.interrupt_handle();
+        let physical = override_interrupt.unwrap_or_else(|| io.interrupt_handle());
         let (reader_io, _) = io.split().unwrap();
         let shared = Arc::new(Shared {
             state: Mutex::new(Dispatch {
@@ -1260,9 +1213,6 @@ mod tests {
                 error: None,
                 identity: Some(identity()),
                 closing: Some(Arc::new(AtomicBool::new(false))),
-                saw_bound: true,
-                early: None,
-                ended_before_activation: None,
                 stats: HintStats::default(),
                 rx: 0,
                 tx: 0,
@@ -1272,7 +1222,7 @@ mod tests {
             physical,
         });
         let held = shared.clone();
-        let task = thread::spawn(move || reader(reader_io, held));
+        let task = thread::spawn(move || reader_frames(reader_io, held, before_publish));
         (shared, peer, task)
     }
     fn packet(kind: u8, payload: Vec<u8>, total: usize, offset: usize) -> Packet {
@@ -1414,7 +1364,9 @@ mod tests {
     fn pre_bound_hint_and_unknown_hint_status_fail_closed() {
         for early in [false, true] {
             let (shared, mut peer, task) = fixture();
-            shared.state.lock().unwrap().saw_bound = !early;
+            if early {
+                shared.state.lock().unwrap().identity = None;
+            }
             let mut p = hint();
             if !early {
                 p.status = 255;
@@ -1484,51 +1436,315 @@ mod tests {
             assert!(stopped.load(Ordering::Acquire));
         }
     }
-    #[test]
-    fn early_terminal_hint_survives_eof_until_bound_is_validated() {
-        for (status, wrong_meta, expected) in [
-            (1, false, FollowError::Refused(SourceError::Denied)),
-            (5, false, FollowError::Refused(SourceError::IdentityChanged)),
-            (1, true, FollowError::Protocol),
-        ] {
-            let (shared, mut peer, task) = fixture();
-            let identity = identity();
-            let bound = ControlFrame::Bound {
-                correlation: Correlation {
-                    session: 1,
-                    request: FIRST_REQUEST,
-                },
-                binding: BindingMetadata {
-                    handle: 1,
-                    generation: 1,
-                    scope: identity.scope().clone(),
-                    head: 0,
-                },
-            };
-            let mut bound_bytes = Vec::new();
-            write_control(&mut bound_bytes, &bound, 2048).unwrap();
-            {
-                let mut s = shared.state.lock().unwrap();
-                s.identity = None;
-                s.closing = None;
-                s.frame = Some(bound_bytes);
-                s.rpc = Some(Rpc {
-                    expected: Expect::Handshake { session: Some(1) },
-                    deadline: Instant::now() + Duration::from_secs(1),
-                    complete: true,
-                });
+    struct OwnerGate {
+        inner: FollowIo<Vec<u8>>,
+        calls: usize,
+        pause_at: usize,
+        final_read: Option<std::sync::mpsc::Sender<bool>>,
+        entered: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+    impl Read for OwnerGate {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            self.calls += 1;
+            // read_control consumes Welcome's prefix and body in two reads.
+            // Pause the actual connecting owner before consuming its outcome.
+            if self.calls == self.pause_at {
+                self.entered
+                    .send(())
+                    .map_err(|_| io::ErrorKind::NotConnected)?;
+                self.release
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| io::ErrorKind::TimedOut)?;
             }
+            if self.calls == 3 {
+                if let Some(progress) = &self.final_read {
+                    progress.send(false).unwrap();
+                }
+            }
+            let result = self.inner.read(out);
+            if self.calls == 3 {
+                if let Some(progress) = &self.final_read {
+                    progress.send(true).unwrap();
+                }
+            }
+            result
+        }
+    }
+    impl Write for OwnerGate {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.inner.write(bytes)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+    struct ConnectingOwner {
+        entered: std::sync::mpsc::Receiver<()>,
+        release: std::sync::mpsc::Sender<()>,
+        task: JoinHandle<Result<RecordSession<OwnerGate>, RecordSessionError>>,
+    }
+    fn connect_owner(shared: &Arc<Shared>) -> ConnectingOwner {
+        connect_owner_at(shared, 3, None)
+    }
+    fn connect_owner_at(
+        shared: &Arc<Shared>,
+        pause_at: usize,
+        final_read: Option<std::sync::mpsc::Sender<bool>>,
+    ) -> ConnectingOwner {
+        {
+            let mut s = shared.state.lock().unwrap();
+            s.identity = None;
+            s.closing = None;
+        }
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let (release, resumed) = std::sync::mpsc::channel();
+        let facade = FollowIo {
+            writer: Vec::new(),
+            shared: shared.clone(),
+            current: Cursor::new(Vec::new()),
+            deadline: Duration::from_secs(1),
+            tx_remaining: 0,
+        };
+        let interrupt = facade.interrupt_handle();
+        let gate = OwnerGate {
+            inner: facade,
+            calls: 0,
+            pause_at,
+            final_read,
+            entered,
+            release: resumed,
+        };
+        let task = thread::spawn(move || {
+            RecordSession::connect_with(
+                gate,
+                identity().scope().clone(),
+                SessionLimits {
+                    control_bytes: 2048,
+                    bindings: 1,
+                },
+                Opening::Follow,
+                Some(interrupt),
+            )
+        });
+        until(|| shared.state.lock().unwrap().rpc.is_some());
+        ConnectingOwner {
+            entered: waiting,
+            release,
+            task,
+        }
+    }
+    fn welcome(peer: &mut TcpStream) {
+        write_control(
+            peer,
+            &ControlFrame::Welcome {
+                session: 1,
+                limits: SessionLimits {
+                    control_bytes: 2048,
+                    bindings: 1,
+                },
+                record_bytes: MAX_RECORD_BYTES as u32,
+            },
+            2048,
+        )
+        .unwrap();
+    }
+    fn bound() -> ControlFrame {
+        ControlFrame::Bound {
+            correlation: Correlation {
+                session: 1,
+                request: FIRST_REQUEST,
+            },
+            binding: BindingMetadata {
+                handle: 1,
+                generation: 1,
+                scope: identity().scope().clone(),
+                head: 0,
+            },
+        }
+    }
+    fn parked(shared: &Shared, owner: &ConnectingOwner) {
+        owner.entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        until(|| {
+            let s = shared.state.lock().unwrap();
+            s.frame.is_some() && s.rpc.as_ref().unwrap().complete
+        });
+    }
+    #[test]
+    fn complete_setup_refusals_belong_to_the_connecting_owner_across_eof() {
+        for reason in [
+            SourceError::Denied,
+            SourceError::Unavailable,
+            SourceError::Pruned,
+            SourceError::InvalidRequest,
+            SourceError::IdentityChanged,
+            SourceError::OversizedRecord,
+        ] {
+            let (shared, mut peer, reader) = fixture();
+            let owner = connect_owner(&shared);
+            welcome(&mut peer);
+            write_control(
+                &mut peer,
+                &ControlFrame::Refused {
+                    correlation: Correlation {
+                        session: 1,
+                        request: FIRST_REQUEST,
+                    },
+                    reason: reason.clone(),
+                },
+                2048,
+            )
+            .unwrap();
+            parked(&shared, &owner);
+            peer.shutdown(std::net::Shutdown::Both).unwrap();
+            // A completed on-time outcome is not an incomplete reply. Expiry
+            // during local validation must not replace its typed result.
+            shared.state.lock().unwrap().rpc.as_mut().unwrap().deadline = Instant::now();
+            thread::sleep(Duration::from_millis(30));
+            let before_decision = shared.error();
+            owner.release.send(()).unwrap();
+            let result = owner.task.join().unwrap();
+            reader.join().unwrap();
+            assert_eq!(before_decision, None, "reader read past its setup handoff");
+            match result {
+                Err(RecordSessionError::Source(actual)) => assert_eq!(actual, reason),
+                Err(error) => panic!("wrong setup result: {error:?}"),
+                Ok(_) => panic!("refusal supplied ports"),
+            }
+        }
+    }
+    #[test]
+    fn bound_handoff_precedes_terminal_hint_and_eof() {
+        for (status, expected) in [
+            (1, FollowError::Refused(SourceError::Denied)),
+            (5, FollowError::Refused(SourceError::IdentityChanged)),
+        ] {
+            let (shared, mut peer, reader) = fixture();
+            let owner = connect_owner(&shared);
+            welcome(&mut peer);
+            write_control(&mut peer, &bound(), 2048).unwrap();
+            parked(&shared, &owner);
             let mut p = hint();
             p.status = status;
             p.total = 0;
             p.payload.clear();
-            if wrong_meta {
-                p.meta.generation += 1;
-            }
             peer.write_all(&bytes(&p)).unwrap();
             peer.shutdown(std::net::Shutdown::Both).unwrap();
-            task.join().unwrap();
-            assert!(shared.error().is_none());
+            thread::sleep(Duration::from_millis(30));
+            let before_decision = shared.error();
+            let before_stats = shared.state.lock().unwrap().stats;
+            owner.release.send(()).unwrap();
+            let root = owner.task.join().unwrap().unwrap();
+            assert_eq!(before_decision, None);
+            assert_eq!(before_stats.frames_received, 0);
+            let accepted = root.shared.lock().unwrap().identity.clone();
+            shared.activate(accepted, root.closing.clone()).unwrap();
+            reader.join().unwrap();
+            assert_eq!(shared.error(), Some(expected));
+        }
+    }
+    #[test]
+    fn bound_identity_is_validated_before_any_post_setup_hint() {
+        for case in 0..3 {
+            let (shared, mut peer, reader) = fixture();
+            let owner = connect_owner(&shared);
+            welcome(&mut peer);
+            let mut frame = bound();
+            if let ControlFrame::Bound { binding, .. } = &mut frame {
+                match case {
+                    0 => {
+                        binding.scope = Scope::new(
+                            Id::new("other-receiver").unwrap(),
+                            Id::new("origin").unwrap(),
+                            Id::new("stream").unwrap(),
+                            Id::new("first").unwrap(),
+                            Id::new("schema").unwrap(),
+                            Id::new("epoch").unwrap(),
+                        )
+                    }
+                    1 => binding.handle = 2,
+                    _ => binding.generation = 2,
+                }
+            }
+            write_control(&mut peer, &frame, 2048).unwrap();
+            parked(&shared, &owner);
+            peer.write_all(&bytes(&hint())).unwrap();
+            peer.shutdown(std::net::Shutdown::Both).unwrap();
+            owner.release.send(()).unwrap();
+            let result = owner.task.join().unwrap();
+            if case == 0 {
+                match result {
+                    Err(RecordSessionError::Protocol) => (),
+                    Err(error) => panic!("wrong invalid-bound result {error:?}"),
+                    Ok(root) => {
+                        root.close().unwrap();
+                        panic!("invalid scope supplied ports")
+                    }
+                }
+                reader.join().unwrap();
+                assert!(shared.state.lock().unwrap().identity.is_none());
+            } else {
+                // Handles/generations are peer-assigned nonzero values. Retain
+                // the exact accepted binding; a hint using another is invalid.
+                let root = result.unwrap();
+                let accepted = root.shared.lock().unwrap().identity.clone();
+                shared.activate(accepted, root.closing.clone()).unwrap();
+                reader.join().unwrap();
+                assert_eq!(shared.error(), Some(FollowError::Protocol));
+            }
+            assert_eq!(shared.state.lock().unwrap().stats.frames_received, 0);
+        }
+    }
+    #[test]
+    fn successful_bound_then_normal_eof_is_terminal_without_authority() {
+        let (shared, mut peer, reader) = fixture();
+        let owner = connect_owner(&shared);
+        welcome(&mut peer);
+        write_control(&mut peer, &bound(), 2048).unwrap();
+        parked(&shared, &owner);
+        peer.shutdown(std::net::Shutdown::Both).unwrap();
+        owner.release.send(()).unwrap();
+        let root = owner.task.join().unwrap().unwrap();
+        let accepted = root.shared.lock().unwrap().identity.clone();
+        shared.activate(accepted, root.closing.clone()).unwrap();
+        reader.join().unwrap();
+        assert_eq!(shared.error(), Some(FollowError::Closed));
+        let (mut a, mut source) = root.parts();
+        assert_eq!(a.authorize(identity().scope()), Access::Unverifiable);
+        assert_eq!(
+            source.head(identity().scope()),
+            Err(SourceError::Unavailable)
+        );
+    }
+    #[test]
+    fn success_hint_waits_in_channel_until_bound_activation() {
+        let (shared, mut peer, reader) = fixture();
+        let owner = connect_owner(&shared);
+        welcome(&mut peer);
+        write_control(&mut peer, &bound(), 2048).unwrap();
+        parked(&shared, &owner);
+        peer.write_all(&bytes(&hint())).unwrap();
+        thread::sleep(Duration::from_millis(30));
+        assert_eq!(shared.state.lock().unwrap().stats.frames_received, 0);
+        owner.release.send(()).unwrap();
+        let root = owner.task.join().unwrap().unwrap();
+        let accepted = root.shared.lock().unwrap().identity.clone();
+        shared.activate(accepted, root.closing.clone()).unwrap();
+        assert_eq!(
+            HintReceiver {
+                shared: shared.clone()
+            }
+            .wait(Duration::from_secs(1)),
+            Ok(HintWake::Changed { advisory_head: 9 })
+        );
+        root.close().unwrap();
+        reader.join().unwrap();
+    }
+    #[test]
+    fn invalid_or_unsolicited_setup_frames_are_never_preserved_as_outcomes() {
+        for case in 0..6 {
+            let (shared, mut peer, reader) = fixture();
+            shared.state.lock().unwrap().identity = None;
             let mut facade = FollowIo {
                 writer: Vec::new(),
                 shared: shared.clone(),
@@ -1536,72 +1752,208 @@ mod tests {
                 deadline: Duration::from_secs(1),
                 tx_remaining: 0,
             };
-            let frame = read_control(&mut facade, 2048).unwrap();
-            let limits = SessionLimits {
-                control_bytes: 2048,
-                bindings: 1,
-            };
-            let mut owner = SessionLifecycle::new(limits, 1).unwrap();
-            let key = owner.connection_id();
-            owner
-                .accept_welcome(
-                    &key,
-                    &ControlFrame::Welcome {
-                        session: 1,
-                        limits,
-                        record_bytes: MAX_RECORD_BYTES as u32,
+            write_control(
+                &mut facade,
+                &ControlFrame::FollowOpen {
+                    limits: SessionLimits {
+                        control_bytes: 2048,
+                        bindings: 1,
                     },
+                    request: FIRST_REQUEST,
+                    scope: identity().scope().clone(),
+                },
+                2048,
+            )
+            .unwrap();
+            if case != 0 {
+                welcome(&mut peer);
+                assert!(matches!(
+                    read_control(&mut facade, 2048).unwrap(),
+                    ControlFrame::Welcome { .. }
+                ));
+            }
+            let mut frame = Vec::new();
+            if case == 0 {
+                frame = bytes(&hint());
+            } else if case == 5 {
+                write_control(&mut frame, &bound(), 2048).unwrap();
+                frame[27..31].fill(0);
+            } else {
+                let correlation = Correlation {
+                    session: if case == 1 { 2 } else { 1 },
+                    request: if case == 2 { 2 } else { FIRST_REQUEST },
+                };
+                write_control(
+                    &mut frame,
+                    &ControlFrame::Refused {
+                        correlation,
+                        reason: SourceError::Denied,
+                    },
+                    2048,
                 )
                 .unwrap();
-            owner.begin_bind(identity.scope().clone()).unwrap();
-            let accepted = owner.accept_bound(&key, &frame).unwrap();
-            assert_eq!(
-                shared.activate(accepted, Arc::new(AtomicBool::new(false))),
-                Err(expected)
-            );
+                if case == 3 {
+                    *frame.last_mut().unwrap() = 255;
+                }
+                if case == 4 {
+                    frame.clear();
+                    welcome(&mut peer);
+                }
+            }
+            if !frame.is_empty() {
+                peer.write_all(&frame).unwrap();
+            }
+            until(|| shared.error().is_some());
+            assert_eq!(shared.error(), Some(FollowError::Protocol));
+            assert!(shared.state.lock().unwrap().identity.is_none());
+            reader.join().unwrap();
         }
     }
     #[test]
-    fn activation_validates_early_refusal_and_publishes_terminal_state_atomically() {
-        for error in [SourceError::Denied, SourceError::IdentityChanged] {
-            let (shared, _peer, reader) = fixture();
-            {
-                let mut s = shared.state.lock().unwrap();
-                s.identity = None;
-                s.closing = None;
-                s.early = Some(Pending {
-                    meta: Meta::for_scope(&identity(), FIRST_REQUEST),
-                    result: Err(error.clone()),
-                });
-            }
-            let (entered, boundary) = std::sync::mpsc::channel();
-            let (release, released) = std::sync::mpsc::channel();
-            let activation = shared.clone();
-            let task = thread::spawn(move || {
-                activation.activate_at(identity(), Arc::new(AtomicBool::new(false)), || {
-                    entered.send(()).unwrap();
-                    released.recv().unwrap();
-                })
-            });
-            boundary.recv_timeout(Duration::from_secs(1)).unwrap();
-            let lock_is_held = shared.state.try_lock().is_err();
-            let eof = shared.clone();
-            let (eof_started, waiting) = std::sync::mpsc::channel();
-            let eof_task = thread::spawn(move || {
-                eof_started.send(()).unwrap();
-                eof.reader_failed(FollowError::Closed);
-            });
-            waiting.recv_timeout(Duration::from_secs(1)).unwrap();
-            release.send(()).unwrap();
-            let result = task.join().unwrap();
-            eof_task.join().unwrap();
-            reader.join().unwrap();
-            assert!(
-                lock_is_held,
-                "activation published outside its validation lock"
-            );
-            assert_eq!(result, Err(FollowError::Refused(error.clone())));
-            assert_eq!(shared.error(), Some(FollowError::Refused(error)));
+    fn duplicate_setup_frame_is_protocol_failure_after_validated_activation() {
+        let (shared, mut peer, reader) = fixture();
+        let owner = connect_owner(&shared);
+        welcome(&mut peer);
+        write_control(&mut peer, &bound(), 2048).unwrap();
+        parked(&shared, &owner);
+        write_control(&mut peer, &bound(), 2048).unwrap();
+        owner.release.send(()).unwrap();
+        let root = owner.task.join().unwrap().unwrap();
+        let accepted = root.shared.lock().unwrap().identity.clone();
+        shared.activate(accepted, root.closing.clone()).unwrap();
+        reader.join().unwrap();
+        assert_eq!(shared.error(), Some(FollowError::Protocol));
+    }
+    struct FailedInterrupt;
+    impl SessionInterrupt for FailedInterrupt {
+        fn interrupt(&self) -> io::Result<()> {
+            Err(io::ErrorKind::Other.into())
         }
+    }
+    #[test]
+    fn close_wakes_a_parked_setup_result_even_when_physical_interrupt_fails() {
+        let (shared, mut peer, reader) = fixture_with_interrupt(Some(Arc::new(FailedInterrupt)));
+        let owner = connect_owner(&shared);
+        welcome(&mut peer);
+        write_control(&mut peer, &bound(), 2048).unwrap();
+        parked(&shared, &owner);
+        assert!(DispatchInterrupt(shared.clone()).interrupt().is_err());
+        owner.release.send(()).unwrap();
+        assert!(owner.task.join().unwrap().is_err());
+        reader.join().unwrap();
+        assert!(shared.state.lock().unwrap().frame.is_none());
+        assert!(shared.state.lock().unwrap().identity.is_none());
+    }
+    #[test]
+    fn incomplete_setup_is_unavailable_and_respects_the_reply_deadline() {
+        for partial in [false, true] {
+            let (shared, mut peer, reader) = fixture();
+            shared.state.lock().unwrap().identity = None;
+            let mut facade = FollowIo {
+                writer: Vec::new(),
+                shared: shared.clone(),
+                current: Cursor::new(Vec::new()),
+                deadline: Duration::from_millis(100),
+                tx_remaining: 0,
+            };
+            write_control(
+                &mut facade,
+                &ControlFrame::FollowOpen {
+                    limits: SessionLimits {
+                        control_bytes: 2048,
+                        bindings: 1,
+                    },
+                    request: FIRST_REQUEST,
+                    scope: identity().scope().clone(),
+                },
+                2048,
+            )
+            .unwrap();
+            welcome(&mut peer);
+            read_control(&mut facade, 2048).unwrap();
+            if partial {
+                let mut frame = Vec::new();
+                write_control(&mut frame, &bound(), 2048).unwrap();
+                peer.write_all(&frame[..5]).unwrap();
+            }
+            let started = Instant::now();
+            assert!(read_control(&mut facade, 2048).is_err());
+            assert!(started.elapsed() < Duration::from_millis(500));
+            assert_eq!(shared.error(), Some(FollowError::Unavailable));
+            reader.join().unwrap();
+        }
+    }
+    #[test]
+    fn close_wakes_empty_reply_wait_even_when_physical_interrupt_fails() {
+        let (shared, _peer, reader) = fixture_with_interrupt(Some(Arc::new(FailedInterrupt)));
+        shared
+            .admit(&bytes(&packet(HEAD, vec![1], 1, 0)), Duration::from_secs(1))
+            .unwrap();
+        let owned = shared.clone();
+        let (started, entered) = std::sync::mpsc::channel();
+        let consumer = thread::spawn(move || {
+            let mut io = FollowIo {
+                writer: Vec::new(),
+                shared: owned,
+                current: Cursor::new(Vec::new()),
+                deadline: Duration::from_secs(1),
+                tx_remaining: 0,
+            };
+            started.send(()).unwrap();
+            io.read(&mut [0; 1])
+        });
+        entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(DispatchInterrupt(shared).interrupt().is_err());
+        assert!(consumer.join().unwrap().is_err());
+        reader.join().unwrap();
+    }
+    #[test]
+    fn decoded_setup_outcome_owns_its_reader_local_frame_before_publication() {
+        let (decoded, awaiting) = std::sync::mpsc::channel();
+        let (publish, resumed) = std::sync::mpsc::channel();
+        let (shared, mut peer, reader) = fixture_with_publish(None, move |handoff| {
+            if handoff {
+                decoded.send(()).unwrap();
+                resumed.recv_timeout(Duration::from_secs(2)).unwrap();
+            }
+        });
+        let (progress, final_read) = std::sync::mpsc::channel();
+        let owner = connect_owner_at(&shared, 1, Some(progress));
+        owner.entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        welcome(&mut peer);
+        write_control(
+            &mut peer,
+            &ControlFrame::Refused {
+                correlation: Correlation {
+                    session: 1,
+                    request: FIRST_REQUEST,
+                },
+                reason: SourceError::Denied,
+            },
+            2048,
+        )
+        .unwrap();
+        awaiting.recv_timeout(Duration::from_secs(1)).unwrap();
+        {
+            let mut s = shared.state.lock().unwrap();
+            assert!(s.rpc.as_ref().unwrap().setup_outcome());
+            assert!(s.frame.is_some());
+            s.rpc.as_mut().unwrap().deadline = Instant::now();
+        }
+        owner.release.send(()).unwrap();
+        assert!(!final_read.recv_timeout(Duration::from_secs(1)).unwrap());
+        let returned_before_publication =
+            final_read.recv_timeout(Duration::from_millis(30)).is_ok();
+        publish.send(()).unwrap();
+        let result = owner.task.join().unwrap();
+        reader.join().unwrap();
+        assert!(
+            !returned_before_publication,
+            "arrival deadline replaced an owned complete outcome"
+        );
+        assert!(matches!(
+            result,
+            Err(RecordSessionError::Source(SourceError::Denied))
+        ));
     }
 }
