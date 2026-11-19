@@ -51,3 +51,7 @@ required-features = ["transport", "sqlite"]
 [[example]]
 name = "generic_record_server"
 required-features = ["transport"]
+
+[[example]]
+name = "session_control"
+required-features = ["transport"]

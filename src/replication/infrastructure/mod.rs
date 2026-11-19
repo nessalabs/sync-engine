@@ -16,3 +16,7 @@ pub use sqlite::*;
 mod loopback;
 #[cfg(feature = "transport")]
 pub use loopback::*;
+
+/// Experimental bounded session control metadata; no source or authorization adapter.
+#[cfg(feature = "transport")]
+pub mod session;

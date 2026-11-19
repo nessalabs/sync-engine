@@ -11,7 +11,9 @@ command execution or backup.
 ## Proposed next work
 
 [Session transport #54](design/session-protocol.md) begins with a measured loopback
-baseline and proposed state/ownership contract. Its slice plan is future work;
+baseline, proposed state/ownership contract and bounded control-only codec/lab.
+The codec grants no authority and implements no source or active session. Its
+remaining slice plan is future work;
 none of the production session protocol is implemented by the seven slices below.
 
 ## Outcome we are building toward
