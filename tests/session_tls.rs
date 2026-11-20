@@ -559,13 +559,14 @@ mod epochs {
     use super::*;
     use nessa_sync::replication::{
         domain::{Checkpoint, PageRequest},
+        history::{OlderRequest, TailRequest},
         infrastructure::{
             session::{
                 serve_epoch_record_session, EpochRecordSession, EpochSessionAdmission,
                 EpochSessionBinding, EpochSessionError,
             },
-            EpochBinding, EpochReplicaError, SqliteEpochRecordSource, SqliteEpochReplicaStore,
-            SqliteOriginAuthority,
+            EpochBinding, EpochHistoryError, EpochReplicaError, SqliteEpochRecordSource,
+            SqliteEpochReplicaStore, SqliteOriginAuthority,
         },
         origin_epoch::{OriginAuthorityKey, OriginEpoch},
     };
@@ -817,6 +818,228 @@ mod epochs {
             new.payload_bytes
         );
         session2.close().unwrap();
+        server1.join().unwrap();
+        server2.join().unwrap();
+    }
+
+    #[test]
+    fn protected_tls_history_handoff_preserves_durable_coverage_until_new_claim_applies() {
+        let fixture = Fixture::new();
+        let source_file = fixture.0.join("history-source");
+        let authority = fixture.0.join("history-claim-ledger");
+        let cache = fixture.0.join("history-cache");
+        let key = key("history-origin");
+        let scope = scope();
+        let mut writer = source(&source_file);
+        for (name, payload) in [("one", b"a"), ("two", b"b"), ("three", b"c")] {
+            writer.append(&id(name), payload).unwrap();
+        }
+        let first = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::provision(&authority).unwrap(),
+            key.clone(),
+            None,
+        )
+        .unwrap();
+        let e1 = first.epoch();
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (addr1, server1) = listen(
+            &fixture,
+            "server",
+            first,
+            false,
+            GatePolicy {
+                armed: armed.clone(),
+                arrived: arrived_tx,
+                release: release_rx,
+            },
+        );
+        let old = connect(
+            &fixture,
+            addr1,
+            approved(&fixture, &authority, key.clone(), e1, "server"),
+        )
+        .unwrap();
+        let binding = EpochBinding::new(
+            scope.receiver().clone(),
+            scope.origin().clone(),
+            key.clone(),
+        );
+        let mut receiver = SqliteEpochReplicaStore::provision(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(receiver.observe_head(old.head().unwrap()), Ok(e1));
+        let limits = Limits::new(1, 1, 1).unwrap();
+        let initial = TailRequest {
+            scope: scope.clone(),
+            generation: 1,
+            max_records: 1,
+            max_payload_bytes: 1,
+            max_record_bytes: 1,
+        };
+        let saved = receiver
+            .install_tail(old.tail(&initial, limits).unwrap())
+            .unwrap();
+        assert_eq!(
+            (saved.generation, saved.lower_bound, saved.live_head),
+            (1, 3, 3)
+        );
+        let before = OlderRequest {
+            scope: scope.clone(),
+            generation: 1,
+            before: 3,
+            max_records: 1,
+            max_payload_bytes: 1,
+            max_record_bytes: 1,
+        };
+        // The wire can accept these budgets, but this application's
+        // budget cannot. Neither operation may reach source authorization.
+        let oversized_tail = TailRequest {
+            max_payload_bytes: 2,
+            ..initial.clone()
+        };
+        let oversized_older = OlderRequest {
+            max_payload_bytes: 2,
+            ..before.clone()
+        };
+        let counters = old.counters().unwrap();
+        armed.store(true, Ordering::Release);
+        assert!(matches!(
+            old.tail(&oversized_tail, limits),
+            Err(EpochSessionError::History(_))
+        ));
+        assert!(matches!(
+            old.older(&oversized_older, limits),
+            Err(EpochSessionError::History(_))
+        ));
+        assert_eq!(old.counters().unwrap(), counters);
+        assert!(armed.swap(false, Ordering::AcqRel));
+        assert!(arrived_rx.try_recv().is_err());
+        let delayed_older = old.older(&before, limits).unwrap();
+        writer.append(&id("four"), b"d").unwrap();
+        let replacement = TailRequest {
+            generation: 2,
+            ..initial
+        };
+        let delayed_tail = old.tail(&replacement, limits).unwrap();
+        let parked = before.clone();
+        armed.store(true, Ordering::Release);
+        let attempt = thread::spawn(move || {
+            let result = old.older(&parked, limits);
+            (old, result)
+        });
+        arrived_rx.recv_timeout(DEADLINE).unwrap();
+        let second = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::open(&authority).unwrap(),
+            key.clone(),
+            Some(e1),
+        )
+        .unwrap();
+        let e2 = second.epoch();
+        release_tx.send(()).unwrap();
+        let (old, refused) = attempt.join().unwrap();
+        assert!(matches!(
+            refused,
+            Err(EpochSessionError::Record(RecordSessionError::Source(
+                SourceError::IdentityChanged
+            )))
+        ));
+        let (addr2, server2) = listen(&fixture, "server-sibling", second, false, Policy);
+        let new = connect(
+            &fixture,
+            addr2,
+            approved(&fixture, &authority, key, e2, "server-sibling"),
+        )
+        .unwrap();
+        assert_eq!(
+            receiver.install_tail(new.tail(&replacement, limits).unwrap()),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Unobserved))
+        );
+        assert_eq!(receiver.observe_head(new.head().unwrap()), Ok(e2));
+        drop(receiver);
+        let mut receiver = SqliteEpochReplicaStore::open(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(
+            receiver.install_older(delayed_older),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Fenced))
+        );
+        assert_eq!(
+            receiver.install_tail(delayed_tail),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Fenced))
+        );
+        assert_eq!(receiver.history_progress(&scope), Ok(Some(saved)));
+        assert_eq!(
+            receiver.checkpoint(&scope),
+            Ok(Some(Checkpoint::new(scope.clone(), 3)))
+        );
+        assert_eq!(
+            receiver.read_after(&scope, 2, 2, 2).unwrap()[0].payload,
+            b"c"
+        );
+        let installed = receiver
+            .install_tail(new.tail(&replacement, limits).unwrap())
+            .unwrap();
+        assert_eq!(
+            (
+                installed.generation,
+                installed.lower_bound,
+                installed.live_head
+            ),
+            (2, 4, 4)
+        );
+        let extended = receiver
+            .install_older(
+                new.older(
+                    &OlderRequest {
+                        generation: 2,
+                        before: 4,
+                        ..before
+                    },
+                    limits,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                extended.generation,
+                extended.lower_bound,
+                extended.live_head
+            ),
+            (2, 3, 4)
+        );
+        drop(receiver);
+        let mut receiver =
+            SqliteEpochReplicaStore::open(&cache, binding, EpochSessionAdmission::new(Policy))
+                .unwrap();
+        assert_eq!(receiver.history_progress(&scope), Ok(Some(extended)));
+        assert_eq!(
+            receiver.checkpoint(&scope),
+            Ok(Some(Checkpoint::new(scope.clone(), 4)))
+        );
+        let rows = receiver.read_after(&scope, 2, 2, 2).unwrap();
+        assert_eq!(
+            rows.into_iter().map(|row| row.payload).collect::<Vec<_>>(),
+            [b"c".to_vec(), b"d".to_vec()]
+        );
+        for (phase, session) in [("old", old), ("new", new)] {
+            let counters = session.counters().unwrap();
+            eprintln!(
+                "protected history {phase}: {} exchanges, {} protocol bytes, {} payload bytes",
+                counters.exchanges, counters.protocol_bytes, counters.payload_bytes
+            );
+            session.close().unwrap();
+        }
         server1.join().unwrap();
         server2.join().unwrap();
     }

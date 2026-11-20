@@ -55,7 +55,7 @@ pub(super) fn history_source(error: SourceError) -> HistorySourceError {
     }
 }
 
-fn record_source(error: HistorySourceError) -> RecordSessionError {
+pub(super) fn record_source(error: HistorySourceError) -> RecordSessionError {
     RecordSessionError::Source(match error {
         HistorySourceError::Incompatible(e) => SourceError::Incompatible(e),
         HistorySourceError::Denied => SourceError::Denied,
@@ -68,12 +68,12 @@ fn record_source(error: HistorySourceError) -> RecordSessionError {
 }
 
 #[derive(PartialEq, Eq)]
-struct Request {
-    common: TailRequest,
-    before: Option<u64>,
+pub(super) struct Request {
+    pub(super) common: TailRequest,
+    pub(super) before: Option<u64>,
 }
 impl Request {
-    fn older(&self, before: u64) -> OlderRequest {
+    pub(super) fn older(&self, before: u64) -> OlderRequest {
         OlderRequest {
             scope: self.common.scope.clone(),
             generation: self.common.generation,
@@ -83,7 +83,7 @@ impl Request {
             max_record_bytes: self.common.max_record_bytes,
         }
     }
-    fn from_older(r: &OlderRequest) -> Self {
+    pub(super) fn from_older(r: &OlderRequest) -> Self {
         Self {
             common: TailRequest {
                 scope: r.scope.clone(),
@@ -95,14 +95,14 @@ impl Request {
             before: Some(r.before),
         }
     }
-    fn kind(&self) -> u8 {
+    pub(super) fn kind(&self) -> u8 {
         if self.before.is_some() {
             OLDER
         } else {
             TAIL
         }
     }
-    fn numbers(&self, out: &mut Vec<u8>) {
+    pub(super) fn numbers(&self, out: &mut Vec<u8>) {
         for value in [
             self.common.generation,
             self.common.max_records as u64,
@@ -115,7 +115,11 @@ impl Request {
             out.extend_from_slice(&before.to_be_bytes());
         }
     }
-    fn decode(kind: u8, scope: Scope, d: &mut Decoder<'_>) -> Result<Self, RecordSessionError> {
+    pub(super) fn decode(
+        kind: u8,
+        scope: Scope,
+        d: &mut Decoder<'_>,
+    ) -> Result<Self, RecordSessionError> {
         let common = TailRequest {
             scope,
             generation: d.u64()?,
@@ -126,7 +130,7 @@ impl Request {
         let before = (kind == OLDER).then(|| d.u64()).transpose()?;
         Ok(Self { common, before })
     }
-    fn response_bound(&self) -> usize {
+    pub(super) fn response_bound(&self) -> usize {
         // Both forms have the same overhead: older's extra request field
         // takes the space of the tail's first-position field.
         const ECHO_AND_METADATA: usize = 6 * 8 + 26 + 1;
@@ -139,7 +143,7 @@ impl Request {
             .min(MAX_FRAME_BYTES)
     }
 
-    fn validate(&self, record_bytes: usize) -> Result<(), RecordSessionError> {
+    pub(super) fn validate(&self, record_bytes: usize) -> Result<(), RecordSessionError> {
         if self.common.generation == 0 || self.before.is_some_and(|n| n <= 1) {
             return Err(SourceError::InvalidRequest.into());
         }
@@ -157,13 +161,13 @@ impl Request {
     }
 }
 
-enum Response {
+pub(super) enum Response {
     Tail(TailSnapshot),
     Older(OlderPage),
 }
 
 impl Response {
-    fn records(&self) -> &[Record] {
+    pub(super) fn records(&self) -> &[Record] {
         match self {
             Self::Tail(r) => &r.records,
             Self::Older(r) => &r.records,
@@ -231,8 +235,18 @@ where
             (head, Response::Tail(tail))
         }
     };
+    encode_response(scope, &r, head, response, support)
+}
+
+pub(super) fn encode_response(
+    scope: &Scope,
+    r: &Request,
+    head: SourceHead,
+    response: Response,
+    support: CapabilitySupport,
+) -> Result<Vec<u8>, RecordSessionError> {
     validate_capabilities(&head, support).map_err(SourceError::Incompatible)?;
-    let response = response.validate(&r, &head, physical(MAX_RECORD_BYTES))?;
+    let response = response.validate(r, &head, physical(MAX_RECORD_BYTES))?;
     let mut out = Vec::new();
     put_scope(&mut out, scope);
     r.numbers(&mut out);
@@ -251,7 +265,7 @@ where
     Ok(out)
 }
 
-fn decode_response(
+pub(super) fn decode_response(
     body: &[u8],
     r: &Request,
     support: CapabilitySupport,

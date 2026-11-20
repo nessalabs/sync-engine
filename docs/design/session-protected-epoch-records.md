@@ -1,4 +1,4 @@
-# Protected epoch record sessions: native Head and Page
+# Protected epoch record sessions: Head, Page, Tail and Older
 
 This standalone slice uses the [verified TLS channel](session-secure-tls.md)
 and the [native claim-qualified reader](origin-epoch-native-forward.md) for
@@ -28,7 +28,7 @@ Bind uses the guarded native source, but its head hint remains advisory and
 cannot observe a writer epoch. Only an exact stamped protected Head can
 enter the receiver's observed floor.
 
-The mode reuses existing Head/Page capability operation kinds, fragment
+The mode reuses existing Head/Page/Tail/Older capability operation kinds, fragment
 bounds, canonical request/scope codecs and serialized correlation. Each
 successful protected result is prefixed by its captured authority ID and
 eight-byte writer epoch. The server checks current scope policy before the
@@ -40,13 +40,25 @@ before its capture. A completed old capture may still arrive later.
 The client compares the exact host scope/claim only after authenticated TLS
 and the required mode. It checks its independent ledger before use and after
 a correlated response, verifies the full scope/operation/limits and claim
-echo, then calls the existing canonical page validator. Returned proof is
+echo, then calls the existing canonical page or history validator. Returned proof is
 opaque; decoding bytes is not native-capture evidence. The host's
 `EpochSessionAdmission` rechecks current scope immediately before the existing
 SQLite observation/apply. Any old page delayed between verified acquisition
 and apply is still checked against the durable observed epoch inside the
 record transaction. A stale page cannot become current just because the
 transport closed or the receiver reopened.
+
+Tail and Older are separate typed reads and cannot advance the observed writer
+epoch. Requests must match the exact echoed scope, history generation, Older
+boundary, and payload limits. The client checks caller limits before sending
+either operation, in addition to negotiated physical bounds and qualified
+response validation. The receiver uses its existing protected
+history admission and SQLite installation transaction. An unobserved newer
+claim fails before install; a delayed older claim fails before either
+installation or any idempotent path. History reads count payload without
+advancing the forward duplicate-counter high water. A build that predates
+protected history may not implement these operations: the session fails
+rather than retrying an ordinary path.
 
 ## Qualification boundary
 
@@ -68,7 +80,16 @@ negative fixtures cover wrong TLS leaf, a valid TLS peer without the protected
 mode, a valid protected peer with mismatched stable key, and local ledger
 disagreement.
 
-No raw or generic protected transport constructor, legacy fallback, older
-pages, tail/snapshot wire, catalogue/artifact traffic, secure relay
+A second direct TCP/TLS + SQLite fixture installs an epoch-1 Tail, holds
+verified Tail and Older results, and parks an ordinary Older request across
+the claim change. That request is refused by the old source; applying the
+already verified results after epoch-2 observation and reopen leaves the
+history generation, coverage, checkpoint and payload unchanged. An epoch-2
+Tail and Older apply through the same owner and reopen with coverage
+`[3,4]` at live position 4. Acquiring epoch-2 Tail before observing epoch-2
+Head does not authorize its installation.
+
+No raw or generic protected transport constructor, legacy fallback,
+catalogue/artifact traffic, secure relay
 qualification for this mode, source writes, separate-host restore, Nessa
 or Swift integration is introduced.
