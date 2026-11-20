@@ -197,3 +197,8 @@ The opt-in [record freshness owner](docs/design/freshness.md) keeps cache reads
 local under `Within` and exposes independent head/apply times. Run its deterministic
 contracts and native SQLite read comparison with `python3 scripts/verify-freshness.py`;
 use `--repetitions 5` for timing evidence. It creates no background worker.
+
+Run `python3 scripts/verify-session-freshness.py` for the [live freshness policy
+qualifier](docs/design/live-freshness.md); add `--profiles --repetitions 2` for
+real-clock direct/opaque-relay measurements. The application owner survives
+connection replacement; no production secure-channel or phone runtime is supplied.
