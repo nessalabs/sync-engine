@@ -1222,6 +1222,7 @@ where
         CapabilityRoutes {
             head: Some(R::view_head),
             history: None,
+            scope_pair: false,
         },
     )
 }
@@ -1253,6 +1254,7 @@ where
         CapabilityRoutes {
             head: Some(R::view_head),
             history: Some(history::ServerReads::new()),
+            scope_pair: false,
         },
     )
 }
