@@ -116,6 +116,7 @@ where
         CapabilityRoutes {
             head: Some(R::view_head),
             history: None,
+            scope_pair: false,
         },
     )
 }
@@ -264,39 +265,49 @@ impl<S> CapabilitySessionSource<S> {
         Self { inner, supported }
     }
 }
+pub(super) fn read_head<S: Read + Write>(
+    wire: &mut Wire<S>,
+    identity: &ScopeIdentity,
+    supported: CapabilitySupport,
+    isolate_identity: bool,
+) -> Result<SourceHead, RecordSessionError> {
+    let scope = identity.scope();
+    wire.counters.head_checks += 1;
+    let result = wire
+        .exchange_with_scope_isolation(
+            HEAD_CAP,
+            identity,
+            prefix(supported),
+            scope_bytes(scope) + META_BYTES,
+            isolate_identity,
+        )
+        .and_then(|body| {
+            let mut d = Decoder::new(&body);
+            let echo = d.scope()?;
+            if echo != *scope {
+                return Err(RecordSessionError::Protocol);
+            }
+            let head = metadata(&mut d, echo)?;
+            d.finish()?;
+            validate_capabilities(&head, supported).map_err(SourceError::Incompatible)?;
+            Ok(head)
+        });
+    if matches!(
+        &result,
+        Err(RecordSessionError::Protocol | RecordSessionError::TooLarge)
+    ) {
+        wire.close();
+    }
+    result
+}
+
 impl<S: Read + Write> RecordHeadSource for CapabilitySessionSource<S> {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
         let mut c = active_client(&self.inner.shared, &self.inner.closing)
             .map_err(|_| SourceError::Unavailable)?;
         c.scope(scope)?;
-        c.wire.counters.head_checks += 1;
-        let result = {
-            let Client { identity, wire, .. } = &mut *c;
-            wire.exchange(
-                HEAD_CAP,
-                identity,
-                prefix(self.supported),
-                scope_bytes(scope) + META_BYTES,
-            )
-            .and_then(|body| {
-                let mut d = Decoder::new(&body);
-                let echo = d.scope()?;
-                if echo != *scope {
-                    return Err(RecordSessionError::Protocol);
-                }
-                let head = metadata(&mut d, echo)?;
-                d.finish()?;
-                validate_capabilities(&head, self.supported)
-                    .map_err(|e| RecordSessionError::Source(SourceError::Incompatible(e)))?;
-                Ok(head)
-            })
-        };
-        if matches!(
-            &result,
-            Err(RecordSessionError::Protocol | RecordSessionError::TooLarge)
-        ) {
-            c.wire.close();
-        }
+        let Client { identity, wire, .. } = &mut *c;
+        let result = read_head(wire, identity, self.supported, false);
         c.observe_close();
         result.map_err(source_error)
     }

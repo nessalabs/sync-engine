@@ -37,10 +37,12 @@ enum Opening {
     Hello,
     Open,
     Follow,
+    ScopePair,
 }
 pub(super) mod capabilities;
 pub(super) mod follow;
 mod history;
+pub(super) mod scope_pair;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
 /// progress recovery; the adapter performs neither automatically.
@@ -296,6 +298,16 @@ impl<S: Read + Write> Wire<S> {
         payload: Vec<u8>,
         max_reply: usize,
     ) -> Result<Vec<u8>, RecordSessionError> {
+        self.exchange_with_scope_isolation(kind, identity, payload, max_reply, false)
+    }
+    fn exchange_with_scope_isolation(
+        &mut self,
+        kind: u8,
+        identity: &ScopeIdentity,
+        payload: Vec<u8>,
+        max_reply: usize,
+        isolate_identity: bool,
+    ) -> Result<Vec<u8>, RecordSessionError> {
         if self.io.is_none() {
             return Err(RecordSessionError::Closed);
         }
@@ -382,6 +394,7 @@ impl<S: Read + Write> Wire<S> {
                 | SourceError::InvalidRequest
                 | SourceError::OversizedRecord,
             )) => {}
+            Err(RecordSessionError::Source(SourceError::IdentityChanged)) if isolate_identity => {}
             _ => self.close(),
         }
         result
@@ -495,7 +508,7 @@ impl<S: Read + Write> RecordSession<S> {
             record_bytes: MAX_RECORD_BYTES,
             next: None,
         };
-        let welcome = if !matches!(opening, Opening::Hello) {
+        let welcome = if !matches!(opening, Opening::Hello | Opening::ScopePair) {
             // The complete offer fits the mandatory minimum budget, before any
             // peer limit is selected. Retain the scope until Bound correlation.
             write_control(
@@ -517,6 +530,8 @@ impl<S: Read + Write> RecordSession<S> {
             )?;
             wire.flush()?;
             read_control(&mut wire, offered.control_bytes as usize)?
+        } else if matches!(opening, Opening::ScopePair) {
+            wire.control(&ControlFrame::ScopePairHello(offered))?
         } else {
             wire.control(&owner.hello().map_err(|_| RecordSessionError::Protocol)?)?
         };
@@ -529,13 +544,16 @@ impl<S: Read + Write> RecordSession<S> {
             ..
         } = welcome
         {
+            if matches!(opening, Opening::ScopePair) && limits.bindings != 2 {
+                return Err(RecordSessionError::Protocol);
+            }
             wire.limit = limits.control_bytes as usize;
             wire.record_bytes = record_bytes as usize;
         }
         let (request, frame) = owner
             .begin_bind(scope)
             .map_err(|_| RecordSessionError::Protocol)?;
-        let response = if !matches!(opening, Opening::Hello) {
+        let response = if !matches!(opening, Opening::Hello | Opening::ScopePair) {
             if request.correlation().request != FIRST_REQUEST {
                 return Err(RecordSessionError::Protocol);
             }
@@ -559,6 +577,11 @@ impl<S: Read + Write> RecordSession<S> {
         let identity = owner
             .accept_bound(&key, &response)
             .map_err(|_| RecordSessionError::Protocol)?;
+        if matches!(opening, Opening::ScopePair)
+            && (identity.handle() != 1 || identity.generation() != 1)
+        {
+            return Err(RecordSessionError::Protocol);
+        }
         wire.next = request.correlation().request.checked_add(1);
         Ok(Self {
             closing: Arc::new(AtomicBool::new(false)),
@@ -1063,12 +1086,14 @@ fn capability_operation(kind: u8) -> bool {
 struct CapabilityRoutes<R> {
     head: Option<capabilities::ViewHead<R>>,
     history: Option<history::ServerReads<R>>,
+    scope_pair: bool,
 }
 impl<R> CapabilityRoutes<R> {
     fn legacy() -> Self {
         Self {
             head: None,
             history: None,
+            scope_pair: false,
         }
     }
 }
@@ -1097,12 +1122,17 @@ where
     }
     let (offered, opening, following) =
         match read_control(stream, supported.control_bytes as usize)? {
-            ControlFrame::Hello(offered) => (offered, None, false),
+            ControlFrame::Hello(offered) if !routes.scope_pair => (offered, None, false),
+            ControlFrame::ScopePairHello(offered)
+                if routes.scope_pair && supported.bindings == 2 =>
+            {
+                (offered, None, false)
+            }
             ControlFrame::Open {
                 limits,
                 request,
                 scope,
-            } => (limits, Some((request, scope)), false),
+            } if !routes.scope_pair => (limits, Some((request, scope)), false),
             ControlFrame::FollowOpen {
                 limits,
                 request,
@@ -1112,7 +1142,7 @@ where
         };
     let selected = SessionLimits {
         control_bytes: offered.control_bytes.min(supported.control_bytes),
-        bindings: 1,
+        bindings: if routes.scope_pair { 2 } else { 1 },
     };
     let limit = selected.control_bytes as usize;
     write_control(
@@ -1133,100 +1163,68 @@ where
             _ => return Err(RecordSessionError::Protocol),
         }
     };
-    if correlation.session != session {
+    if correlation.session != session || (routes.scope_pair && correlation.request != FIRST_REQUEST)
+    {
         return Err(RecordSessionError::Protocol);
     }
-    let initial = access_code(policy.authorize(&scope), &scope);
-    let head = if initial == 0 {
-        open_source(&scope).and_then(|mut source| source.head(&scope))
-    } else {
-        Err(if initial == 7 {
-            SourceError::InvalidRequest
-        } else {
-            decode_source_error(initial)
-        })
-    };
-    let current = if initial == 0 {
-        access_code(policy.authorize(&scope), &scope)
-    } else {
-        initial
-    };
-    let head = if current == 0 {
-        head
-    } else {
-        Err(if current == 7 {
-            SourceError::InvalidRequest
-        } else {
-            decode_source_error(current)
-        })
-    };
-    match head {
-        Ok(head) => write_control(
-            stream,
-            &ControlFrame::Bound {
-                correlation,
-                binding: BindingMetadata {
-                    handle: 1,
-                    generation: 1,
-                    scope: scope.clone(),
-                    head,
-                },
-            },
-            limit,
-        )?,
-        Err(reason) => {
-            // The unchanged control dialect cannot carry capability details.
-            // Fail setup explicitly, without inventing zero requirements or
-            // turning an unsupported source preparation into a retryable EOF.
-            let reason = match reason {
-                SourceError::Incompatible(_) => SourceError::InvalidRequest,
-                other => other,
-            };
-            write_control(
-                stream,
-                &ControlFrame::Refused {
-                    correlation,
-                    reason,
-                },
-                limit,
-            )?;
-            stream.flush()?;
-            return Ok(());
-        }
+    if !scope_pair::write_binding(
+        stream,
+        correlation,
+        &scope,
+        1,
+        &mut open_source,
+        policy,
+        limit,
+    )? {
+        return Ok(());
     }
-    stream.flush()?;
     if following {
         hook.as_mut().ok_or(RecordSessionError::Protocol)?(correlation, scope.clone(), limit)?;
     }
-    let mut last = correlation.request;
+    let secondary = if routes.scope_pair {
+        scope_pair::bind_secondary(stream, correlation, &scope, policy, &mut open_source, limit)?
+    } else {
+        None
+    };
+    let mut last = if routes.scope_pair {
+        FIRST_REQUEST + 1
+    } else {
+        correlation.request
+    };
     while let Some(request) = read_packet_wait(stream, limit, following)? {
         if request.kind == HINT
             || request.kind & REPLY != 0
             || request.status != 0
             || request.meta.session != session
-            || request.meta.handle != 1
-            || request.meta.generation != 1
             || last.checked_add(1) != Some(request.meta.request)
             || request.offset != 0
             || request.total != request.payload.len()
         {
             return Err(RecordSessionError::Protocol);
         }
+        let scope = match (request.meta.handle, request.meta.generation) {
+            (1, 1) => &scope,
+            (2, 2) => secondary.as_ref().ok_or(RecordSessionError::Protocol)?,
+            _ => return Err(RecordSessionError::Protocol),
+        };
+        if routes.scope_pair && request.kind != capabilities::HEAD_CAP {
+            return Err(RecordSessionError::Protocol);
+        }
         last = request.meta.request;
-        let current = access_code(policy.authorize(&scope), &scope);
+        let current = access_code(policy.authorize(scope), scope);
         if capability_operation(request.kind) {
             let result = if current != 0 {
                 Err(RecordSessionError::Source(decode_source_error(current)))
             } else if history::operation(request.kind) {
                 history::server_response(
                     &request,
-                    &scope,
+                    scope,
                     policy,
                     &mut open_source,
                     routes.history.as_ref(),
                 )
             } else if let Some(head) = routes.head {
-                capabilities::server_response(&request, &scope, policy, &mut open_source, head)
+                capabilities::server_response(&request, scope, policy, &mut open_source, head)
             } else {
                 Err(RecordSessionError::Source(SourceError::InvalidRequest))
             };
@@ -1248,7 +1246,7 @@ where
                 ),
                 Err(_) => (7, Vec::new()),
             };
-            respond(stream, &request, status, &body, &scope, policy, limit)?;
+            respond(stream, &request, status, &body, scope, policy, limit)?;
             continue;
         }
         if routes.head.is_some() && matches!(request.kind, HEAD | PAGE | OPEN_PAGE) {
@@ -1257,7 +1255,7 @@ where
                 &request,
                 if current != 0 { current } else { 4 },
                 &[],
-                &scope,
+                scope,
                 policy,
                 limit,
             )?;
@@ -1269,14 +1267,14 @@ where
             match request.kind {
                 AUTHORIZE if request.payload.is_empty() => {
                     let mut body = Vec::new();
-                    put_scope(&mut body, &scope);
+                    put_scope(&mut body, scope);
                     Ok(body)
                 }
-                HEAD if request.payload.is_empty() => open_source(&scope)
-                    .and_then(|mut source| source.head(&scope))
+                HEAD if request.payload.is_empty() => open_source(scope)
+                    .and_then(|mut source| source.head(scope))
                     .map(|head| {
                         let mut body = Vec::new();
-                        put_scope(&mut body, &scope);
+                        put_scope(&mut body, scope);
                         body.extend_from_slice(&head.to_be_bytes());
                         body
                     })
@@ -1329,7 +1327,7 @@ where
                             if validate_page_request(&request, physical(MAX_RECORD_BYTES))
                                 .is_ok() =>
                         {
-                            open_source(&scope)
+                            open_source(scope)
                                 .and_then(|mut source| source.page(&request))
                                 .and_then(|page| encode_record_page(&request, page))
                                 .map_err(source_error_code)
@@ -1341,8 +1339,8 @@ where
             }
         };
         match result {
-            Ok(body) => respond(stream, &request, 0, &body, &scope, policy, limit)?,
-            Err(code) => respond(stream, &request, code, &[], &scope, policy, limit)?,
+            Ok(body) => respond(stream, &request, 0, &body, scope, policy, limit)?,
+            Err(code) => respond(stream, &request, code, &[], scope, policy, limit)?,
         }
     }
     Ok(())

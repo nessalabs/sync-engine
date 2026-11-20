@@ -75,6 +75,9 @@ pub enum ControlFrame {
     /// Offer supported limits. Host channel authentication is a prerequisite
     /// for acting on the offer, rather than a property of these bytes.
     Hello(SessionLimits),
+    /// Explicitly offer the two-scope, head-only serialized session mode.
+    /// The selected binding budget must be exactly two; never falls back.
+    ScopePairHello(SessionLimits),
     /// Opt-in combined hello and first binding offer on an authenticated channel.
     /// Peer support must be known by the host; no automatic fallback is implied.
     Open {
@@ -197,8 +200,15 @@ pub fn write_control(
     let mut body = Vec::from(MAGIC.as_slice());
     body.extend_from_slice(&VERSION.to_be_bytes());
     match frame {
-        ControlFrame::Hello(limits) => {
-            body.push(1);
+        ControlFrame::Hello(limits) | ControlFrame::ScopePairHello(limits) => {
+            if matches!(frame, ControlFrame::ScopePairHello(_)) {
+                if limits.bindings != 2 {
+                    return Err(ControlError::InvalidLimits);
+                }
+                body.push(8);
+            } else {
+                body.push(1);
+            }
             put_limits(&mut body, *limits)?;
         }
         ControlFrame::Open {
@@ -350,6 +360,7 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
     }
     let frame = match decoder.take::<1>()?[0] {
         1 => ControlFrame::Hello(decoder.limits()?),
+        8 => ControlFrame::ScopePairHello(decoder.limits()?),
         2 => ControlFrame::Welcome {
             session: u64::from_be_bytes(decoder.take()?),
             limits: decoder.limits()?,
@@ -431,3 +442,5 @@ pub use records::follow::{
 pub use records::capabilities::{
     serve_capability_record_session, CapabilityRecordSession, CapabilitySessionSource,
 };
+
+pub use records::scope_pair::{serve_scope_pair_heads, ScopePairHeadsSession};
