@@ -47,7 +47,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", CATALOGUE_SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1 | 2) {
+    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=3) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -82,7 +82,7 @@ pub(super) fn initialize(
         "schema_id",
         "head",
     ];
-    if version == 2 {
+    if version >= 2 {
         expected.extend(["metadata_version", "reader_required", "writer_required"]);
     }
     if columns != expected {
@@ -92,7 +92,30 @@ pub(super) fn initialize(
         tx.execute_batch("ALTER TABLE catalogue_source_meta ADD COLUMN metadata_version INTEGER NOT NULL DEFAULT 1;
             ALTER TABLE catalogue_source_meta ADD COLUMN reader_required BLOB NOT NULL DEFAULT X'0000000000000000' CHECK(typeof(reader_required)='blob' AND length(reader_required)=8);
             ALTER TABLE catalogue_source_meta ADD COLUMN writer_required BLOB NOT NULL DEFAULT X'0000000000000000' CHECK(typeof(writer_required)='blob' AND length(writer_required)=8);")?;
-        tx.pragma_update(None, "user_version", 2)?;
+        version = 2;
+    }
+    let columns: Vec<String> = {
+        let mut statement = tx.prepare("PRAGMA table_info(catalogue_source_entries)")?;
+        let rows = statement
+            .query_map([], |r| r.get(1))?
+            .collect::<Result<_, _>>()?;
+        rows
+    };
+    let mut expected = vec!["entry_id", "creation", "revision", "deleted", "payload"];
+    if version == 3 {
+        expected.push("manifest_visible");
+    }
+    if columns != expected {
+        return Err(SqliteOpenError::UnexpectedDatabase);
+    }
+    if version == 2 {
+        // Identity survives independently of the bounded serving index. All
+        // existing rows stay served: collection requires later horizon admission.
+        tx.execute_batch("ALTER TABLE catalogue_source_entries ADD COLUMN manifest_visible INTEGER NOT NULL DEFAULT 1
+            CHECK(manifest_visible IN (0,1) AND (manifest_visible = 1 OR deleted = 1));
+            DROP INDEX catalogue_source_page;
+            CREATE INDEX catalogue_source_page ON catalogue_source_entries(creation,entry_id) WHERE manifest_visible = 1;")?;
+        tx.pragma_update(None, "user_version", 3)?;
     }
     read(&tx)?; // A malformed/missing/future partial row must never become zero.
     tx.commit()?;

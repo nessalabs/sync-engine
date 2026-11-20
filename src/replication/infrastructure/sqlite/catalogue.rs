@@ -86,7 +86,7 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Recognized version1 files migrate atomically to version2 after identity
+    /// Recognized version1/2 files migrate atomically to version3 after identity
     /// validation. Hosts must stop old writers; open old binaries are not fenced.
     pub fn open(
         path: impl AsRef<Path>,
@@ -272,7 +272,7 @@ impl CatalogueReadSource for SqliteCatalogueSource {
         }
         let mut rows: Vec<(String, i64, i64, i64)> = {
             let mut statement = tx.prepare("SELECT entry_id, creation, revision, deleted FROM catalogue_source_entries
-                WHERE creation <= ?1 AND revision > ?2 AND (creation > ?3 OR (creation = ?3 AND entry_id > ?4))
+                WHERE manifest_visible = 1 AND creation <= ?1 AND revision > ?2 AND (creation > ?3 OR (creation = ?3 AND entry_id > ?4))
                 ORDER BY creation, entry_id LIMIT ?5").map_err(|_| CatalogueSourceError::Unavailable)?;
             let rows = statement
                 .query_map(
