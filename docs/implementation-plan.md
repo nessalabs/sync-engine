@@ -42,6 +42,11 @@ hosts must explicitly select capability-aware APIs and fence old writers during
 schema upgrades. The acceptance map records these boundaries and the independent
 production transport work still tracked by #54.
 
+[Record freshness #52](design/freshness.md) now has an opt-in per-scope owner with
+an injected clock, local-only Within reads, finite-pass coordination and one
+jittered backoff deadline. Hosts explicitly connect wake scheduling; existing
+transport loops and other resource families remain separate integration work.
+
 ## Outcome we are building toward
 
 An app opens its saved data immediately. One device can disconnect while another
@@ -248,7 +253,8 @@ scripts/           end-to-end verification runners
 Module maps explain arrow direction and ownership. Test modules follow the same
 feature/layer vocabulary. The default library dependency graph excludes product
 models, Nessa, provider SDKs, UI frameworks and optional databases/transports.
-The host owns clocks, credentials, policy, transport lifecycle and retry scheduling.
+The host supplies clocks, credentials, policy and transport lifecycle. The opt-in
+freshness owner supplies its single retry deadline; the host owns waking it.
 Use typed errors and immutable value objects. Do not introduce empty abstraction
 layers or a global service locator.
 

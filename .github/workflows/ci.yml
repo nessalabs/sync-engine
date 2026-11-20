@@ -133,6 +133,9 @@ jobs:
         run: |
           python3 scripts/verify-catalogue-capabilities.py
           python3 scripts/measure-catalogue-publication.py --client-dialect capabilities --native-repetitions 1
+      - name: Deterministic record freshness and native cache-read lab
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-freshness.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:
