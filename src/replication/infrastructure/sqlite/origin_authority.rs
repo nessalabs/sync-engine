@@ -112,7 +112,7 @@ impl SqliteOriginAuthority {
         read(&self.conn, key)
     }
 
-    // The only production caller performs one bounded local source-head read.
+    // The only production caller performs one bounded local head or forward page.
     // Acquire authority before source; never use this guard around transport,
     // or around a source operation that itself waits for authority.
     pub(super) fn with_current_claim<T>(

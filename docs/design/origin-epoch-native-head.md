@@ -31,8 +31,9 @@ head with the actual current authorized operation. `SourceHead` v1 itself
 is unchanged. The producer cannot be used as the bare `RecordHeadSource`
 trait and does not return its owned ordinary source handle.
 
-This mode qualifies only this producer's head results. It does not protect
-an ordinary source file or gate other handles, appends, pages, tail snapshots,
+This document qualifies the producer's head results. See the separate
+[forward page contract](origin-epoch-native-forward.md). Neither contract
+protects an ordinary source file or gates other handles, appends, tail snapshots,
 catalogue responses or transport. Independent ledgers, arbitrary mappings,
 remote filesystems, and authority restored with source data are not covered.
 The lab does not inject an uncertain commit or demonstrate physical crash

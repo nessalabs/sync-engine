@@ -1,8 +1,19 @@
-//! Claim-qualified local head capture. Source writer and wire are unchanged.
+//! Claim-qualified local head and forward-page capture. Source writer and wire are unchanged.
 
 use super::super::origin_authority::{OriginClaimError, SqliteOriginAuthority};
-use super::{RecordHeadSource, Scope, SourceError, SourceHead, SqliteReferenceSource};
+use super::{
+    RecordHeadSource, RecordSource, Scope, SourceError, SourceHead, SqliteReferenceSource,
+};
+use crate::replication::domain::{
+    validate_page, Checkpoint, CommitPlan, Limits, Page, PageRequest, ValidationError,
+};
 use crate::replication::origin_epoch::{OriginAuthorityKey, OriginEpoch};
+
+#[derive(Clone, Debug)]
+struct Stamp {
+    key: OriginAuthorityKey,
+    epoch: OriginEpoch,
+}
 
 /// A native head observed while its origin writer claim was current.
 ///
@@ -11,34 +22,86 @@ use crate::replication::origin_epoch::{OriginAuthorityKey, OriginEpoch};
 /// to the requested operation and current authorization before using it.
 #[derive(Debug)]
 pub struct ClaimedNativeHead {
-    key: OriginAuthorityKey,
-    epoch: OriginEpoch,
+    stamp: Stamp,
     head: SourceHead,
 }
 
 impl ClaimedNativeHead {
     /// Extract the exact captured head and its associated authority stamp.
     pub fn into_parts(self) -> (OriginAuthorityKey, OriginEpoch, SourceHead) {
-        (self.key, self.epoch, self.head)
+        (self.stamp.key, self.stamp.epoch, self.head)
     }
 }
 
-/// Refusal from one claim-qualified head capture.
+/// One native forward page captured under the source's confirmed writer claim.
+///
+/// The page and its stamp stay together until canonical request and checkpoint
+/// validation. This type does not authenticate requester access.
+pub struct ClaimedNativePage {
+    stamp: Stamp,
+    page: Page,
+}
+
+impl ClaimedNativePage {
+    /// Validate against the receiver's expected request, checkpoint and
+    /// policy limits. Preserve the original stamp and exact operation echo.
+    pub fn validate(
+        self,
+        checkpoint: &Checkpoint,
+        request: &PageRequest,
+        limits: Limits,
+    ) -> Result<ClaimedNativePlan, ValidationError> {
+        let plan = validate_page(checkpoint, request, self.page, limits)?;
+        Ok(ClaimedNativePlan {
+            stamp: self.stamp,
+            request: request.clone(),
+            plan,
+        })
+    }
+}
+
+/// A claim-qualified exact request and validated forward mutation plan.
+///
+/// A trusted host still checks that the operation was expected and the
+/// requesting scope is currently authorized before it admits this evidence.
+pub struct ClaimedNativePlan {
+    stamp: Stamp,
+    request: PageRequest,
+    plan: CommitPlan,
+}
+
+impl ClaimedNativePlan {
+    /// Borrow the exact correlated request for host admission.
+    pub fn request(&self) -> &PageRequest {
+        &self.request
+    }
+
+    /// Extract the immutable authority stamp, correlated request and plan for
+    /// admission by the trusted host.
+    pub fn into_parts(self) -> (OriginAuthorityKey, OriginEpoch, PageRequest, CommitPlan) {
+        (self.stamp.key, self.stamp.epoch, self.request, self.plan)
+    }
+}
+
+/// Refusal from a claim-qualified native source capture.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EpochHeadError {
+pub enum EpochSourceError {
     /// The claim is stale or the local authority could not be consulted.
     Authority(OriginClaimError),
-    /// The ordinary source declined the exact requested scope or head read.
+    /// The ordinary source declined the exact request or its local read.
     Source(SourceError),
 }
 
-/// Local claim-qualified native head producer over an ordinary reference source.
+/// Compatibility name for head capture refusals.
+pub type EpochHeadError = EpochSourceError;
+
+/// Local claim-qualified head and forward-page producer over an ordinary source.
 ///
 /// The caller gives this mode an existing source handle and trusted shared
 /// authority ledger. It does not expose the owned handle or implement legacy
 /// `RecordHeadSource`. This is a protected **result producer**, not a protected
-/// source file mode: other ordinary source handles, appends, pages and
-/// snapshots remain unchanged and produce no claim-qualified result.
+/// source file mode: ordinary handles, appends and snapshots remain unchanged
+/// and produce no claim-qualified result.
 ///
 /// A producer cannot be substituted for a legacy bare-head reader:
 /// ```compile_fail
@@ -49,18 +112,20 @@ pub enum EpochHeadError {
 ///     accept_bare(heads);
 /// }
 /// ```
-pub struct SqliteEpochHeadSource {
+pub struct SqliteEpochRecordSource {
     source: SqliteReferenceSource,
     authority: SqliteOriginAuthority,
-    key: OriginAuthorityKey,
-    epoch: OriginEpoch,
+    stamp: Stamp,
 }
 
-impl SqliteEpochHeadSource {
+/// Compatibility name for the original claim-qualified head producer.
+pub type SqliteEpochHeadSource = SqliteEpochRecordSource;
+
+impl SqliteEpochRecordSource {
     /// Compare and acquire one claim through the injected durable ledger.
     ///
     /// The trusted host selects the source-to-key association and shared
-    /// ledger. An uncertain commit returns no usable head producer; reading
+    /// ledger. An uncertain commit returns no usable producer; reading
     /// the new epoch does not prove that this handle acquired it.
     pub fn claim(
         source: SqliteReferenceSource,
@@ -72,14 +137,13 @@ impl SqliteEpochHeadSource {
         Ok(Self {
             source,
             authority,
-            key,
-            epoch,
+            stamp: Stamp { key, epoch },
         })
     }
 
     /// Return the handle's immutable claimed epoch, not its current authority.
     pub fn epoch(&self) -> OriginEpoch {
-        self.epoch
+        self.stamp.epoch
     }
 
     /// Capture one exact ordinary head under the current authority.
@@ -88,16 +152,37 @@ impl SqliteEpochHeadSource {
     /// with later claim changes. The lock is released before returning, so an
     /// already captured value can still be delayed beyond a later handoff.
     pub fn capture_head(&mut self, scope: &Scope) -> Result<ClaimedNativeHead, EpochHeadError> {
-        let source = &mut self.source;
-        let head = self
-            .authority
-            .with_current_claim(&self.key, self.epoch, || source.source_head(scope))
-            .map_err(EpochHeadError::Authority)?
-            .map_err(EpochHeadError::Source)?;
+        let head = self.capture(|source| source.source_head(scope))?;
         Ok(ClaimedNativeHead {
-            key: self.key.clone(),
-            epoch: self.epoch,
+            stamp: self.stamp.clone(),
             head,
         })
+    }
+
+    /// Capture one bounded native page under the current writer claim.
+    ///
+    /// The existing ordinary page operation checks fresh reader capabilities,
+    /// budget and payload in one source snapshot. The authority guard covers
+    /// that local operation; it is released before returning the opaque result.
+    pub fn capture_page(
+        &mut self,
+        request: &PageRequest,
+    ) -> Result<ClaimedNativePage, EpochSourceError> {
+        let page = self.capture(|source| source.page(request))?;
+        Ok(ClaimedNativePage {
+            stamp: self.stamp.clone(),
+            page,
+        })
+    }
+
+    fn capture<T>(
+        &mut self,
+        read: impl FnOnce(&mut SqliteReferenceSource) -> Result<T, SourceError>,
+    ) -> Result<T, EpochSourceError> {
+        let source = &mut self.source;
+        self.authority
+            .with_current_claim(&self.stamp.key, self.stamp.epoch, || read(source))
+            .map_err(EpochSourceError::Authority)?
+            .map_err(EpochSourceError::Source)
     }
 }
