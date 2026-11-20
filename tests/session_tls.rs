@@ -580,6 +580,9 @@ mod epochs {
         origin_epoch::{OriginAuthorityKey, OriginEpoch},
     };
 
+    #[path = "protected_process.rs"]
+    mod protected_process;
+
     fn key(name: &str) -> OriginAuthorityKey {
         OriginAuthorityKey::new(id(name))
     }
