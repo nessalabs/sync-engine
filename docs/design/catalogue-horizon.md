@@ -62,7 +62,9 @@ fixtures, even if their C happens to be high enough: their request contract cann
 prove v2 coverage. Existing loopback dialects map this to their established
 terminal invalid-request refusal and never downgrade or emit descriptors/payload.
 At horizon zero the existing wire layout and exchange counts stay unchanged.
-There is no successful v2 network operation in this slice.
+The opt-in [v2 development wire](catalogue-horizon-wire.md) now carries explicit
+head/manifest/value coverage and authorized reset using the same native owner.
+It does not supply #54 production secure catalogue transport.
 
 ## Reproduction and remaining work
 
@@ -81,7 +83,7 @@ Debug timings have no CI threshold. Wire measurement uses the existing developme
 plaintext loopback route, direct plus counted hop or with an additional opaque
 relay, with no session/secure transport/weak-link claim.
 
-Remaining #49 acceptance includes explicit versioned network coverage, typed expiry
-and mixed-version restart/delayed-result qualification. Native atomic collection
+The [explicit development wire qualification](catalogue-horizon-wire.md) covers
+typed expiry and mixed-version reset/restart/delayed-result contracts. Native atomic collection
 and its bounded finite model are described in [the collection contract](catalogue-collection.md).
 #48 pins, #51 encoding and #54 transport remain separate. Issue #49 remains open.

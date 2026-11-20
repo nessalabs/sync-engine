@@ -15,7 +15,7 @@ pub const CATALOGUE_HEAD_CAP: u8 = 17;
 pub const CATALOGUE_MANIFEST_CAP: u8 = 18;
 /// Version1 current-value read with coherent publication metadata.
 pub const CATALOGUE_VALUE_CAP: u8 = 19;
-fn u16_value(d: &mut Decoder<'_>) -> Result<u16, FrameError> {
+pub(super) fn u16_value(d: &mut Decoder<'_>) -> Result<u16, FrameError> {
     Ok(u16::from_be_bytes(
         d.take(2)?.try_into().map_err(|_| FrameError::Malformed)?,
     ))
@@ -25,7 +25,7 @@ fn prefix(out: &mut Vec<u8>, reader: u64) {
     out.extend_from_slice(&reader.to_be_bytes());
 }
 #[cfg(any(feature = "sqlite", test))]
-fn metadata(out: &mut Vec<u8>, head: &SourceHead) {
+pub(super) fn metadata(out: &mut Vec<u8>, head: &SourceHead) {
     out.extend_from_slice(&head.version().to_be_bytes());
     for n in [
         head.position(),
@@ -35,11 +35,11 @@ fn metadata(out: &mut Vec<u8>, head: &SourceHead) {
         out.extend_from_slice(&n.to_be_bytes());
     }
 }
-type MetadataNumbers = (u16, u64, u64, u64);
-fn read_metadata(d: &mut Decoder<'_>) -> Result<MetadataNumbers, FrameError> {
+pub(super) type MetadataNumbers = (u16, u64, u64, u64);
+pub(super) fn read_metadata(d: &mut Decoder<'_>) -> Result<MetadataNumbers, FrameError> {
     Ok((u16_value(d)?, d.u64()?, d.u64()?, d.u64()?))
 }
-fn publication(
+pub(super) fn publication(
     numbers: MetadataNumbers,
     scope: &Scope,
     support: CapabilitySupport,
@@ -52,10 +52,10 @@ fn publication(
     }
     Ok(head)
 }
-fn invalid(_: FrameError) -> CatalogueSourceError {
+pub(super) fn invalid(_: FrameError) -> CatalogueSourceError {
     CatalogueSourceError::InvalidRequest
 }
-fn transport(error: FrameError) -> CatalogueSourceError {
+pub(super) fn transport(error: FrameError) -> CatalogueSourceError {
     match error {
         FrameError::Io(_) => CatalogueSourceError::Unavailable,
         _ => CatalogueSourceError::InvalidRequest,
