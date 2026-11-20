@@ -64,6 +64,20 @@ sets the stop fence before releasing that writer, so a queued RPC frame cannot
 follow it. This is a send admission check, not global atomic revocation versus a
 previously delivered DTO or local commit.
 
+The serialized client's actual codec send admits one complete bounded frame,
+finishes physical short writes and flushes once before the next frame can be
+admitted. An error after a prefix or after a full but unflushed frame preserves
+the actual accepted byte count, not a delivery or rollback receipt. It fences
+the session and surfaces the original failure. The server latches the same
+terminal condition under its existing shared writer lock before relinquishing
+it; a waiting hint cannot follow a failed data frame and a waiting data frame
+cannot follow a failed hint. Once a data frame flushed, a later producer's
+failure does not change that write outcome, although further I/O is fenced.
+On success, the existing writer may switch producers only at a complete
+flushed frame. A client cannot start another request while its local cursor
+still holds unread reply bytes. No queue, new reader, control slot, or
+priority rule is added.
+
 ## Bounded ownership and lifecycle
 
 The original serialized record owner still admits one RPC and retains all exact
