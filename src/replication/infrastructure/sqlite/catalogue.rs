@@ -9,12 +9,12 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use crate::replication::catalogue::{
     catalogue_progress_after_begin, catalogue_progress_after_page, catalogue_progress_after_reset,
     validate_catalogue_pass, validate_catalogue_progress, validate_catalogue_revision_transition,
-    validate_manifest_request, CataloguePagePlan, CataloguePass, CatalogueProgress,
-    CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError,
+    validate_manifest_request, CatalogueHeadSource, CataloguePagePlan, CataloguePass,
+    CatalogueProgress, CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError,
     CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
     ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
 };
-use crate::replication::domain::{Id, Scope};
+use crate::replication::domain::{Id, Scope, SourceHead};
 
 use super::{
     configure_connection, ensure_schema, open_connection, SqliteOpenError,
@@ -715,5 +715,12 @@ fn revision_error(error: CatalogueValidationError) -> CatalogueStoreError {
     match error {
         CatalogueValidationError::DeletionFence => CatalogueStoreError::Fenced,
         _ => CatalogueStoreError::Conflict,
+    }
+}
+
+impl CatalogueHeadSource for SqliteCatalogueSource {
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, CatalogueSourceError> {
+        CatalogueSource::head(self, scope)
+            .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
     }
 }

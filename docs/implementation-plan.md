@@ -33,6 +33,13 @@ compares push with explicit polling and verifies lost-hint fallback, coalescing
 and reopened-cache correctness. This one-scope slice does not close the remaining
 secure-channel, route, multiplexing or outage qualification gaps.
 
+[SourceHead #47 initial admission](design/source-head.md) now supplies versioned
+passive reader/writer requirements and opt-in native record/catalogue starts.
+Unknown reader features stop before payload admission; writer-only requirements
+do not block read-only starts. This does not yet provide mid-pass fencing, durable
+requirement publication or capability-bearing transport metadata. Both #47 and #54
+remain open, and existing network/combined-page paths remain explicitly legacy.
+
 ## Outcome we are building toward
 
 An app opens its saved data immediately. One device can disconnect while another

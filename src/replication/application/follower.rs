@@ -4,8 +4,9 @@
 //! by current authorization; every page is validated before atomic store apply.
 
 use crate::replication::domain::{
-    validate_open_page, validate_open_page_request, validate_page, Checkpoint, CommitPlan, Limits,
-    OpenPageRequest, OpenedPage, Page, PageRequest, Scope, ValidationError,
+    validate_capabilities, validate_open_page, validate_open_page_request, validate_page,
+    CapabilityError, CapabilitySupport, Checkpoint, CommitPlan, Limits, OpenPageRequest,
+    OpenedPage, Page, PageRequest, Scope, SourceHead, ValidationError,
 };
 
 /// Current host policy decision for this exact receiver and stream.
@@ -57,6 +58,28 @@ pub trait RecordSource {
     fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError>;
 }
 
+/// Explicit metadata port for initial capability admission. There is no blanket
+/// conversion from a legacy bare head, and no transport support is implied.
+/// Returned metadata must describe this exact authorized scope. Subsequent
+/// reads still require their own compatibility contract; a Pass is no proof.
+///
+/// A bare-head implementation cannot silently acquire this contract:
+/// ```compile_fail
+/// use nessa_sync::replication::application::{RecordSource, RecordHeadSource, SourceError};
+/// use nessa_sync::replication::domain::{Scope, Page, PageRequest};
+/// struct Legacy;
+/// impl RecordSource for Legacy {
+///     fn head(&mut self, _: &Scope) -> Result<u64, SourceError> { Ok(0) }
+///     fn page(&mut self, _: &PageRequest) -> Result<Page, SourceError> { Err(SourceError::Unavailable) }
+/// }
+/// fn requires_metadata(_: impl RecordHeadSource) {}
+/// requires_metadata(Legacy);
+/// ```
+pub trait RecordHeadSource: RecordSource {
+    /// Read current committed head and requirements, before any payload request.
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError>;
+}
+
 /// Optional first-page port. The authoritative adapter captures one committed
 /// head and reads only through it, checking current policy before each underlying
 /// read and emitted batch. Responses are untrusted until canonical validation.
@@ -100,6 +123,8 @@ pub trait ReplicaStore {
 /// Use-case failure with the owner of the refusal preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SyncError {
+    /// Source metadata version or required reader features are incompatible.
+    Incompatible(CapabilityError),
     /// Authorization returned an unsupported or malformed reply.
     InvalidAccessResponse,
     /// Policy denied delivery.
@@ -151,6 +176,37 @@ pub fn begin_pass<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
     source: &mut S,
     store: &mut R,
 ) -> Result<Pass, SyncError> {
+    begin_from_head(scope, authorizer, store, || {
+        source.head(scope).map_err(SyncError::Source)
+    })
+}
+
+/// Initial admission through an explicitly versioned metadata port. Refuse
+/// unsupported reader requirements before page fetch or apply; ignore writer
+/// requirements. This is not mid-pass compatibility fencing. Keep fresh explicit
+/// post-pass rechecks, and do not use legacy/combined-page starts as a downgrade.
+pub fn begin_pass_with_capabilities<A: ScopeAuthorizer, S: RecordHeadSource, R: ReplicaStore>(
+    scope: &Scope,
+    supported: CapabilitySupport,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut R,
+) -> Result<Pass, SyncError> {
+    begin_from_head(scope, authorizer, store, || {
+        let head = source.source_head(scope).map_err(SyncError::Source)?;
+        if head.scope() != scope {
+            return Err(SyncError::Validation(ValidationError::WrongRequest));
+        }
+        validate_capabilities(&head, supported).map_err(SyncError::Incompatible)?;
+        Ok(head.position())
+    })
+}
+fn begin_from_head<A: ScopeAuthorizer, R: ReplicaStore>(
+    scope: &Scope,
+    authorizer: &mut A,
+    store: &mut R,
+    read_head: impl FnOnce() -> Result<u64, SyncError>,
+) -> Result<Pass, SyncError> {
     check_access(scope, authorizer)?;
     let checkpoint = store.load(scope).map_err(SyncError::Store)?;
     let position = match checkpoint {
@@ -163,7 +219,7 @@ pub fn begin_pass<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
             }))
         }
     };
-    let target = source.head(scope).map_err(SyncError::Source)?;
+    let target = read_head()?;
     if target < position {
         return Err(SyncError::SourceBehindCheckpoint);
     }
