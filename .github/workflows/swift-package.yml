@@ -5,15 +5,19 @@ on:
     paths:
       - 'Package.swift'
       - 'clients/swift/**'
-      - 'src/replication/domain/source_head.rs'
-      - 'src/replication/infrastructure/session/records/capabilities.rs'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'examples/session_records.rs'
+      - 'src/**'
       - '.github/workflows/swift-package.yml'
   pull_request:
     paths:
       - 'Package.swift'
       - 'clients/swift/**'
-      - 'src/replication/domain/source_head.rs'
-      - 'src/replication/infrastructure/session/records/capabilities.rs'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'examples/session_records.rs'
+      - 'src/**'
       - '.github/workflows/swift-package.yml'
   workflow_dispatch:
 
@@ -35,3 +39,5 @@ jobs:
           persist-credentials: false
       - run: swift --version
       - run: swift test
+      - name: Headless Swift to Rust Sync Engine over TCP
+        run: python3 clients/swift/e2e/run-head.py
