@@ -112,6 +112,29 @@ impl SqliteOriginAuthority {
         read(&self.conn, key)
     }
 
+    // The only production caller performs one bounded local source-head read.
+    // Acquire authority before source; never use this guard around transport,
+    // or around a source operation that itself waits for authority.
+    pub(super) fn with_current_claim<T>(
+        &mut self,
+        key: &OriginAuthorityKey,
+        claimed: OriginEpoch,
+        capture: impl FnOnce() -> T,
+    ) -> Result<T, OriginClaimError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| OriginClaimError::Unavailable)?;
+        let actual = read(&tx, key)?;
+        if actual != Some(claimed) {
+            return Err(OriginClaimError::Stale { actual });
+        }
+        let result = capture();
+        // This guard never mutates the ledger; fail closed if release fails.
+        tx.rollback().map_err(|_| OriginClaimError::Unavailable)?;
+        Ok(result)
+    }
+
     /// Compare the exact expected epoch (or unclaimed state) and commit one
     /// successor under SQLite's writer lock. Use only for a host-authorized
     /// claim; the compare-and-set is not authentication.
@@ -162,3 +185,7 @@ fn read(
     })
     .transpose()
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/replication/infrastructure/origin_claim_guard.rs"]
+mod claim_guard_tests;
