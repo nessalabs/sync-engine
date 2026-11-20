@@ -41,6 +41,8 @@ enum Opening {
     ScopePairBatch,
 }
 pub(super) mod capabilities;
+#[cfg(all(feature = "tls", feature = "sqlite"))]
+pub(super) mod epoch;
 pub(super) mod follow;
 mod history;
 pub(super) mod scope_pair;
