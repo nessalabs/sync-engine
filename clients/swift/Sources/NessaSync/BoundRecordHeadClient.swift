@@ -22,16 +22,40 @@ public enum RecordHeadReadError: Error, Equatable, Sendable {
     case invalidBinding
     case unavailableChannel
     case malformedReply
+    case invalidPageRequest
     case source(RecordHeadRefusal)
     case incompatible(RecordCapabilityError)
+}
+
+/// Logical identity of a Rust record scope, independent of the socket session,
+/// request number, handle and generation.
+public struct RecordScopeIdentity: Hashable, Sendable {
+    /// Exact length-prefixed UTF-8 fields in receiver, origin, stream,
+    /// incarnation, schema, access-epoch order. Suitable for equality and
+    /// persistence as an opaque key; do not normalize or reorder the bytes.
+    public let canonicalBytes: [UInt8]
+
+    init(validatingFields fields: [String]) throws(RecordHeadReadError) {
+        guard fields.count == 6 else { throw .invalidBinding }
+        var encoded: [UInt8] = []
+        for field in fields {
+            let utf8 = field.utf8
+            guard utf8.count <= 128, !field.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }) else {
+                throw .invalidBinding
+            }
+            encoded.append(UInt8(utf8.count))
+            encoded.append(contentsOf: utf8)
+        }
+        canonicalBytes = encoded
+    }
 }
 
 /// Owns request numbering on one serialized, already-bound NSR1 v1 channel.
 /// The host must verify the explicit peer dialect, authentication, Open/Bound
 /// exchange and exact scope before transferring exclusive channel ownership.
-/// Head is source metadata, never an authorization grant or local checkpoint.
+/// Head and page receipts are never authorization grants or local checkpoints.
 /// This owner does not dispatch hints, perform retries, or restore a session.
-public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
+public final class BoundRecordClient<Channel: RecordHeadChannel> {
     private static var headerBytes: Int { 44 }
     private static var preamble: [UInt8] { [78, 83, 82, 49, 0, 1] } // NSR1 v1
 
@@ -41,33 +65,27 @@ public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
     private let handle: UInt32
     private let generation: UInt64
     private let limit: Int
-    private let scope: [UInt8]
+    public let boundScope: RecordScopeIdentity
+    var scope: [UInt8] { boundScope.canonicalBytes }
+    let recordByteLimit: Int?
 
     public init(
         channel: Channel, session: UInt64, handle: UInt32, generation: UInt64,
-        lastRequest: UInt64, frameBodyLimit: Int, scopeFields: [String]
+        lastRequest: UInt64, frameBodyLimit: Int, scopeFields: [String], recordByteLimit: Int? = nil
     ) throws(RecordHeadReadError) {
         guard session != 0, handle != 0, generation != 0, lastRequest != 0,
             lastRequest != UInt64.max, (2_048...8_192).contains(frameBodyLimit),
-            scopeFields.count == 6
+            recordByteLimit.map({ (1...524_288).contains($0) }) ?? true
         else { throw .invalidBinding }
 
-        var encoded: [UInt8] = []
-        for field in scopeFields {
-            let utf8 = field.utf8
-            guard utf8.count <= 128, !field.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }) else {
-                throw .invalidBinding
-            }
-            encoded.append(UInt8(utf8.count))
-            encoded.append(contentsOf: utf8)
-        }
-        self.scope = encoded
+        self.boundScope = try RecordScopeIdentity(validatingFields: scopeFields)
         self.channel = channel
         self.session = session
         self.handle = handle
         self.generation = generation
         self.limit = frameBodyLimit
         self.request = lastRequest + 1
+        self.recordByteLimit = recordByteLimit
     }
 
     deinit { channel?.close() }
@@ -79,10 +97,25 @@ public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
         owned?.close()
     }
 
-    /// Read one v1 capability head. Healthy, correlated source refusals may be
-    /// followed by another explicit operation; malformed/I/O/identity failures
-    /// retire this owner and never trigger a fallback.
+    /// Read current v1 capability metadata without changing durable progress.
     public func readHead() throws(RecordHeadReadError) -> RecordSourceMetadata {
+        let reply = try exchange(kind: 5, payload: RecordCapabilityV1.requestPrefix,
+            maximumReply: scope.count + RecordCapabilityV1.metadataByteCount)
+        guard reply.count == scope.count + RecordCapabilityV1.metadataByteCount,
+            reply.prefix(scope.count).elementsEqual(scope)
+        else { close(); throw .malformedReply }
+        return try admitMetadata(reply.dropFirst(scope.count))
+    }
+
+    func admitMetadata(_ payload: ArraySlice<UInt8>) throws(RecordHeadReadError) -> RecordSourceMetadata {
+        do { return try RecordCapabilityV1.admitMetadata(payload) }
+        catch {
+            if error == .malformedPayload { close(); throw .malformedReply }
+            throw .incompatible(error)
+        }
+    }
+
+    func exchange(kind: UInt8, payload: [UInt8], maximumReply: Int) throws(RecordHeadReadError) -> [UInt8] {
         guard var owned = channel else { throw .unavailableChannel }
         channel = nil
         var retain = false
@@ -97,63 +130,64 @@ public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
         echo.append(contentsOf: bytes(handle))
         echo.append(contentsOf: bytes(generation))
 
-        let prefix = RecordCapabilityV1.requestPrefix
         var body: [UInt8] = Self.preamble
-        body.append(contentsOf: [5, 0])
+        body.append(contentsOf: [kind, 0])
         body.append(contentsOf: echo)
-        body.append(contentsOf: bytes(UInt32(prefix.count)))
+        body.append(contentsOf: bytes(UInt32(payload.count)))
         body.append(contentsOf: bytes(UInt32(0)))
-        body.append(contentsOf: prefix)
-        let lengthBytes: [UInt8]
-        do {
-            try owned.writeAll(bytes(UInt32(body.count)) + body)
-            lengthBytes = try owned.readExactly(4)
-        } catch { throw .unavailableChannel }
-        guard lengthBytes.count == 4 else { throw .unavailableChannel }
-        let length = Int(wireWord(lengthBytes[...]))
-        // A Head cannot fragment: six length-prefixed IDs plus metadata fit the
-        // minimum negotiated frame. Never read a body larger than that bound.
-        let maximum = Self.headerBytes + scope.count + RecordCapabilityV1.metadataByteCount
-        guard (Self.headerBytes...min(limit, maximum)).contains(length) else { throw .malformedReply }
-        let reply: [UInt8]
-        do { reply = try owned.readExactly(length) } catch { throw .unavailableChannel }
-        guard reply.count == length else { throw .unavailableChannel }
-        guard reply[0..<6].elementsEqual(Self.preamble), reply[6] == 0x85,
-            reply[8..<36].elementsEqual(echo), wireWord(reply[40..<44]) == 0,
-            wireWord(reply[36..<40]) == UInt64(length - Self.headerBytes)
-        else { throw .malformedReply }
+        body.append(contentsOf: payload)
+        do { try owned.writeAll(bytes(UInt32(body.count)) + body) }
+        catch { throw .unavailableChannel }
 
-        let payload = reply[Self.headerBytes...]
-        switch reply[7] {
-        case 0:
-            guard payload.count == scope.count + RecordCapabilityV1.metadataByteCount,
-                payload.prefix(scope.count).elementsEqual(scope)
+        var complete: [UInt8] = []
+        var expectedTotal: Int?
+        while true {
+            let length = Int(wireWord(try read(&owned, 4)[...]))
+            let ceiling = Self.headerBytes + max(maximumReply, 9)
+            guard (Self.headerBytes...min(limit, ceiling)).contains(length) else { throw .malformedReply }
+            let reply = try read(&owned, length)
+            guard reply[0..<6].elementsEqual(Self.preamble), reply[6] == (kind | 0x80),
+                reply[8..<36].elementsEqual(echo)
             else { throw .malformedReply }
-            do {
-                let metadata = try RecordCapabilityV1.admitMetadata(payload.dropFirst(scope.count))
+
+            let total = Int(wireWord(reply[36..<40]))
+            let offset = Int(wireWord(reply[40..<44]))
+            let fragment = reply[Self.headerBytes...]
+            switch reply[7] {
+            case 0:
+                guard total > 0, total <= maximumReply, (expectedTotal ?? total) == total,
+                    offset == complete.count, !fragment.isEmpty, fragment.count <= total - offset
+                else { throw .malformedReply }
+                if expectedTotal == nil { complete.reserveCapacity(total); expectedTotal = total }
+                complete.append(contentsOf: fragment)
+                if complete.count == total { retain = true; return complete }
+                guard length == limit else { throw .malformedReply }
+            case 8:
+                guard complete.isEmpty, offset == 0, total == fragment.count else { throw .malformedReply }
+                let refusal: RecordCapabilityError
+                do { refusal = try RecordCapabilityV1.decodeRefusal(fragment) }
+                catch { throw .malformedReply }
                 retain = true
-                return metadata
-            } catch {
-                retain = error != .malformedPayload
-                if !retain { throw .malformedReply }
-                throw .incompatible(error)
+                throw .incompatible(refusal)
+            default:
+                guard total == 0, offset == 0, fragment.isEmpty,
+                    let refusal = RecordHeadRefusal(rawValue: reply[7])
+                else { throw .malformedReply }
+                retain = refusal != .identityChanged
+                throw .source(refusal)
             }
-        case 8:
-            let refusal: RecordCapabilityError
-            do { refusal = try RecordCapabilityV1.decodeRefusal(payload) }
-            catch { throw .malformedReply }
-            retain = true
-            throw .incompatible(refusal)
-        default:
-            guard payload.isEmpty, let refusal = RecordHeadRefusal(rawValue: reply[7]) else {
-                throw .malformedReply
-            }
-            retain = refusal != .identityChanged
-            throw .source(refusal)
         }
     }
 
-    private func bytes<T: FixedWidthInteger>(_ value: T) -> [UInt8] {
+    private func read(_ channel: inout Channel, _ count: Int) throws(RecordHeadReadError) -> [UInt8] {
+        do {
+            let value = try channel.readExactly(count)
+            guard value.count == count else { throw RecordHeadReadError.unavailableChannel }
+            return value
+        } catch { throw .unavailableChannel }
+    }
+
+    func bytes<T: FixedWidthInteger>(_ value: T) -> [UInt8] {
         withUnsafeBytes(of: value.bigEndian) { Array($0) }
     }
 
@@ -161,3 +195,6 @@ public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
         bytes.reduce(0) { ($0 << 8) | UInt64($1) }
     }
 }
+
+/// Compatible spelling for the original head-only package user.
+public typealias BoundRecordHeadClient<Channel: RecordHeadChannel> = BoundRecordClient<Channel>

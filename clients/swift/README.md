@@ -5,7 +5,7 @@ Build and test from the Sync Engine repository root with Swift 6:
 ```sh
 swift test
 python3 clients/swift/e2e/run-head.py
-# Optional bounded stress run, up to 300 distinct TCP connections:
+# Optional bounded stress run, up to 700 distinct TCP connections:
 python3 clients/swift/e2e/run-head.py --repetitions 100
 ```
 
@@ -13,21 +13,25 @@ The library is independent of the Nessa application, SwiftUI, app storage,
 network APIs and external dependencies. A downstream SwiftPM consumer can
 pin a reviewed Git revision through the repository's root manifest.
 
-## Implemented: already-bound v1 record Head
+## Implemented: already-bound v1 record Head and fixed-target Page
 
-`BoundRecordHeadClient` drives one serialized kind-5 Head on the existing
+`BoundRecordClient` drives serialized kind-5 Head and kind-7 fixed-target Page on the existing
 experimental [NSR1 record endpoint](../../docs/design/session-records.md).
 Its caller selects the explicit endpoint and owns authentication, Open/Bound
 validation, absolute I/O deadlines and exclusive channel transfer. The client
 does not retry or probe alternate endpoints. A successful Head is advisory
-metadata, not a grant, a checkpoint or a durable synchronization operation.
+metadata. A complete Page is a validated receipt, not a grant or committed
+checkpoint. The receipt carries its byte-exact logical scope, excluding
+transient channel numbers. The caller must atomically compare the receipt's
+scope and previous cursor in its store, and reject IDs from earlier pages. The client rejects duplicate IDs
+within its page; it does not own persisted records.
 No deployed Nessa gateway, Nessa iOS or phone participates in these tests.
 
 The headless E2E uses the existing Rust `session_records` binary in its
 loopback-only capability mode with a temporary SQLite source. Python owns
 fixture-only authentication, Open/Bound and the process watchdog. It passes the
-connected TCP socket to a Swift fixture executable without proxying Head bytes;
-Swift writes and validates both operations itself. The library target contains
+connected TCP socket to a Swift fixture executable without proxying record bytes;
+Swift writes and validates each operation itself. The library target contains
 neither the fixture token nor fixture networking.
 
 | Contract | Current automated evidence |
@@ -37,19 +41,21 @@ neither the fixture token nor fixture networking.
 | Frame limits, truncation, shape and terminal ownership | Swift checks all truncated prefix lengths and rejects an oversized length before a body read. Head must fit one bounded frame; paged fragmentation is not part of Head. |
 | Source/refusal and codec errors | Swift checks each canonical status and its explicit continuation or retirement. Live Rust/SQLite cases verify normal data, unknown writer-only bits and an incompatible required reader bit; the latter never downgrades. |
 | Repeated real reads | Default 15 independent connections and 30 operations, with two Heads per connection; opt-in up to 300 / 600. Timings include harness and process work and carry no CI threshold. |
+| Fixed-target Page | Exact request echo (scope, durable cursor, target and budgets), head coverage, nonempty dense records, byte-exact IDs, per-record and page budgets, and no trailing bytes. Complete fragmented Rust pages are decoded; truncated or refused pages return no receipt. |
+| Reopen and retry (fixture only) | A Swift process atomically replaces its single fixture JSON checkpoint after records 1–2, a second closes TCP after the first real fragment, and a typed oversized refusal preserves the file. A fresh process resumes at 2 and exactly reopens records 1–7. Default 5 episodes / 20 Page operations; opt-in 100 / 400. No concurrent or power-loss durability claim. |
 | Host setup | The fixture authenticates and correlates Open/Bound externally using established test-only Rust endpoints; these steps are not Swift API coverage. |
 
 ## Remaining client acceptance
 
-No unchecked row is covered by the Head fixture. Each future slice should
+No unchecked row is covered by the Head/Page fixture. Each future slice should
 have a supported pinned contract, deterministic stress tests and direct
 interoperability against the Rust endpoint it uses.
 
 | Future contract | Required E2E and stress evidence |
 | --- | --- |
 | Swift Open/Bound and transport lifecycle | Version/capability negotiation; exact binding and ownership; timeout, refusal, dropped link, old-session results and explicit replacement; bounded requests. |
-| Open-page, record pages and apply | New/empty/bounded ranges, contiguous fragmented framing, exact echoed limits, partial reply discarded; ordered data and checkpoint committed atomically, and fresh authorized head after apply. |
-| Resume, reopen, gaps, reset | Verified durable checkpoint after interruption and restart; no duplicate or missing records; typed gap/pruned/identity change, exact reset scope and no stale application. |
+| Open-page and production apply | New/empty/bounded open targets, actual store compares and commits ordered records and checkpoint atomically, and a fresh authorized Head after apply. |
+| Product resume, gaps, reset | Reopen a production store after uncertain commit; no duplicate or missing records; typed gap/pruned/identity change, exact reset scope and no stale application. |
 | Tail/history and catalogue | Bounded tail/history ordering, lazy history, catalogue manifest pagination and horizon-aware recovery across disconnects, including previously applied/cached ranges. |
 | Artifact reads | Bounded chunks, hash and size verification, partial transfer/reopen, typed unavailability or version change without partial publication. |
 | Priority, cancellation, live hints | Urgent request while bulk work is active; queue and in-flight bounds; cancellation before commit vs. completion; hints never advance committed state. |

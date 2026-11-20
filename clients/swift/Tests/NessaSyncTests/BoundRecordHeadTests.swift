@@ -134,3 +134,135 @@ struct BoundRecordHeadTests {
         #expect(try endpoint.readHead().position == 7)
     }
 }
+
+// One canonical page body in the existing Rust layout. Live parity is checked
+// separately by the TCP fixture; these pure tests exercise receiver boundaries.
+private let pageRequest = RecordPageRequest(after: 20, target: 23, maxRecords: 3,
+    maxPayloadBytes: 5000, maxRecordBytes: 4096)
+private let pageScopeBytes = fixtureScope.flatMap { [UInt8($0.utf8.count)] + Array($0.utf8) }
+
+private func pageBody(
+    ids: [String], payload: [UInt8], target: UInt64 = 23, scope: [UInt8] = pageScopeBytes
+) -> [UInt8] {
+    var data = be(UInt16(1))
+    data.append(contentsOf: be(UInt64(23)))
+    data.append(contentsOf: be(UInt64(0)))
+    data.append(contentsOf: be(UInt64(0)))
+    data.append(0)
+    data.append(contentsOf: scope)
+    for field in [UInt64(20), target, 3, 5000, 4096] { data.append(contentsOf: be(field)) }
+    data.append(UInt8(ids.count))
+    for (idx, id) in ids.enumerated() {
+        data.append(contentsOf: be(UInt64(21 + idx)))
+        data.append(UInt8(id.utf8.count))
+        data.append(contentsOf: id.utf8)
+        data.append(contentsOf: scope)
+        let record = idx == 0 ? payload : []
+        data.append(contentsOf: be(UInt32(record.count)))
+        data.append(contentsOf: record)
+    }
+    return data
+}
+
+private func pageFrame(_ payload: ArraySlice<UInt8>, total: Int, offset: Int, status: UInt8 = 0) -> [UInt8] {
+    var body: [UInt8] = [78, 83, 82, 49, 0, 1, 0x87, status]
+    body.append(contentsOf: be(UInt64(1)))
+    body.append(contentsOf: be(UInt64(2)))
+    body.append(contentsOf: be(UInt32(1)))
+    body.append(contentsOf: be(UInt64(1)))
+    body.append(contentsOf: be(UInt32(total)))
+    body.append(contentsOf: be(UInt32(offset)))
+    body.append(contentsOf: payload)
+    return be(UInt32(body.count)) + body
+}
+
+private func pageFrames(_ bytes: [UInt8]) -> [UInt8] {
+    var result: [UInt8] = []
+    for start in stride(from: 0, to: bytes.count, by: 2004) {
+        result.append(contentsOf: pageFrame(bytes[start..<min(start + 2004, bytes.count)],
+            total: bytes.count, offset: start))
+    }
+    return result
+}
+
+private func pageClient(
+    _ channel: FixtureChannel, fields: [String] = fixtureScope
+) throws -> BoundRecordClient<FixtureChannel> {
+    try .init(channel: channel, session: 1, handle: 1, generation: 1, lastRequest: 1,
+        frameBodyLimit: 2048, scopeFields: fields, recordByteLimit: 524_288)
+}
+
+struct BoundRecordPageTests {
+    @Test func sameCursorCannotConfuseDistinctLogicalScopes() throws {
+        let a = FixtureChannel()
+        let b = FixtureChannel()
+        let left = try pageClient(a, fields: Array(fixtureScope.dropLast()) + ["e\u{301}"])
+        let right = try pageClient(b, fields: Array(fixtureScope.dropLast()) + ["é"])
+        let leftBytes = left.boundScope.canonicalBytes
+        let rightBytes = right.boundScope.canonicalBytes
+        a.input = pageFrames(pageBody(ids: ["id"], payload: [], scope: leftBytes))
+        b.input = pageFrames(pageBody(ids: ["id"], payload: [], scope: rightBytes))
+        let receiptA = try left.readPage(pageRequest)
+        let receiptB = try right.readPage(pageRequest)
+        let sameLeftScope = try pageClient(FixtureChannel(), fields: Array(fixtureScope.dropLast()) + ["e\u{301}"])
+        let owningScope = sameLeftScope.boundScope
+        let checkpoint = pageRequest.after
+        #expect(receiptA.request == receiptB.request)
+        #expect(receiptA.nextPosition == receiptB.nextPosition)
+        #expect(receiptA.scope == owningScope && receiptA.request.after == checkpoint)
+        #expect(!(receiptB.scope == owningScope && receiptB.request.after == checkpoint))
+    }
+
+    @Test func reconstructsFragmentedPageAndRetainsExactIDs() throws {
+        let channel = FixtureChannel()
+        let bulk = [UInt8](repeating: 112, count: 4096)
+        channel.input = pageFrames(pageBody(ids: ["e\u{301}", "é"], payload: bulk))
+        let endpoint = try pageClient(channel)
+        let receipt = try endpoint.readPage(pageRequest)
+        #expect(receipt.request == pageRequest)
+        #expect(receipt.nextPosition == 22)
+        #expect(receipt.records.map(\.position) == [21, 22])
+        #expect(receipt.records[0].payload == bulk)
+        #expect(receipt.records[1].payload.isEmpty)
+        #expect(receipt.records[0].idBytes != receipt.records[1].idBytes)
+        #expect(channel.reads.filter { $0 == 2048 }.count == 2)
+        #expect(channel.output.first?[10] == 7)
+    }
+
+    @Test func duplicatesRangesAndBudgetsCannotBecomeReceipts() throws {
+        let bad = [
+            pageBody(ids: ["same", "same"], payload: []),
+            pageBody(ids: ["valid"], payload: [], target: 22),
+            pageBody(ids: ["valid"], payload: [UInt8](repeating: 0, count: 4097)),
+            pageBody(ids: [], payload: []),
+            pageBody(ids: ["valid"], payload: []) + [0],
+        ]
+        for body in bad {
+            let channel = FixtureChannel()
+            channel.input = pageFrames(body)
+            let endpoint = try pageClient(channel)
+            #expect(throws: RecordHeadReadError.malformedReply) { try endpoint.readPage(pageRequest) }
+            #expect(channel.closed == 1)
+        }
+        let channel = FixtureChannel()
+        let endpoint = try pageClient(channel)
+        let invalid = RecordPageRequest(after: 23, target: 23, maxRecords: 1,
+            maxPayloadBytes: 1024, maxRecordBytes: 1024)
+        #expect(throws: RecordHeadReadError.invalidPageRequest) { try endpoint.readPage(invalid) }
+        #expect(channel.output.isEmpty)
+    }
+
+    @Test func partialPageInterruptionAndRefusalYieldNoReceipt() throws {
+        let body = pageBody(ids: ["bulk"], payload: [UInt8](repeating: 0, count: 4096))
+        let first = pageFrame(body.prefix(2004), total: body.count, offset: 0)
+        let channel = FixtureChannel()
+        channel.input = first
+        let endpoint = try pageClient(channel)
+        #expect(throws: RecordHeadReadError.unavailableChannel) { try endpoint.readPage(pageRequest) }
+        #expect(channel.closed == 1)
+        let refused = FixtureChannel()
+        refused.input = first + pageFrame([][...], total: 0, offset: 0, status: 1)
+        let later = try pageClient(refused)
+        #expect(throws: RecordHeadReadError.source(.denied)) { try later.readPage(pageRequest) }
+    }
+}
