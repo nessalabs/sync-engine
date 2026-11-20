@@ -25,6 +25,8 @@ pub enum CataloguePublicationError {
         /// Current committed source revision.
         head: u64,
     },
+    /// This source requires the explicit retention-policy collector.
+    RetentionPolicyRequired,
     /// Local mutation failed, conflicted, or has an uncertain commit outcome.
     Store(CatalogueStoreError),
 }
@@ -64,7 +66,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", CATALOGUE_SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=4) {
+    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=5) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -102,8 +104,11 @@ pub(super) fn initialize(
     if version >= 2 {
         expected.extend(["metadata_version", "reader_required", "writer_required"]);
     }
-    if version == 4 {
+    if version >= 4 {
         expected.push("horizon");
+    }
+    if version >= 5 {
+        expected.push("retention_now_ms");
     }
     if columns != expected {
         return Err(SqliteOpenError::UnexpectedDatabase);
@@ -139,8 +144,13 @@ pub(super) fn initialize(
     }
     if version == 3 {
         tx.execute_batch("ALTER TABLE catalogue_source_meta ADD COLUMN horizon INTEGER NOT NULL DEFAULT 0 CHECK(horizon>=0 AND horizon<=head);")?;
-        tx.pragma_update(None, "user_version", 4)?;
+        version = 4;
     }
+    if version == 4 {
+        retention::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 5)?;
+    }
+    retention::verify(&tx)?;
     read(&tx)?; // A malformed/missing/future partial row must never become zero.
     tx.commit()?;
     Ok(())
@@ -252,7 +262,7 @@ impl SqliteCatalogueSource {
 }
 
 /// Source-internal seam: caller owns this source identity and an Immediate write
-/// transaction. Future catalogue pin validation/selection must run in this same
+/// transaction. Catalogue pin validation/selection must run in this same
 /// transaction before this helper; it must not precompute eligibility outside it.
 /// This helper does not commit or open another transaction. Publish its candidate
 /// receipt only after the caller's commit succeeds.
@@ -295,7 +305,8 @@ pub(super) fn collect_in_transaction(
 impl SqliteCatalogueSource {
     /// Explicitly activate/advance native deletion coverage and collect eligible
     /// serving markers atomically under the existing source writer. The caller
-    /// owns source policy; no retention-pin policy or receiver grant is inferred.
+    /// owns source policy; after any pin registration, use
+    /// [`Self::collect_with_retention`] even if all pins have expired.
     /// Immutable source identity, complete v2 publication and writer support are
     /// checked before any effect, including an equal-horizon no-op. Bounds are
     /// previous<=requested<=head; only retired revision<requested is hidden.
@@ -314,6 +325,11 @@ impl SqliteCatalogueSource {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| CataloguePublicationError::Store(CatalogueStoreError::Failed))?;
+        if retention::has_registration(&tx)
+            .map_err(|_| CataloguePublicationError::Store(CatalogueStoreError::Failed))?
+        {
+            return Err(CataloguePublicationError::RetentionPolicyRequired);
+        }
         let receipt = collect_in_transaction(&tx, expected, requested)?;
         tx.commit()
             .map_err(|_| CataloguePublicationError::Store(CatalogueStoreError::Uncertain))?;

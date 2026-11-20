@@ -399,7 +399,10 @@ fn observation_failure_rolls_back_and_source_migration_keeps_populated_identity(
     drop(s);
     let raw = rusqlite::Connection::open(f.0.join("source")).unwrap();
     raw.execute_batch(
-        "ALTER TABLE catalogue_source_meta DROP COLUMN horizon; PRAGMA user_version=3;",
+        "DROP TABLE catalogue_retention_pins;
+         ALTER TABLE catalogue_source_meta DROP COLUMN retention_now_ms;
+         ALTER TABLE catalogue_source_meta DROP COLUMN horizon;
+         PRAGMA user_version=3;",
     )
     .unwrap();
     let mut s = f.source();

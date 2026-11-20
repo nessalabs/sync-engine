@@ -29,8 +29,10 @@ use super::{
 mod horizon;
 mod publication;
 mod recovery;
+mod retention;
 mod source_connection;
 pub use publication::{CatalogueCollection, CataloguePublicationError};
+pub use retention::{CataloguePinReceipt, CatalogueRetentionError};
 
 const SOURCE_SCHEMA: &str = "
 CREATE TABLE catalogue_source_meta (
@@ -93,8 +95,8 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Recognized version1/2 files migrate atomically to version3 after identity
-    /// validation. Hosts must stop old writers; open old binaries are not fenced.
+    /// Recognized files migrate atomically to v5 after identity validation.
+    /// Hosts must stop old writers; already-open old binaries are not fenced.
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
