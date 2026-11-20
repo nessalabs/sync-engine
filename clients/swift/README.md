@@ -144,6 +144,22 @@ prepending, without advancing the live checkpoint.
 The test installs a single-owner JSON fixture, not a product cache. Protected-epoch
 history, TLS Follow, production resume, and history storage remain separate.
 
+## Source-captured first page (OpenPage)
+
+`BoundRecordClient.readOpenPage` requests the current compatible source
+target and a bounded first page in one explicit [kind-6 operation](../../docs/design/source-head-wire.md).
+The reply's admitted metadata and exact echo must agree on the captured target.
+A nonempty page remains a scoped caller-owned receipt; its last verified record
+is separate from the target. Already-current and source-behind are distinct
+outcomes with no records to apply. A behind source never authorizes a rewind.
+There is no implicit kind-7 retry or production storage.
+
+| OpenPage contract | Current automated evidence |
+| --- | --- |
+| Exact bounded reply | Swift tests reject wrong local scope or budgets before writing, wrong kind/echo/scope, empty before target, nonempty at/below target, trailing bytes, and interrupted or typed-refused fragments. |
+| Real peer | Existing Rust SQLite capability endpoint captures target 7 with first two records (9 payload bytes). A fixed-target Page and then a fresh Head on the same connection complete the pass (7 exact rows/4,126 bytes). Already-current, source-behind, oversized refusal and mid-fragment interruption leave fixture bytes unchanged. |
+| Repeated fixed workload | `--open-page-episodes 32` repeats all five cases. Counts are records and payload bytes, not network bytes or production latency. |
+
 ## Remaining client acceptance
 
 No unchecked row is covered by the Head/Page fixture. Each future slice should
@@ -153,7 +169,7 @@ interoperability against the Rust endpoint it uses.
 | Future contract | Required E2E and stress evidence |
 | --- | --- |
 | Production transport lifecycle | Authenticate the actual gateway and relay; test timeouts, old-session results, explicit replacement and reconnect under real outages. |
-| Open-page and production apply | New/empty/bounded open targets, actual store compares and commits ordered records and checkpoint atomically, and a fresh authorized Head after apply. |
+| Production apply | Actual store compares and commits ordered records and checkpoint atomically, and a fresh authorized Head after apply. |
 | Product resume, gaps, reset | Reopen a production store after uncertain commit; no duplicate or missing records; typed gap/pruned/identity change, exact reset scope and no stale application. |
 | Tail/history and catalogue | Bounded tail/history ordering, lazy history, catalogue manifest pagination and horizon-aware recovery across disconnects, including previously applied/cached ranges. |
 | Artifact reads | Bounded chunks, hash and size verification, partial transfer/reopen, typed unavailability or version change without partial publication. |

@@ -122,6 +122,48 @@ def run_pages(rust, swift, repetitions):
                 require([base64.b64decode(r["payload"]) for r in rows] == payloads, "record bytes")
 
 
+def run_open_pages(rust, swift, episodes):
+    with tempfile.TemporaryDirectory(prefix="swift-open-page-e2e-") as temp:
+        root = Path(temp)
+        state = root / "records.json"
+        with server_fixture(rust, root, 0, 0) as port:
+            for _ in range(episodes):
+                state.write_bytes(b'{"rows":[]}')
+                before = state.read_bytes()
+                interrupted = run_swift(swift, port, "open-page-interrupt", state)
+                require(interrupted == ["open-page-interrupted"], interrupted)
+                require(state.read_bytes() == before, "partial OpenPage changed storage")
+
+                complete = run_swift(swift, port, "open-page-complete", state)
+                require(complete == ["open-page:2:7:7"], complete)
+                finished = state.read_bytes()
+                saved = json.loads(finished)
+                require(base64.b64decode(saved["scope"]) == SCOPE_BYTES, "OpenPage exact installed scope")
+                rows = saved["rows"]
+                require([row["position"] for row in rows] == list(range(1, 8)), "OpenPage exact positions")
+                ids = [f"fact-{i}" for i in range(1, 7)] + ["bulk-fact"]
+                require([row["id"] for row in rows] == ids, "OpenPage exact IDs")
+                payloads = [b"alpha", b"beta", b"gamma", b"delta", b"epsilon", b"zeta", b"p" * 4096]
+                require([base64.b64decode(row["payload"]) for row in rows] == payloads, "OpenPage exact bytes")
+                current = run_swift(swift, port, "open-page-current", state)
+                require(current == ["open-page-current"], current)
+                require(state.read_bytes() == finished, "already-current OpenPage changed storage")
+
+                saved["rows"].append({"position": 8, "id": "caller-saved", "payload": ""})
+                state.write_text(json.dumps(saved))
+                ahead = state.read_bytes()
+                behind = run_swift(swift, port, "open-page-behind", state)
+                require(behind == ["open-page-behind:7:8"], behind)
+                require(state.read_bytes() == ahead, "behind-source OpenPage rewound storage")
+
+                saved["rows"] = saved["rows"][:6]
+                state.write_text(json.dumps(saved))
+                before = state.read_bytes()
+                refusal = run_swift(swift, port, "open-page-refuse", state)
+                require(refusal == ["open-page-oversized"], refusal)
+                require(state.read_bytes() == before, "refused OpenPage changed storage")
+
+
 def expect_marker(child, marker, deadline):
     observed = bytearray()
     fd = child.stderr.fileno()
@@ -336,6 +378,7 @@ def main():
     parser.add_argument("--rust-history-bin", type=Path)
     parser.add_argument("--tail-episodes", type=int, default=1, choices=range(1, 33), metavar="1..32")
     parser.add_argument("--swift-bin", type=Path)
+    parser.add_argument("--open-page-episodes", type=int, default=1, choices=range(1, 33), metavar="1..32")
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.rust_bin is None:
@@ -354,6 +397,7 @@ def main():
     run(rust, swift, 0, (1 << 64) - 1, args.repetitions, f"head:7:{(1 << 64) - 1}")
     run(rust, swift, 1, 0, args.repetitions, "missing-reader:1")
     run_pages(rust, swift, args.repetitions)
+    run_open_pages(rust, swift, args.open_page_episodes)
     run_overlap(rust, swift, args.overlap_clients)
     run_follow(args.rust_follow_bin.resolve(), swift)
     run_history(args.rust_history_bin.resolve(), swift, args.tail_episodes)
@@ -384,6 +428,15 @@ def main():
         "older_interruptions": args.tail_episodes,
         "older_exact_records": 4 * args.tail_episodes,
         "older_exact_payload_bytes": 6000 * args.tail_episodes,
+        "open_page_complete": args.open_page_episodes,
+        "open_page_current": args.open_page_episodes,
+        "open_page_behind": args.open_page_episodes,
+        "open_page_interrupted": args.open_page_episodes,
+        "open_page_refused": args.open_page_episodes,
+        "open_page_exact_first_records": 2 * args.open_page_episodes,
+        "open_page_exact_first_payload_bytes": 9 * args.open_page_episodes,
+        "open_page_exact_pass_records": 7 * args.open_page_episodes,
+        "open_page_exact_pass_payload_bytes": 4126 * args.open_page_episodes,
         "elapsed_seconds": round(time.monotonic() - start, 3),
     }))
 
