@@ -65,6 +65,24 @@ fn main() {
             }
             println!("{{\"seeded\":{count}}}");
         }
+        "churn-fixture" if args.len() == 7 => {
+            let count: usize = args[5].parse().unwrap();
+            let stride: usize = args[6].parse().unwrap();
+            assert!(matches!(count, 500 | 5_000 | 50_000) && matches!(stride, 5 | 100));
+            let mut source = source(source_path, &selected);
+            let mut applied = 0;
+            for number in (0..count).step_by(stride) {
+                let key = id(&format!("entry-{number:04}"));
+                if number / 100 % 4 == 0 {
+                    source.delete(&key).unwrap();
+                } else {
+                    let value = format!("session-{number:04}:newer");
+                    source.upsert(&key, value.as_bytes()).unwrap();
+                }
+                applied += 1;
+            }
+            println!("{{\"mutations\":{applied}}}");
+        }
         "upsert" => {
             let mut source = source(source_path, &selected);
             let revision = source.upsert(&id(&args[5]), args[6].as_bytes()).unwrap();
