@@ -521,7 +521,7 @@ fn populated_receiver_migration_preserves_cache_progress_and_refuses_partial_for
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     drop(d);
     db.execute_batch("DROP TABLE catalogue_candidates").unwrap();
@@ -806,12 +806,16 @@ fn policy_change_after_a_value_stops_the_next_read_in_each_phase() {
 }
 #[test]
 fn missing_or_partial_cache_table_is_refused_without_migration_side_effects() {
-    for version in [1, 2] {
+    for version in [1, 2, 3] {
         for partial in [false, true] {
             let f = Dir::new();
             let p = f.p("cache");
             drop(SqliteCatalogueStore::open(&p).unwrap());
             let db = Connection::open(&p).unwrap();
+            if version < 3 {
+                db.execute_batch("DROP TABLE catalogue_horizons; PRAGMA user_version=2;")
+                    .unwrap();
+            }
             if version == 1 {
                 db.execute_batch("DROP TABLE catalogue_candidates; ALTER TABLE catalogue_progress DROP COLUMN reset_phase; ALTER TABLE catalogue_progress DROP COLUMN reset_boundary; PRAGMA user_version=1;").unwrap();
             }

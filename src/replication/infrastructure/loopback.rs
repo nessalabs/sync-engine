@@ -423,7 +423,10 @@ fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
         CatalogueSourceError::Denied => 1,
         CatalogueSourceError::Unavailable => 2,
         CatalogueSourceError::IdentityChanged => 3,
-        CatalogueSourceError::InvalidRequest => 4,
+        CatalogueSourceError::InvalidRequest
+        | CatalogueSourceError::HorizonRequired
+        | CatalogueSourceError::HorizonVersion(_)
+        | CatalogueSourceError::HorizonExpired { .. } => 4,
         CatalogueSourceError::OversizedEntry => 5,
     }
 }

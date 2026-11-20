@@ -25,15 +25,20 @@ pub(super) fn initialize(conn: &mut Connection) -> Result<(), SqliteOpenError> {
         tx.execute_batch(STORE_SCHEMA)?;
         tx.pragma_update(None, "application_id", CATALOGUE_REPLICA_APPLICATION_ID)?;
         version = 1;
-    } else if app != CATALOGUE_REPLICA_APPLICATION_ID || !matches!(version, 1 | 2) {
+    } else if app != CATALOGUE_REPLICA_APPLICATION_ID || !matches!(version, 1..=3) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     if version == 1 {
         tx.execute_batch("ALTER TABLE catalogue_progress ADD COLUMN reset_phase INTEGER NOT NULL DEFAULT 0 CHECK(reset_phase BETWEEN 0 AND 3);
 ALTER TABLE catalogue_progress ADD COLUMN reset_boundary INTEGER CHECK(reset_boundary>=0);")?;
         tx.execute_batch(CANDIDATES)?;
-        tx.pragma_update(None, "user_version", 2)?;
+        version = 2;
     }
+    if version == 2 {
+        tx.execute_batch(super::horizon::OBSERVATIONS)?;
+        tx.pragma_update(None, "user_version", 3)?;
+    }
+    super::horizon::validate_layout(&tx)?;
     let cols: Vec<String> = {
         let mut q = tx.prepare("PRAGMA table_info(catalogue_progress)")?;
         let v = q.query_map([], |r| r.get(1))?.collect::<Result<_, _>>()?;

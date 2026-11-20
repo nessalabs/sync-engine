@@ -289,3 +289,7 @@ The workflow checks all seven slice labs and their tests. Add OS jobs
 when a real filesystem/process adapter needs platform coverage. A later Nessa
 integration pins a reviewed version and runs its own adapter compatibility tests;
 core commits must not automatically advance that dependency.
+
+The native [catalogue horizon prerequisite](design/catalogue-horizon.md) adds explicit
+v2 coverage admission and durable exact-scope observations. Positive publication
+and marker collection remain disabled pending compatible reset/transport composition.
