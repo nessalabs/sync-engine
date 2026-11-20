@@ -521,6 +521,53 @@ mod tests {
         .1
     }
     #[test]
+    fn swift_v1_capability_vectors_match_the_record_codec() {
+        let file = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/clients/swift/Tests/NessaSyncTests/Fixtures/capability-v1.tsv"
+        ));
+        let vector = |name: &str| -> Vec<u8> {
+            let hex = file
+                .lines()
+                .filter_map(|line| line.split_once('\t'))
+                .find_map(|(key, value)| (key == name).then_some(value))
+                .unwrap();
+            assert_eq!(hex.len() % 2, 0);
+            (0..hex.len())
+                .step_by(2)
+                .map(|n| u8::from_str_radix(&hex[n..n + 2], 16).unwrap())
+                .collect()
+        };
+        assert_eq!(vector("request"), prefix(CapabilitySupport::current()));
+        for (name, version, position, readers, writers) in [
+            ("empty-head", 1, 0, 0, 0),
+            ("writer-only", 1, 0xfedc_ba98_7654_3210, 0, u64::MAX),
+            ("reader-required", 1, 2, 0x8000_0000_0000_0001, 0),
+            ("next-version", 2, 0, 0, 0),
+        ] {
+            let actual = vector(name);
+            let expected = SourceHead::advertised(scope(), version, position, readers, writers);
+            let mut encoded = Vec::new();
+            put_metadata(&mut encoded, &expected);
+            assert_eq!(actual, encoded, "{name}");
+            let mut decoder = Decoder::new(&actual);
+            assert_eq!(metadata(&mut decoder, scope()).unwrap(), expected);
+            decoder.finish().unwrap();
+        }
+        for (name, error) in [
+            ("version-refusal", CapabilityError::UnsupportedVersion(2)),
+            (
+                "reader-refusal",
+                CapabilityError::MissingReader(0x8000_0000_0000_0001),
+            ),
+        ] {
+            let actual = vector(name);
+            assert_eq!(actual, encode_incompatible(error).unwrap());
+            assert_eq!(decode_incompatible(&actual).unwrap(), error);
+        }
+    }
+
+    #[test]
     fn metadata_is_checked_before_decoding_opaque_records() {
         let mut wire = body(1, 0);
         *wire.last_mut().unwrap() = 1; // Declares a record without a record body.

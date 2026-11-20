@@ -1,0 +1,37 @@
+name: Swift package
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Package.swift'
+      - 'clients/swift/**'
+      - 'src/replication/domain/source_head.rs'
+      - 'src/replication/infrastructure/session/records/capabilities.rs'
+      - '.github/workflows/swift-package.yml'
+  pull_request:
+    paths:
+      - 'Package.swift'
+      - 'clients/swift/**'
+      - 'src/replication/domain/source_head.rs'
+      - 'src/replication/infrastructure/session/records/capabilities.rs'
+      - '.github/workflows/swift-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-test:
+    name: SwiftPM tests
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: swift --version
+      - run: swift test
