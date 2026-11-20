@@ -183,19 +183,26 @@ fn validate_records(
     Ok(())
 }
 
-/// Checks one exact bounded suffix before a store may install it.
-pub fn validate_tail(
+pub(crate) fn validate_tail_request(
     request: &TailRequest,
-    snapshot: TailSnapshot,
     limits: Limits,
-) -> Result<TailPlan, HistoryValidationError> {
+) -> Result<(), HistoryValidationError> {
     request_bounds(
         request.generation,
         request.max_records,
         request.max_payload_bytes,
         request.max_record_bytes,
         limits,
-    )?;
+    )
+}
+
+/// Checks one exact bounded suffix before a store may install it.
+pub fn validate_tail(
+    request: &TailRequest,
+    snapshot: TailSnapshot,
+    limits: Limits,
+) -> Result<TailPlan, HistoryValidationError> {
+    validate_tail_request(request, limits)?;
     if snapshot.request != *request {
         return Err(HistoryValidationError::WrongRequest);
     }

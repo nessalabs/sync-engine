@@ -10,8 +10,10 @@ A host provisions a new SQLite file with an independently trusted
 separates it from normal replica files: the ordinary replica opener refuses
 this file, the protected opener refuses legacy files, and neither migration
 nor a protected-to-legacy conversion is supplied. Reopening requires the exact
-binding. No wrapper exposes the inner store, unqualified apply, reset, tail or
-older-history mutation. Legacy stores elsewhere remain unprotected.
+binding. No wrapper exposes the inner store, unqualified apply, general reset,
+deletion or older-history mutation. A separate [qualified tail operation](origin-epoch-native-tail.md) is available only when
+the injected host supplies exact tail admission. Legacy stores elsewhere remain
+unprotected.
 
 Composition installs one `NativeEpochAdmission` implementation. Its inputs
 must be actual host-defined operation evidence, not bare epoch numbers or a

@@ -103,3 +103,18 @@ pub trait NativeEpochAdmission {
     fn admit_plan(&mut self, evidence: Self::PlanEvidence)
         -> Option<AdmittedEpochRead<CommitPlan>>;
 }
+
+/// Optional trusted admission for bounded native tail installation.
+///
+/// The protected store retains the same host port; adding this operation does
+/// not change existing head/forward admission or expose generic history apply.
+pub trait NativeEpochTailAdmission: NativeEpochAdmission {
+    /// Host-defined evidence for one exact validated snapshot operation.
+    type TailEvidence;
+
+    /// Verify the exact tail result and its current scope/binding.
+    fn admit_tail(
+        &mut self,
+        evidence: Self::TailEvidence,
+    ) -> Option<AdmittedEpochRead<crate::replication::history::TailPlan>>;
+}
