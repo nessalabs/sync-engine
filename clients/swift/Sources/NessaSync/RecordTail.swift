@@ -40,18 +40,10 @@ extension RecordFollowClient {
 
 extension BoundRecordClient {
     func readTail(_ tail: RecordTailRequest) throws(RecordHeadReadError) -> RecordTailReceipt {
-        guard let recordByteLimit, tail.scope == boundScope, tail.historyGeneration != 0,
-            (1...64).contains(tail.maxRecords), (1...524_288).contains(tail.maxPayloadBytes),
-            (1...recordByteLimit).contains(tail.maxRecordBytes)
+        guard let fields = historyRequestFields(scope: tail.scope, generation: tail.historyGeneration,
+            records: tail.maxRecords, payloadBytes: tail.maxPayloadBytes, recordBytes: tail.maxRecordBytes)
         else { throw .invalidTailRequest }
-
-        var fields = bytes(tail.historyGeneration)
-        fields.append(contentsOf: bytes(UInt64(tail.maxRecords)))
-        fields.append(contentsOf: bytes(UInt64(tail.maxPayloadBytes)))
-        fields.append(contentsOf: bytes(UInt64(tail.maxRecordBytes)))
-        let envelope = 75 + scope.count
-        let records = tail.maxRecords * (141 + scope.count)
-        let maximumReply = min(1_048_576, envelope + records + tail.maxPayloadBytes)
+        let maximumReply = historyReplyLimit(records: tail.maxRecords, payloadBytes: tail.maxPayloadBytes)
         let reply = try exchange(kind: 8, payload: RecordCapabilityV1.requestPrefix + fields,
             maximumReply: maximumReply)
         do throws(RecordHeadReadError) {
@@ -66,10 +58,7 @@ extension BoundRecordClient {
         throws(RecordHeadReadError) -> RecordTailReceipt
     {
         var cursor = RecordReplyCursor(reply[...])
-        guard try cursor.take(scope.count).elementsEqual(scope),
-            try cursor.take(fields.count).elementsEqual(fields)
-        else { throw .malformedReply }
-        let metadata = try admitMetadata(cursor.take(RecordCapabilityV1.metadataByteCount))
+        let metadata = try historyMetadata(&cursor, fields: fields)
         let first = try cursor.integer(8)
         let oldest = try cursor.integer(8)
         let count = Int(try cursor.integer(1))
@@ -83,18 +72,54 @@ extension BoundRecordClient {
             else { throw .malformedReply }
         }
 
+        let records = try historyRows(&cursor, first: first, count: count,
+            payloadBytes: request.maxPayloadBytes, recordBytes: request.maxRecordBytes)
+        return RecordTailReceipt(request: request, metadata: metadata, firstPosition: first,
+            oldestAvailable: oldest, records: records)
+    }
+
+    func historyRequestFields(scope: RecordScopeIdentity, generation: UInt64, records: Int,
+        payloadBytes: Int, recordBytes: Int) -> [UInt8]?
+    {
+        guard let recordByteLimit, scope == boundScope, generation != 0,
+            (1...64).contains(records), (1...524_288).contains(payloadBytes),
+            (1...recordByteLimit).contains(recordBytes)
+        else { return nil }
+        var fields = bytes(generation)
+        fields.append(contentsOf: bytes(UInt64(records)))
+        fields.append(contentsOf: bytes(UInt64(payloadBytes)))
+        fields.append(contentsOf: bytes(UInt64(recordBytes)))
+        return fields
+    }
+
+    func historyReplyLimit(records: Int, payloadBytes: Int) -> Int {
+        // Older echoes eight extra request bytes instead of Tail's first position.
+        min(1_048_576, 75 + scope.count + records * (141 + scope.count) + payloadBytes)
+    }
+
+    func historyMetadata(_ cursor: inout RecordReplyCursor, fields: [UInt8])
+        throws(RecordHeadReadError) -> RecordSourceMetadata
+    {
+        guard try cursor.take(scope.count).elementsEqual(scope),
+            try cursor.take(fields.count).elementsEqual(fields)
+        else { throw .malformedReply }
+        return try admitMetadata(cursor.take(RecordCapabilityV1.metadataByteCount))
+    }
+
+    func historyRows(_ cursor: inout RecordReplyCursor, first: UInt64, count: Int,
+        payloadBytes: Int, recordBytes: Int) throws(RecordHeadReadError) -> [SyncRecord]
+    {
         var result: [SyncRecord] = []
         var ids = Set<[UInt8]>()
-        var remaining = request.maxPayloadBytes
+        var remaining = payloadBytes
         for i in 0..<count {
-            let record = try cursor.record(scope: scope, maxBytes: min(remaining, request.maxRecordBytes))
+            let record = try cursor.record(scope: scope, maxBytes: min(remaining, recordBytes))
             guard record.position == first + UInt64(i), ids.insert(record.idBytes).inserted
             else { throw .malformedReply }
             remaining -= record.payload.count
             result.append(record)
         }
         guard cursor.remaining.isEmpty else { throw .malformedReply }
-        return RecordTailReceipt(request: request, metadata: metadata, firstPosition: first,
-            oldestAvailable: oldest, records: result)
+        return result
     }
 }

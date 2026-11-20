@@ -52,6 +52,10 @@ private func read() throws {
             path: URL(fileURLWithPath: arguments[8]))
         return
     }
+    if ["tail-older", "older-interrupt", "older-restart"].contains(mode), arguments.count == 9 {
+        try olderFixture(scope, mode: mode, path: URL(fileURLWithPath: arguments[8]))
+        return
+    }
     guard arguments.count <= 9 else { throw RecordSessionOpenError.invalidOffer }
     if mode == "deny-open" {
         try verifyDeniedOpen(scope: scope)
@@ -164,6 +168,14 @@ private func tailFixture(_ scope: [String], interrupted: Bool, path: URL) throws
         try verifyInterruptedTail(client, request: request)
         return
     }
+    _ = try installFixtureTail(client, request: request, path: path)
+    var report = Report()
+    print("tail:4:3:1:3000", to: &report)
+}
+
+private func installFixtureTail(_ client: RecordFollowClient<FixtureStdio>, request: RecordTailRequest,
+    path: URL) throws -> StoredTailState
+{
     let tail = try client.readTail(request)
     guard tail.request == request, tail.metadata.position == 4, tail.firstPosition == 3,
         tail.oldestAvailable == 1, tail.records.count == 2
@@ -183,8 +195,71 @@ private func tailFixture(_ scope: [String], interrupted: Bool, path: URL) throws
         historyGeneration: request.historyGeneration, watermark: tail.metadata.position,
         first: tail.firstPosition, floor: tail.oldestAvailable, rows: exact)
     try JSONEncoder().encode(state).write(to: path, options: .atomic)
+    return state
+}
+
+private func olderFixture(_ scope: [String], mode: String, path: URL) throws {
+    let client = try RecordFollowClient.open(
+        channel: FixtureStdio(failAfterFirstFrame: mode == "older-interrupt"), scopeFields: scope)
+    defer { client.close() }
+
+    if mode == "tail-older" {
+        let tail = RecordTailRequest(scope: client.boundScope, historyGeneration: 1, maxRecords: 2,
+            maxPayloadBytes: 4000, maxRecordBytes: 1500)
+        _ = try installFixtureTail(client, request: tail, path: path)
+    }
+    let checkpoint = try Data(contentsOf: path)
+    let saved = try JSONDecoder().decode(StoredTailState.self, from: checkpoint)
+    guard saved.scope == Data(client.boundScope.canonicalBytes), saved.historyGeneration == 1,
+        saved.watermark == 4, saved.first == 3, saved.floor == 1, saved.rows.count == 2
+    else { throw RecordHeadReadError.invalidOlderRequest }
+    let request = RecordOlderRequest(scope: client.boundScope, historyGeneration: saved.historyGeneration,
+        before: saved.first, maxRecords: 2, maxPayloadBytes: 4000, maxRecordBytes: 1500)
+    if mode == "older-interrupt" {
+        try verifyInterruptedOlder(client, request: request)
+        return
+    }
+    let page = try client.readOlder(request)
+    guard page.request == request, page.firstPosition == 1, page.oldestAvailable == 1,
+        page.records.count == 2
+    else { throw RecordHeadReadError.malformedReply }
+    var prepend: [StoredRecord] = []
+    var ids = Set(saved.rows.map { Array($0.id.utf8) })
+    for (offset, row) in page.records.enumerated() {
+        let position = offset + 1
+        let id = "event-\(position)"
+        guard row.position == UInt64(position), row.idBytes == Array(id.utf8),
+            row.payload == [UInt8](repeating: UInt8(position), count: 1500),
+            ids.insert(row.idBytes).inserted
+        else { throw RecordHeadReadError.malformedReply }
+        prepend.append(StoredRecord(position: row.position, id: id, payload: Data(row.payload)))
+    }
+    // Single-owner fixture: compare stored scope/generation/boundary and replace
+    // rows and history coverage as one file. Never advance the saved live watermark.
+    guard try Data(contentsOf: path) == checkpoint else { throw RecordHeadReadError.invalidOlderRequest }
+    let next = StoredTailState(scope: saved.scope, historyGeneration: saved.historyGeneration,
+        watermark: saved.watermark, first: page.firstPosition, floor: max(saved.floor, page.oldestAvailable),
+        rows: prepend + saved.rows)
+    try JSONEncoder().encode(next).write(to: path, options: .atomic)
     var report = Report()
-    print("tail:4:3:1:3000", to: &report)
+    print("older:4:1:1:3000", to: &report)
+}
+
+private func verifyInterruptedOlder(_ client: RecordFollowClient<FixtureStdio>, request: RecordOlderRequest)
+    throws
+{
+    do {
+        _ = try client.readOlder(request)
+    } catch .unavailableChannel {
+        do {
+            _ = try client.readOlder(request)
+        } catch .unavailableChannel {
+            var report = Report()
+            print("older-interrupted", to: &report)
+            return
+        }
+    }
+    throw RecordHeadReadError.malformedReply
 }
 
 private func verifyInterruptedTail(_ client: RecordFollowClient<FixtureStdio>, request: RecordTailRequest)

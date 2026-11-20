@@ -104,7 +104,7 @@ timeout retry, lease, fallback to ordinary Open, or background wake promise.
 | Headless Rust interop | The standard runner adds one real Follow TCP connection. After Swift reports Bound, the existing test producer commits one record and emits a hint. A fixture barrier verifies its checkpoint bytes unchanged after the hint; then one checked Head and one complete Page install one exact record (5 payload bytes). The optional serial/overlap workload does not multiply the Follow case. |
 
 The fixture's loopback auth roles are not production credentials. TLS Follow,
-asynchronous notification, idle timeout reuse, Older, multi-scope
+asynchronous notification, idle timeout reuse, multi-scope
 dispatch and product cache integration remain open.
 
 ## Bounded Tail snapshot
@@ -123,10 +123,26 @@ changes a local store.
 | --- | --- |
 | Request, empty snapshot and coverage | Swift checks reject wrong caller scope or budgets without writing, canonical empty and bounded suffix are accepted, and mismatched coverage/echo/scope, oversized rows, duplicate IDs and trailing bytes are rejected. |
 | Complete reply or no receipt | Swift tests cover correlated denial and interruption after a fragment. The standard runner reuses the actual Rust SQLite `session_history` example: two latest rows (3–4, 3,000 bytes), watermark 4, first 3, retained floor 1; a separate connection stops after the first full frame and does not install anything. |
-| Repeatable test | Add `--tail-episodes 32` to the headless runner for 32 fragmented successful reads and 32 interrupted reads on independent connections. This does not measure many-user capacity or production I/O. |
+| Repeatable test | Add `--tail-episodes 32` to the headless runner for 64 fragmented successful Tail reads (including 32 before an Older on the same connection) and 32 interrupted Tail reads. This does not measure many-user capacity or production I/O. |
 
-The test installs a JSON fixture, not a product cache. Older, protected-epoch
-Tail, TLS Follow, production resume, and history storage remain separate.
+## Bounded Older history
+
+`RecordFollowClient.readOlder` uses the same history-capable Follow
+connection to fetch a nonempty dense page ending immediately before the
+caller’s exclusive installed history boundary. It validates the exact scope
+and echoed generation, boundary and budgets; current metadata must cover
+the requested range but is never returned as live progress. The caller owns
+atomic installation and must compare scope, generation and coverage before
+prepending, without advancing the live checkpoint.
+
+| Older contract | Current automated evidence |
+| --- | --- |
+| Exact request and historical coverage | Swift tests reject wrong local scope or bounds before writing and reject mismatched echoes, insufficient head, bad retained floor, noncontiguous rows, duplicate IDs, oversized records and trailing bytes. A hint interleaved with a complete two-fragment reply stays advisory. |
+| Real peer, interruption, restart | The Rust SQLite fixture supplies Tail positions 3–4 and Older positions 1–2 with 3,000 exact bytes per read; both same-connection Tail→Older and a new process after interruption end at live watermark 4 with history coverage now starting at 1. An incomplete read leaves saved Tail bytes unchanged. |
+| Repeatable test | `--tail-episodes 32` runs 32 same-connection Older successes, 32 fresh-process Older successes, and 32 Older interruptions, separately from the forward and overlap numbers. |
+
+The test installs a single-owner JSON fixture, not a product cache. Protected-epoch
+history, TLS Follow, production resume, and history storage remain separate.
 
 ## Remaining client acceptance
 
