@@ -51,13 +51,13 @@ extension BoundRecordClient {
         let bytes = try exchange(kind: 7, payload: RecordCapabilityV1.requestPrefix + fields,
             maximumReply: limit)
         do throws(RecordHeadReadError) {
-            var cursor = PageCursor(bytes[...])
+            var cursor = RecordReplyCursor(bytes[...])
             let metadata = try cursor.take(26)
             guard try cursor.integer(1) == 0,
                 try cursor.take(scope.count).elementsEqual(scope),
                 try cursor.take(fields.count).elementsEqual(fields)
             else { throw .malformedReply }
-            var advertised = PageCursor(metadata.dropFirst(2))
+            var advertised = RecordReplyCursor(metadata.dropFirst(2))
             guard try advertised.integer(8) >= page.target else { throw .malformedReply }
             _ = try admitMetadata(metadata)
             let count = Int(try cursor.integer(1))
@@ -68,22 +68,13 @@ extension BoundRecordClient {
             var previous = page.after
             var remainingPayload = page.maxPayloadBytes
             for _ in 0..<count {
-                let position = try cursor.integer(8)
-                guard previous < page.target, position == previous + 1 else { throw .malformedReply }
-                let idLength = Int(try cursor.integer(1))
-                guard (1...128).contains(idLength) else { throw .malformedReply }
-                let id = Array(try cursor.take(idLength))
-                guard let text = String(validating: id, as: UTF8.self),
-                    !text.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }),
-                    ids.insert(id).inserted,
-                    try cursor.take(scope.count).elementsEqual(scope)
+                let record = try cursor.record(scope: scope, maxBytes: min(page.maxRecordBytes, remainingPayload))
+                guard previous < page.target, record.position == previous + 1,
+                    ids.insert(record.idBytes).inserted
                 else { throw .malformedReply }
-                let length = Int(try cursor.integer(4))
-                guard length <= min(page.maxRecordBytes, remainingPayload) else { throw .malformedReply }
-                let payload = Array(try cursor.take(length))
-                remainingPayload -= length
-                previous = position
-                records.append(SyncRecord(position: position, idBytes: id, payload: payload))
+                remainingPayload -= record.payload.count
+                previous = record.position
+                records.append(record)
             }
             guard cursor.remaining.isEmpty else { throw .malformedReply }
             return RecordPageReceipt(scope: boundScope, request: page, records: records, nextPosition: previous)
@@ -94,7 +85,7 @@ extension BoundRecordClient {
     }
 }
 
-private struct PageCursor {
+struct RecordReplyCursor {
     var remaining: ArraySlice<UInt8>
     init(_ bytes: ArraySlice<UInt8>) { remaining = bytes }
 
@@ -103,6 +94,20 @@ private struct PageCursor {
         let result = remaining.prefix(count)
         remaining = remaining.dropFirst(count)
         return result
+    }
+
+    mutating func record(scope: [UInt8], maxBytes: Int) throws(RecordHeadReadError) -> SyncRecord {
+        let position = try integer(8)
+        let idLength = Int(try integer(1))
+        guard (1...128).contains(idLength) else { throw .malformedReply }
+        let id = Array(try take(idLength))
+        guard let text = String(validating: id, as: UTF8.self),
+            !text.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }),
+            try take(scope.count).elementsEqual(scope)
+        else { throw .malformedReply }
+        let length = Int(try integer(4))
+        guard length <= maxBytes else { throw .malformedReply }
+        return SyncRecord(position: position, idBytes: id, payload: Array(try take(length)))
     }
 
     mutating func integer(_ count: Int) throws(RecordHeadReadError) -> UInt64 {

@@ -47,6 +47,11 @@ private func read() throws {
         try followFixture(scope, release: release, path: URL(fileURLWithPath: arguments[9]))
         return
     }
+    if ["tail", "tail-interrupt"].contains(mode), arguments.count == 9 {
+        try tailFixture(scope, interrupted: mode == "tail-interrupt",
+            path: URL(fileURLWithPath: arguments[8]))
+        return
+    }
     guard arguments.count <= 9 else { throw RecordSessionOpenError.invalidOffer }
     if mode == "deny-open" {
         try verifyDeniedOpen(scope: scope)
@@ -147,6 +152,65 @@ private func followFixture(_ scope: [String], release: Int32, path: URL) throws 
     let updated = StoredPageState(scope: Data(page.scope.canonicalBytes), rows: [saved])
     try JSONEncoder().encode(updated).write(to: path, options: .atomic)
     print("follow:1:5", to: &report)
+}
+
+private func tailFixture(_ scope: [String], interrupted: Bool, path: URL) throws {
+    let client = try RecordFollowClient.open(
+        channel: FixtureStdio(failAfterFirstFrame: interrupted), scopeFields: scope)
+    defer { client.close() }
+    let request = RecordTailRequest(scope: client.boundScope, historyGeneration: 1, maxRecords: 2,
+        maxPayloadBytes: 4000, maxRecordBytes: 1500)
+    if interrupted {
+        try verifyInterruptedTail(client, request: request)
+        return
+    }
+    let tail = try client.readTail(request)
+    guard tail.request == request, tail.metadata.position == 4, tail.firstPosition == 3,
+        tail.oldestAvailable == 1, tail.records.count == 2
+    else { throw RecordHeadReadError.malformedReply }
+    var exact: [StoredRecord] = []
+    for (offset, row) in tail.records.enumerated() {
+        let position = offset + 3
+        let id = "event-\(position)"
+        guard row.position == UInt64(position), row.idBytes == Array(id.utf8),
+            row.payload == [UInt8](repeating: UInt8(position), count: 1500)
+        else { throw RecordHeadReadError.malformedReply }
+        exact.append(StoredRecord(position: row.position, id: id, payload: Data(row.payload)))
+    }
+    let current = try Data(contentsOf: path)
+    guard current == Data("uninstalled".utf8) else { throw RecordHeadReadError.invalidTailRequest }
+    let state = StoredTailState(scope: Data(request.scope.canonicalBytes),
+        historyGeneration: request.historyGeneration, watermark: tail.metadata.position,
+        first: tail.firstPosition, floor: tail.oldestAvailable, rows: exact)
+    try JSONEncoder().encode(state).write(to: path, options: .atomic)
+    var report = Report()
+    print("tail:4:3:1:3000", to: &report)
+}
+
+private func verifyInterruptedTail(_ client: RecordFollowClient<FixtureStdio>, request: RecordTailRequest)
+    throws
+{
+    do {
+        _ = try client.readTail(request)
+    } catch .unavailableChannel {
+        do {
+            _ = try client.readTail(request)
+        } catch .unavailableChannel {
+            var report = Report()
+            print("tail-interrupted", to: &report)
+            return
+        }
+    }
+    throw RecordHeadReadError.malformedReply
+}
+
+private struct StoredTailState: Codable {
+    let scope: Data
+    let historyGeneration: UInt64
+    let watermark: UInt64
+    let first: UInt64
+    let floor: UInt64
+    let rows: [StoredRecord]
 }
 
 private struct StoredRecord: Codable {

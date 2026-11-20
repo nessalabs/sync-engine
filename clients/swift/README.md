@@ -104,8 +104,29 @@ timeout retry, lease, fallback to ordinary Open, or background wake promise.
 | Headless Rust interop | The standard runner adds one real Follow TCP connection. After Swift reports Bound, the existing test producer commits one record and emits a hint. A fixture barrier verifies its checkpoint bytes unchanged after the hint; then one checked Head and one complete Page install one exact record (5 payload bytes). The optional serial/overlap workload does not multiply the Follow case. |
 
 The fixture's loopback auth roles are not production credentials. TLS Follow,
-asynchronous notification, idle timeout reuse, Tail/Older, multi-scope
+asynchronous notification, idle timeout reuse, Older, multi-scope
 dispatch and product cache integration remain open.
+
+## Bounded Tail snapshot
+
+Call `RecordFollowClient.readTail` only on a known
+[history-capable Follow endpoint](../../docs/design/session-history.md).
+Tail is a bounded dense suffix ending at the coherent metadata watermark,
+not a forward Page from a checkpoint. The requested history generation is
+caller-owned and distinct from the binding generation. The receiver checks
+the exact logical scope, echoed generation and ceilings, admitted metadata,
+first/oldest coverage, unique ordered IDs and record/payload budgets before
+returning a receipt. The caller owns atomic installation; no library read
+changes a local store.
+
+| Tail contract | Current automated evidence |
+| --- | --- |
+| Request, empty snapshot and coverage | Swift checks reject wrong caller scope or budgets without writing, canonical empty and bounded suffix are accepted, and mismatched coverage/echo/scope, oversized rows, duplicate IDs and trailing bytes are rejected. |
+| Complete reply or no receipt | Swift tests cover correlated denial and interruption after a fragment. The standard runner reuses the actual Rust SQLite `session_history` example: two latest rows (3–4, 3,000 bytes), watermark 4, first 3, retained floor 1; a separate connection stops after the first full frame and does not install anything. |
+| Repeatable test | Add `--tail-episodes 32` to the headless runner for 32 fragmented successful reads and 32 interrupted reads on independent connections. This does not measure many-user capacity or production I/O. |
+
+The test installs a JSON fixture, not a product cache. Older, protected-epoch
+Tail, TLS Follow, production resume, and history storage remain separate.
 
 ## Remaining client acceptance
 
