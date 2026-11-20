@@ -564,6 +564,352 @@ fn trusted_same_name_but_wrong_server_leaf_gets_no_client_identity() {
     worker.join().unwrap();
 }
 
+mod epochs {
+    use super::*;
+    use nessa_sync::replication::{
+        domain::{Checkpoint, PageRequest},
+        infrastructure::{
+            session::{
+                serve_epoch_record_session, EpochRecordSession, EpochSessionAdmission,
+                EpochSessionBinding, EpochSessionError,
+            },
+            EpochBinding, EpochReplicaError, SqliteEpochRecordSource, SqliteEpochReplicaStore,
+            SqliteOriginAuthority,
+        },
+        origin_epoch::{OriginAuthorityKey, OriginEpoch},
+    };
+
+    fn key(name: &str) -> OriginAuthorityKey {
+        OriginAuthorityKey::new(id(name))
+    }
+
+    fn approved(
+        fixture: &Fixture,
+        authority: &Path,
+        key: OriginAuthorityKey,
+        epoch: OriginEpoch,
+        expected_leaf: &str,
+    ) -> EpochSessionBinding {
+        EpochSessionBinding::new(
+            scope(),
+            key,
+            epoch,
+            SqliteOriginAuthority::open(authority).unwrap(),
+            fixture.peer(expected_leaf),
+        )
+    }
+
+    fn connect(
+        fixture: &Fixture,
+        address: SocketAddr,
+        binding: EpochSessionBinding,
+    ) -> Result<EpochRecordSession, EpochSessionError> {
+        EpochRecordSession::connect(
+            tcp(TcpStream::connect(address).unwrap()),
+            ServerName::try_from("server.fixture.test").unwrap(),
+            fixture.identity("client"),
+            binding,
+            LIMITS,
+            Instant::now() + DEADLINE,
+        )
+    }
+
+    fn end(result: Result<(), RecordSessionError>) {
+        match result {
+            Ok(()) => {}
+            Err(RecordSessionError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof => {}
+            failure => panic!("unexpected protected server shutdown: {failure:?}"),
+        }
+    }
+
+    struct GatePolicy {
+        armed: Arc<std::sync::atomic::AtomicBool>,
+        arrived: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+
+    impl ScopeAuthorizer for GatePolicy {
+        fn authorize(&mut self, requested: &Scope) -> Access {
+            let allowed = Policy.authorize(requested);
+            if self.armed.swap(false, Ordering::AcqRel) {
+                self.arrived.send(()).unwrap();
+                self.release.recv_timeout(DEADLINE).unwrap();
+            }
+            allowed
+        }
+    }
+
+    fn listen(
+        fixture: &Fixture,
+        leaf: &str,
+        mut producer: SqliteEpochRecordSource,
+        deny_first_pin_attempt: bool,
+        mut policy: impl ScopeAuthorizer + Send + 'static,
+    ) -> (SocketAddr, thread::JoinHandle<()>) {
+        let listener = endpoint();
+        let address = listener.local_addr().unwrap();
+        let denied =
+            deny_first_pin_attempt.then(|| (fixture.identity(leaf), fixture.peer("client")));
+        let local = fixture.identity(leaf);
+        let peer = fixture.peer("client");
+        let thread = thread::spawn(move || {
+            if let Some((local, peer)) = denied {
+                let (socket, _) = listener.accept().unwrap();
+                assert!(
+                    TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE,)
+                        .is_err()
+                );
+            }
+            let (socket, _) = listener.accept().unwrap();
+            let mut stream =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            end(serve_epoch_record_session(
+                &mut stream,
+                1,
+                LIMITS,
+                &scope(),
+                &mut policy,
+                &mut producer,
+            ));
+        });
+        (address, thread)
+    }
+
+    #[test]
+    fn protected_tls_verified_handoff_refuses_delayed_page_and_resumes_from_saved_progress() {
+        let fixture = Fixture::new();
+        let source_file = fixture.0.join("qualified-source");
+        let authority = fixture.0.join("outside-source-backup-claims");
+        let cache = fixture.0.join("qualified-cache");
+        let key = key("stable-origin");
+        let scope = scope();
+        let mut writer = source(&source_file);
+        writer.append(&id("one"), b"one").unwrap();
+        writer.append(&id("two"), b"two").unwrap();
+        let first = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::provision(&authority).unwrap(),
+            key.clone(),
+            None,
+        )
+        .unwrap();
+        let e1 = first.epoch();
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (address1, server1) = listen(
+            &fixture,
+            "server",
+            first,
+            false,
+            GatePolicy {
+                armed: armed.clone(),
+                arrived: arrived_tx,
+                release: release_rx,
+            },
+        );
+        let session1 = connect(
+            &fixture,
+            address1,
+            approved(&fixture, &authority, key.clone(), e1, "server"),
+        )
+        .unwrap();
+        let binding = EpochBinding::new(
+            scope.receiver().clone(),
+            scope.origin().clone(),
+            key.clone(),
+        );
+        let mut receiver = SqliteEpochReplicaStore::provision(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(receiver.observe_head(session1.head().unwrap()), Ok(e1));
+        assert_eq!(receiver.checkpoint(&scope), Ok(None));
+        let limits = Limits::new(1, 4, 4).unwrap();
+        let c0 = Checkpoint::new(scope.clone(), 0);
+        let c1 = Checkpoint::new(scope.clone(), 1);
+        let c2 = Checkpoint::new(scope.clone(), 2);
+        let first = PageRequest {
+            scope: scope.clone(),
+            after: 0,
+            target: 2,
+            max_records: 1,
+            max_payload_bytes: 4,
+            max_record_bytes: 4,
+        };
+        receiver
+            .apply(session1.page(&c0, &first, limits).unwrap())
+            .unwrap();
+        let next = PageRequest { after: 1, ..first };
+        let held = session1.page(&c1, &next, limits).unwrap();
+        assert_eq!(receiver.checkpoint(&scope), Ok(Some(c1.clone())));
+
+        let checkpoint = c1.clone();
+        let requested = next.clone();
+        armed.store(true, Ordering::Release);
+        let old_attempt = thread::spawn(move || {
+            let result = session1.page(&checkpoint, &requested, limits);
+            (session1, result)
+        });
+        arrived_rx.recv_timeout(DEADLINE).unwrap();
+        let second = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::open(&authority).unwrap(),
+            key.clone(),
+            Some(e1),
+        )
+        .unwrap();
+        let e2 = second.epoch();
+        assert_eq!(e2, OriginEpoch::new(2).unwrap());
+        release_tx.send(()).unwrap();
+        let (session1, refused) = old_attempt.join().unwrap();
+        assert!(matches!(
+            refused,
+            Err(EpochSessionError::Record(RecordSessionError::Source(
+                SourceError::IdentityChanged
+            )))
+        ));
+        let (address2, server2) = listen(&fixture, "server-sibling", second, true, Policy);
+        assert!(matches!(
+            connect(
+                &fixture,
+                address2,
+                approved(&fixture, &authority, key.clone(), e2, "server")
+            ),
+            Err(EpochSessionError::Record(RecordSessionError::Io(_)))
+        ));
+        let session2 = connect(
+            &fixture,
+            address2,
+            approved(&fixture, &authority, key, e2, "server-sibling"),
+        )
+        .unwrap();
+        assert_eq!(receiver.observe_head(session2.head().unwrap()), Ok(e2));
+        drop(receiver);
+        let mut receiver = SqliteEpochReplicaStore::open(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(receiver.apply(held), Err(EpochReplicaError::Fenced));
+        assert_eq!(receiver.checkpoint(&scope), Ok(Some(c1.clone())));
+        assert_eq!(receiver.read_after(&scope, 0, 2, 8).unwrap().len(), 1);
+        receiver
+            .apply(session2.page(&c1, &next, limits).unwrap())
+            .unwrap();
+        drop(receiver);
+        let mut receiver =
+            SqliteEpochReplicaStore::open(&cache, binding, EpochSessionAdmission::new(Policy))
+                .unwrap();
+        assert_eq!(receiver.checkpoint(&scope), Ok(Some(c2)));
+        let payloads = receiver
+            .read_after(&scope, 0, 2, 8)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.payload)
+            .collect::<Vec<_>>();
+        assert_eq!(payloads, [b"one".to_vec(), b"two".to_vec()]);
+        let old = session1.counters().unwrap();
+        let new = session2.counters().unwrap();
+        assert_eq!(old.payload_bytes, 6);
+        assert_eq!((new.exchanges, new.payload_bytes), (5, 3));
+        eprintln!(
+            "protected fixture app exchanges/protocol bytes/payload old={},{},{}; new={},{},{}",
+            old.exchanges,
+            old.protocol_bytes,
+            old.payload_bytes,
+            new.exchanges,
+            new.protocol_bytes,
+            new.payload_bytes
+        );
+        session2.close().unwrap();
+        server1.join().unwrap();
+        server2.join().unwrap();
+    }
+
+    #[test]
+    fn verified_tls_without_protected_version_or_matching_claim_never_admits_evidence() {
+        let fixture = Fixture::new();
+        let authority = fixture.0.join("outside-source-backup-claims");
+        let mut ledger = SqliteOriginAuthority::provision(&authority).unwrap();
+        let expected_key = key("host-configured");
+        let e = ledger.compare_and_claim(&expected_key, None).unwrap();
+
+        let listener = endpoint();
+        let local = fixture.identity("server");
+        let peer = fixture.peer("client");
+        let address = listener.local_addr().unwrap();
+        let calls = Arc::new(AtomicU64::new(0));
+        let source_calls = calls.clone();
+        let legacy = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut io =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            let result = serve_record_session::<_, _, _, SqliteReferenceSource>(
+                &mut io,
+                1,
+                LIMITS,
+                &mut Policy,
+                move |_| {
+                    source_calls.fetch_add(1, Ordering::Relaxed);
+                    Err(SourceError::Unavailable)
+                },
+            );
+            assert!(matches!(result, Err(RecordSessionError::TooLarge)));
+        });
+        assert!(connect(
+            &fixture,
+            address,
+            approved(&fixture, &authority, expected_key.clone(), e, "server")
+        )
+        .is_err());
+        legacy.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        let source_file = fixture.0.join("different-qualified-source");
+        let mut writer = source(&source_file);
+        writer.append(&id("one"), b"one").unwrap();
+        let different = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::open(&authority).unwrap(),
+            key("peer-configured"),
+            None,
+        )
+        .unwrap();
+        let (address, server) = listen(&fixture, "server", different, false, Policy);
+        let wrong_binding = connect(
+            &fixture,
+            address,
+            approved(&fixture, &authority, expected_key.clone(), e, "server"),
+        )
+        .unwrap();
+        assert!(matches!(
+            wrong_binding.head(),
+            Err(EpochSessionError::WrongClaim)
+        ));
+        server.join().unwrap();
+
+        let unused = endpoint();
+        assert!(matches!(
+            connect(
+                &fixture,
+                unused.local_addr().unwrap(),
+                approved(
+                    &fixture,
+                    &authority,
+                    expected_key,
+                    OriginEpoch::new(2).unwrap(),
+                    "server",
+                )
+            ),
+            Err(EpochSessionError::WrongClaim)
+        ));
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "requires the standalone SwiftTLSFixture package; run clients/swift/e2e/run-tls.sh"]

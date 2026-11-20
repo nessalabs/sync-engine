@@ -5,8 +5,8 @@ Build and test from the Sync Engine repository root with Swift 6:
 ```sh
 swift test
 python3 clients/swift/e2e/run-head.py
-# Optional bounded stress run, up to 800 distinct TCP connections:
-python3 clients/swift/e2e/run-head.py --repetitions 100
+# Optional serial recovery stress plus a 16-client overlap group:
+python3 clients/swift/e2e/run-head.py --repetitions 100 --overlap-clients 16
 ```
 
 The library is independent of the Nessa application, SwiftUI, app storage,
@@ -46,6 +46,7 @@ neither the fixture token nor fixture networking.
 | Reopen and retry (fixture only) | A Swift process atomically replaces its single fixture JSON checkpoint after records 1–2, a second closes TCP after the first real fragment, and a typed oversized refusal preserves the file. A fresh process resumes at 2 and exactly reopens records 1–7. Default 5 episodes / 20 Page operations; opt-in 100 / 400. No concurrent or power-loss durability claim. |
 | Open and positive handoff | One scope and explicit per-operation mode; accept only bounded, correlated Welcome/Bound, enforce selected limits and record ceiling, ignore Bound's advisory head and use the same channel on request 2. Live Rust performs exact Open before every Head/Page. |
 | Open refusal and channel lifetime | Real Rust returns typed Denied for an ungranted fixture receiver. Swift unit tests check all known refusals, invalid scope/limits/session/handle/generation, incompatible version/mode or ordering, every truncated response prefix and pre-body size rejection. No network fallback or partial owner. |
+| Overlapping bound client lifetimes | Each independent Swift process reports real Bound over a test-side signal, then blocks until the parent releases the entire group. Every client completes Head and two Pages, verifying exact scope and seven exact records. Default 4 clients, 4 Heads, 8 Pages and 28 rows; opt-in 16, 16, 32 and 112. No claim about simultaneous server-side execution, production capacity or users. |
 | Host channel trust | Fixture token is loopback-only; dialing, authentication/TLS, peer support selection and deadlines remain host-owned. |
 
 ## Verified TLS fixture (macOS)

@@ -459,3 +459,9 @@ pub use records::scope_pair::{serve_scope_pair_batched_heads, PairHeadObservatio
 
 #[cfg(feature = "tls")]
 pub use channel::tls::{TlsIdentity, TlsPeer, TlsSessionIo};
+
+#[cfg(all(feature = "tls", feature = "sqlite"))]
+pub use records::epoch::{
+    serve_epoch_record_session, EpochRecordSession, EpochSessionAdmission, EpochSessionBinding,
+    EpochSessionError, VerifiedEpochHead, VerifiedEpochPage,
+};
