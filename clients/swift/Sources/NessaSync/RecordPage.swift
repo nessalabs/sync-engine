@@ -34,54 +34,113 @@ public struct RecordPageReceipt: Equatable, Sendable {
     public let nextPosition: UInt64
 }
 
+/// A durable cursor and budgets for capturing a new finite source target.
+public struct RecordOpenPageRequest: Equatable, Sendable {
+    public let scope: RecordScopeIdentity
+    public let after: UInt64
+    public let maxRecords: Int
+    public let maxPayloadBytes: Int
+    public let maxRecordBytes: Int
+
+    public init(scope: RecordScopeIdentity, after: UInt64, maxRecords: Int, maxPayloadBytes: Int, maxRecordBytes: Int) {
+        self.scope = scope
+        self.after = after
+        self.maxRecords = maxRecords
+        self.maxPayloadBytes = maxPayloadBytes
+        self.maxRecordBytes = maxRecordBytes
+    }
+}
+
+/// Only `page` includes records to apply. Empty outcomes never authorize an
+/// apply or a rewind. A page's target is a finish line, not a durable cursor.
+public enum RecordOpenPageOutcome: Equatable, Sendable {
+    case page(RecordPageReceipt)
+    case alreadyCurrent
+    case sourceBehind(RecordSourceMetadata)
+}
+
 extension BoundRecordClient {
     /// Read one fixed-target v1 page. An incomplete page is never returned.
     /// Set recordByteLimit from the validated Welcome when constructing this
     /// client. Unsupported capabilities do not cause a legacy fallback.
     public func readPage(_ page: RecordPageRequest) throws(RecordHeadReadError) -> RecordPageReceipt {
-        guard let recordByteLimit, page.target > page.after, (1...64).contains(page.maxRecords),
-            (1...524_288).contains(page.maxPayloadBytes), (1...recordByteLimit).contains(page.maxRecordBytes)
-        else { throw .invalidPageRequest }
-        var fields: [UInt8] = bytes(page.after)
-        fields.append(contentsOf: bytes(page.target))
-        fields.append(contentsOf: bytes(UInt64(page.maxRecords)))
-        fields.append(contentsOf: bytes(UInt64(page.maxPayloadBytes)))
-        fields.append(contentsOf: bytes(UInt64(page.maxRecordBytes)))
-        let limit = 68 + scope.count + page.maxRecords * (141 + scope.count) + page.maxPayloadBytes
-        let bytes = try exchange(kind: 7, payload: RecordCapabilityV1.requestPrefix + fields,
-            maximumReply: limit)
-        do throws(RecordHeadReadError) {
-            var cursor = RecordReplyCursor(bytes[...])
-            let metadata = try cursor.take(26)
-            guard try cursor.integer(1) == 0,
-                try cursor.take(scope.count).elementsEqual(scope),
-                try cursor.take(fields.count).elementsEqual(fields)
-            else { throw .malformedReply }
-            var advertised = RecordReplyCursor(metadata.dropFirst(2))
-            guard try advertised.integer(8) >= page.target else { throw .malformedReply }
-            _ = try admitMetadata(metadata)
-            let count = Int(try cursor.integer(1))
-            guard (1...page.maxRecords).contains(count) else { throw .malformedReply }
+        guard page.target > page.after else { throw .invalidPageRequest }
+        let request = RecordOpenPageRequest(scope: boundScope, after: page.after, maxRecords: page.maxRecords,
+            maxPayloadBytes: page.maxPayloadBytes, maxRecordBytes: page.maxRecordBytes)
+        guard case .page(let receipt) = try readForwardPage(request, fixedTarget: page.target)
+        else { close(); throw .malformedReply }
+        return receipt
+    }
 
-            var records: [SyncRecord] = []
-            var ids = Set<[UInt8]>()
-            var previous = page.after
-            var remainingPayload = page.maxPayloadBytes
-            for _ in 0..<count {
-                let record = try cursor.record(scope: scope, maxBytes: min(page.maxRecordBytes, remainingPayload))
-                guard previous < page.target, record.position == previous + 1,
-                    ids.insert(record.idBytes).inserted
-                else { throw .malformedReply }
-                remainingPayload -= record.payload.count
-                previous = record.position
-                records.append(record)
-            }
-            guard cursor.remaining.isEmpty else { throw .malformedReply }
-            return RecordPageReceipt(scope: boundScope, request: page, records: records, nextPosition: previous)
+    /// Capture a source target and the bounded first page using one explicit
+    /// capability operation, on a known peer that implements kind 6.
+    public func readOpenPage(_ request: RecordOpenPageRequest) throws(RecordHeadReadError) -> RecordOpenPageOutcome {
+        try readForwardPage(request, fixedTarget: nil)
+    }
+
+    private func readForwardPage(_ request: RecordOpenPageRequest, fixedTarget: UInt64?)
+        throws(RecordHeadReadError) -> RecordOpenPageOutcome
+    {
+        guard let recordByteLimit, request.scope == boundScope, (1...64).contains(request.maxRecords),
+            (1...524_288).contains(request.maxPayloadBytes), (1...recordByteLimit).contains(request.maxRecordBytes)
+        else { throw fixedTarget == nil ? .invalidOpenPageRequest : .invalidPageRequest }
+
+        var budgets = bytes(UInt64(request.maxRecords))
+        budgets.append(contentsOf: bytes(UInt64(request.maxPayloadBytes)))
+        budgets.append(contentsOf: bytes(UInt64(request.maxRecordBytes)))
+        var body = RecordCapabilityV1.requestPrefix
+        body.append(contentsOf: bytes(request.after))
+        if let fixedTarget { body.append(contentsOf: bytes(fixedTarget)) }
+        body.append(contentsOf: budgets)
+        let maximumReply = min(1_048_576,
+            68 + scope.count + request.maxRecords * (141 + scope.count) + request.maxPayloadBytes)
+        let reply = try exchange(kind: fixedTarget == nil ? 6 : 7, payload: body, maximumReply: maximumReply)
+        do throws(RecordHeadReadError) {
+            return try validateForwardPage(reply, request: request, fixedTarget: fixedTarget, budgets: budgets)
         } catch {
             if error == .malformedReply { close() }
             throw error
         }
+    }
+
+    private func validateForwardPage(_ reply: [UInt8], request: RecordOpenPageRequest, fixedTarget: UInt64?,
+        budgets: [UInt8]) throws(RecordHeadReadError) -> RecordOpenPageOutcome
+    {
+        var cursor = RecordReplyCursor(reply[...])
+        let metadataBytes = try cursor.take(RecordCapabilityV1.metadataByteCount)
+        guard try cursor.integer(1) == 0, try cursor.take(scope.count).elementsEqual(scope),
+            try cursor.integer(8) == request.after
+        else { throw .malformedReply }
+        let target = try cursor.integer(8)
+        guard try cursor.take(budgets.count).elementsEqual(budgets) else { throw .malformedReply }
+        var advertised = RecordReplyCursor(metadataBytes.dropFirst(2))
+        let head = try advertised.integer(8)
+        guard target == (fixedTarget ?? head), head >= target
+        else { throw .malformedReply }
+        let metadata = try admitMetadata(metadataBytes)
+        let count = Int(try cursor.integer(1))
+        if target <= request.after {
+            guard fixedTarget == nil, count == 0, cursor.remaining.isEmpty else { throw .malformedReply }
+            return target == request.after ? .alreadyCurrent : .sourceBehind(metadata)
+        }
+        guard (1...request.maxRecords).contains(count) else { throw .malformedReply }
+
+        var records: [SyncRecord] = []
+        var ids = Set<[UInt8]>()
+        var previous = request.after
+        var remaining = request.maxPayloadBytes
+        for _ in 0..<count {
+            let record = try cursor.record(scope: scope, maxBytes: min(request.maxRecordBytes, remaining))
+            guard previous < target, record.position == previous + 1, ids.insert(record.idBytes).inserted
+            else { throw .malformedReply }
+            remaining -= record.payload.count
+            previous = record.position
+            records.append(record)
+        }
+        guard cursor.remaining.isEmpty else { throw .malformedReply }
+        let page = RecordPageRequest(after: request.after, target: target, maxRecords: request.maxRecords,
+            maxPayloadBytes: request.maxPayloadBytes, maxRecordBytes: request.maxRecordBytes)
+        return .page(RecordPageReceipt(scope: boundScope, request: page, records: records, nextPosition: previous))
     }
 }
 

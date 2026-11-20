@@ -42,7 +42,8 @@ An unobserved concurrent source change cannot instantly revoke an already acquir
 snapshot; the protocol fences against validated observations at durable commit.
 
 Current legacy native and wire routes refuse positive activation before data,
-with no fallback. There is no successful v2 wire dialect in this slice. Old
+with no fallback. The separate [explicit v2 development wire](catalogue-horizon-wire.md) now
+qualifies those native ports; legacy routes retain their fail-closed behavior. Old
 already-running binaries require host upgrade fencing before activation; file
 version checks cannot stop an old open writer. Receiver authority remains checked
 per operation; possession of source metadata implies neither access nor progress.
@@ -71,6 +72,6 @@ proof. The earlier reset model remains responsible for its broader epoch/cancel
 states. See [the measurements](catalogue-collection-measurement.md) and committed receipt
 for exact bounds and results.
 
-Issue #49 remains open. Explicit versioned network coverage/typed expiry and its
-mixed-version reset/restart/delayed-result qualification remain; #48 pin policy
-and broader #54 production transport qualification are separate.
+Issue #49 remains open for its final acceptance audit. Explicit development-wire
+coverage is qualified separately; #48 pin policy and broader #54 production secure
+catalogue transport remain separate.

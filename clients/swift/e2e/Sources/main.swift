@@ -56,6 +56,10 @@ private func read() throws {
         try olderFixture(scope, mode: mode, path: URL(fileURLWithPath: arguments[8]))
         return
     }
+    if mode.hasPrefix("open-page-"), arguments.count == 9 {
+        try openPageFixture(scope, mode: mode, path: URL(fileURLWithPath: arguments[8]))
+        return
+    }
     guard arguments.count <= 9 else { throw RecordSessionOpenError.invalidOffer }
     if mode == "deny-open" {
         try verifyDeniedOpen(scope: scope)
@@ -332,6 +336,85 @@ private func page(_ client: BoundRecordClient<FixtureStdio>, mode: String, path:
     } catch RecordHeadReadError.source(.oversizedRecord) where mode == "refuse" {
         print("oversized", to: &report)
     }
+}
+
+private func openPageFixture(_ scope: [String], mode: String, path: URL) throws {
+    let client = try openFixture(scope: scope, interrupt: mode == "open-page-interrupt")
+    defer { client.close() }
+    let original = try Data(contentsOf: path)
+    let saved = try JSONDecoder().decode(StoredPageState.self, from: original)
+    let established = Data(client.boundScope.canonicalBytes)
+    guard saved.scope == established || (saved.scope == nil && saved.rows.isEmpty)
+    else { throw RecordHeadReadError.invalidOpenPageRequest }
+
+    let after = saved.rows.last?.position ?? 0
+    let request = RecordOpenPageRequest(scope: client.boundScope, after: after,
+        maxRecords: mode == "open-page-complete" ? 2 : 64, maxPayloadBytes: 8192,
+        maxRecordBytes: mode == "open-page-refuse" ? 1024 : 8192)
+
+    if mode == "open-page-interrupt" || mode == "open-page-refuse" {
+        try verifyNonDelivery(client, request: request, mode: mode)
+        return
+    }
+
+    let outcome = try client.readOpenPage(request)
+    var report = Report()
+    if mode == "open-page-current" {
+        guard outcome == .alreadyCurrent else { throw RecordHeadReadError.malformedReply }
+        print("open-page-current", to: &report)
+        return
+    }
+    if mode == "open-page-behind" {
+        guard case .sourceBehind(let metadata) = outcome, metadata.position == 7, after == 8
+        else { throw RecordHeadReadError.malformedReply }
+        print("open-page-behind:7:8", to: &report)
+        return
+    }
+    guard mode == "open-page-complete", case .page(let first) = outcome, after == 0,
+        first.scope == request.scope, first.request.after == after, first.request.target == 7,
+        first.nextPosition == 2, first.records.count == 2
+    else { throw RecordHeadReadError.malformedReply }
+
+    let next = RecordPageRequest(after: first.nextPosition, target: first.request.target,
+        maxRecords: 64, maxPayloadBytes: 8192, maxRecordBytes: 8192)
+    let page = try client.readPage(next)
+    guard page.scope == request.scope, page.request == next, page.nextPosition == 7
+    else { throw RecordHeadReadError.malformedReply }
+    let fresh = try client.readHead()
+    guard fresh.position == 7, try Data(contentsOf: path) == original
+    else { throw RecordHeadReadError.malformedReply }
+
+    var records: [StoredRecord] = []
+    var ids = Set<[UInt8]>()
+    for row in first.records + page.records {
+        guard ids.insert(row.idBytes).inserted, let id = String(validating: row.idBytes, as: UTF8.self)
+        else { throw RecordHeadReadError.malformedReply }
+        records.append(StoredRecord(position: row.position, id: id, payload: Data(row.payload)))
+    }
+    let state = StoredPageState(scope: established, rows: records)
+    try JSONEncoder().encode(state).write(to: path, options: .atomic)
+    print("open-page:2:7:7", to: &report)
+}
+
+private func verifyNonDelivery(_ client: BoundRecordClient<FixtureStdio>, request: RecordOpenPageRequest,
+    mode: String) throws
+{
+    do {
+        _ = try client.readOpenPage(request)
+    } catch .source(.oversizedRecord) where mode == "open-page-refuse" {
+        var report = Report()
+        print("open-page-oversized", to: &report)
+        return
+    } catch .unavailableChannel where mode == "open-page-interrupt" {
+        do {
+            _ = try client.readOpenPage(request)
+        } catch .unavailableChannel {
+            var report = Report()
+            print("open-page-interrupted", to: &report)
+            return
+        }
+    }
+    throw RecordHeadReadError.malformedReply
 }
 
 private struct Report: TextOutputStream {

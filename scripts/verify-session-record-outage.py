@@ -214,8 +214,8 @@ def case(base, mode, path, kbit, rtt, duration):
         shaper = CutShaper(target, mode, kbit, rtt)
         hops.append(shaper)
         command = [str(link.BIN), "outage", mode, f"127.0.0.1:{shaper.port}", str(source), str(replica), link.READ]
-        child = subprocess.Popen(command, cwd=link.ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         previous = shaper.snapshot()
+        child = subprocess.Popen(command, cwd=link.ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         rows = []
         outage = None
         for phase, receipt in zip(PHASES, (7, 7, 7, 21), strict=True):

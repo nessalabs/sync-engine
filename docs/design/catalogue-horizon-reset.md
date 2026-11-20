@@ -59,14 +59,16 @@ No file schema changes are needed: source v4, receiver v3 and the existing reset
 candidate journal already own every durable field used here. Existing zero-floor
 legacy reset APIs retain their behavior. Positive native source horizons continue
 to refuse legacy head/manifest/value routes before data; v2 never falls back.
-Hosts must explicitly select the v2 recovery API. No new wire operation or mode is
-introduced, and old binary/host upgrade fencing remains necessary.
+Hosts must explicitly select the v2 recovery API. This native composition adds no wire operation by itself; the separate
+[v2 development route](catalogue-horizon-wire.md) now qualifies network reset.
+Old binary/host upgrade fencing remains necessary.
 
 The [native collection boundary](catalogue-collection.md) now atomically advances
 coverage and hides strict-below retired markers while retaining permanent source
 identity and receiver fences. Its real-activation process lab and collection-aware
 finite model extend this earlier fixture qualification. Catalogue pins (#48) and
-the explicit versioned network dialect remain separate. Issue #49 remains open.
+the #54 secure production catalogue dialect remain separate. The explicit
+development v2 route is qualified independently. Issue #49 remains open.
 
 ## Reproduction and measured costs
 

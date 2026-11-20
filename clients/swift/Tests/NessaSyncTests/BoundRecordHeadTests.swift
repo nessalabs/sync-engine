@@ -142,15 +142,16 @@ private let pageRequest = RecordPageRequest(after: 20, target: 23, maxRecords: 3
 private let pageScopeBytes = fixtureScope.flatMap { [UInt8($0.utf8.count)] + Array($0.utf8) }
 
 private func pageBody(
-    ids: [String], payload: [UInt8], target: UInt64 = 23, scope: [UInt8] = pageScopeBytes
+    ids: [String], payload: [UInt8], target: UInt64 = 23, scope: [UInt8] = pageScopeBytes,
+    head: UInt64 = 23, after: UInt64 = 20
 ) -> [UInt8] {
     var data = be(UInt16(1))
-    data.append(contentsOf: be(UInt64(23)))
+    data.append(contentsOf: be(head))
     data.append(contentsOf: be(UInt64(0)))
     data.append(contentsOf: be(UInt64(0)))
     data.append(0)
     data.append(contentsOf: scope)
-    for field in [UInt64(20), target, 3, 5000, 4096] { data.append(contentsOf: be(field)) }
+    for field in [after, target, 3, 5000, 4096] { data.append(contentsOf: be(field)) }
     data.append(UInt8(ids.count))
     for (idx, id) in ids.enumerated() {
         data.append(contentsOf: be(UInt64(21 + idx)))
@@ -176,11 +177,11 @@ private func pageFrame(_ payload: ArraySlice<UInt8>, total: Int, offset: Int, st
     return be(UInt32(body.count)) + body
 }
 
-private func pageFrames(_ bytes: [UInt8]) -> [UInt8] {
+private func pageFrames(_ bytes: [UInt8], kind: UInt8 = 0x87) -> [UInt8] {
     var result: [UInt8] = []
     for start in stride(from: 0, to: bytes.count, by: 2004) {
         result.append(contentsOf: pageFrame(bytes[start..<min(start + 2004, bytes.count)],
-            total: bytes.count, offset: start))
+            total: bytes.count, offset: start, kind: kind))
     }
     return result
 }
@@ -710,5 +711,110 @@ struct RecordOlderTests {
             try interruptedOwner.readOlder(olderRequest(interruptedOwner.boundScope))
         }
         #expect(interrupted.closed == 1)
+    }
+}
+
+private func openPageRequest(_ scope: RecordScopeIdentity, after: UInt64 = 20,
+    count: Int = 3, payload: Int = 5000, record: Int = 4096
+) -> RecordOpenPageRequest {
+    .init(scope: scope, after: after, maxRecords: count, maxPayloadBytes: payload, maxRecordBytes: record)
+}
+
+struct RecordOpenPageTests {
+    @Test func openPageCapturesExactTargetAndRequiresCompleteBoundPage() throws {
+        let channel = FixtureChannel()
+        let body = pageBody(ids: ["bulk"], payload: [UInt8](repeating: 74, count: 4096))
+        channel.input = pageFrames(body, kind: 0x86)
+        let owner = try pageClient(channel)
+        let request = openPageRequest(owner.boundScope)
+        guard case .page(let page) = try owner.readOpenPage(request) else {
+            Issue.record("expected captured page")
+            return
+        }
+        #expect(page.scope == request.scope)
+        #expect(page.request.target == 23)
+        #expect(page.request.after == 20)
+        #expect(page.nextPosition == 21)
+        #expect(page.records.map(\.position) == [21])
+        #expect(page.records.first?.payload.count == 4096)
+        let frame = try #require(channel.output.first)
+        #expect(frame[10] == 6)
+        var expected = RecordCapabilityV1.requestPrefix
+        for value in [UInt64(20), 3, 5000, 4096] { expected.append(contentsOf: be(value)) }
+        #expect(Array(frame[48...]) == expected)
+    }
+
+    @Test func currentAndBehindAreNotInstallablePages() throws {
+        let current = pageBody(ids: [], payload: [], target: 20, head: 20)
+        let behind = pageBody(ids: [], payload: [], target: 19, head: 19)
+        for (body, target) in [(current, UInt64(20)), (behind, UInt64(19))] {
+            let channel = FixtureChannel()
+            channel.input = pageFrames(body, kind: 0x86)
+            let owner = try pageClient(channel)
+            let result = try owner.readOpenPage(openPageRequest(owner.boundScope))
+            switch result {
+            case .alreadyCurrent: #expect(target == 20)
+            case .sourceBehind(let metadata):
+                #expect(target == 19)
+                #expect(metadata.position == 19)
+            case .page: Issue.record("an empty response cannot install a checkpoint")
+            }
+        }
+    }
+
+    @Test func rejectsWrongScopeBoundsTargetAndNoncanonicalEmpty() throws {
+        let channel = FixtureChannel()
+        let owner = try pageClient(channel)
+        let other = try pageClient(FixtureChannel(), fields: Array(fixtureScope.dropLast()) + ["other"]).boundScope
+        for request in [
+            openPageRequest(other), openPageRequest(owner.boundScope, count: 0),
+            openPageRequest(owner.boundScope, payload: 524_289), openPageRequest(owner.boundScope, record: 524_289),
+        ] {
+            #expect(throws: RecordHeadReadError.invalidOpenPageRequest) { try owner.readOpenPage(request) }
+        }
+        #expect(channel.output.isEmpty)
+
+        var wrongScope = pageScopeBytes
+        wrongScope[1] ^= 1
+        let invalid = [
+            pageBody(ids: [], payload: []),
+            pageBody(ids: ["a"], payload: [], target: 20, head: 20),
+            pageBody(ids: ["a"], payload: [], target: 19, head: 19),
+            pageBody(ids: ["a"], payload: [], target: 22),
+            pageBody(ids: ["a"], payload: [], scope: wrongScope),
+            pageBody(ids: ["a"], payload: [], after: 19),
+            pageBody(ids: [], payload: [], target: 20, head: 20) + [0],
+        ]
+        for body in invalid {
+            let channel = FixtureChannel()
+            channel.input = pageFrames(body, kind: 0x86)
+            let owner = try pageClient(channel)
+            #expect(throws: RecordHeadReadError.malformedReply) {
+                try owner.readOpenPage(openPageRequest(owner.boundScope))
+            }
+            #expect(channel.closed == 1)
+        }
+    }
+
+    @Test func interruptedRefusedAndWrongKindRepliesNeverDeliverAPage() throws {
+        let data = pageBody(ids: ["bulk"], payload: [UInt8](repeating: 75, count: 4096))
+        let partial = pageFrame(data.prefix(2004), total: data.count, offset: 0, kind: 0x86)
+        let interrupted = FixtureChannel()
+        interrupted.input = partial
+        let owner = try pageClient(interrupted)
+        let request = openPageRequest(owner.boundScope)
+        #expect(throws: RecordHeadReadError.unavailableChannel) { try owner.readOpenPage(request) }
+        #expect(interrupted.closed == 1)
+
+        let refused = FixtureChannel()
+        refused.input = partial + pageFrame([], total: 0, offset: 0, status: 1, kind: 0x86)
+        let refusedOwner = try pageClient(refused)
+        #expect(throws: RecordHeadReadError.source(.denied)) { try refusedOwner.readOpenPage(request) }
+
+        let wrongKind = FixtureChannel()
+        wrongKind.input = pageFrames(data)
+        let wrong = try pageClient(wrongKind)
+        #expect(throws: RecordHeadReadError.malformedReply) { try wrong.readOpenPage(request) }
+        #expect(wrongKind.closed == 1)
     }
 }
