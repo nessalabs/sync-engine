@@ -44,7 +44,16 @@ impl Fixture {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed),
         ));
-        fs::create_dir(&path).unwrap();
+        #[cfg(unix)]
+        let directory = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut directory = fs::DirBuilder::new();
+            directory.mode(0o700);
+            directory
+        };
+        #[cfg(not(unix))]
+        let directory = fs::DirBuilder::new();
+        directory.create(&path).unwrap();
         let fixture = Self(path);
         fixture.openssl(&[
             "req",
@@ -553,4 +562,122 @@ fn trusted_same_name_but_wrong_server_leaf_gets_no_client_identity() {
     );
     assert!(result.is_err());
     worker.join().unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "requires the standalone SwiftTLSFixture package; run clients/swift/e2e/run-tls.sh"]
+fn swift_tls_open_head_page_against_rust() {
+    use nessa_sync::replication::infrastructure::session::serve_capability_record_session;
+    use std::process::Stdio;
+
+    struct ObservedPolicy(u64);
+    impl ScopeAuthorizer for ObservedPolicy {
+        fn authorize(&mut self, requested: &Scope) -> Access {
+            self.0 += 1;
+            Policy.authorize(requested)
+        }
+    }
+
+    let swift = std::env::var_os("NESSA_SWIFT_TLS_FIXTURE").expect("set the Swift fixture path");
+    let fixture = Fixture::new();
+    let path = fixture.0.join("source.db");
+    let mut store = source(&path);
+    for n in 1..=3 {
+        store
+            .append(&id(&format!("record-{n}")), &vec![n; 1000])
+            .unwrap();
+    }
+    drop(store);
+
+    for (mode, server, expected) in [
+        ("healthy", "server", "tls13-open-head-page:3:3000"),
+        ("denied", "server", "typed-scope-denied"),
+        (
+            "peer-mismatch",
+            "server-sibling",
+            "peer-mismatch-before-record-dispatch",
+        ),
+    ] {
+        let listener = endpoint();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let local = fixture.identity(server);
+        let expected_client = fixture.peer("client");
+        let source_path = path.clone();
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + DEADLINE;
+            let socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "Swift fixture never reached listener"
+                        );
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("TLS fixture connect: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            let accepted = TlsSessionIo::accept(
+                tcp(socket),
+                local,
+                expected_client,
+                Instant::now() + DEADLINE,
+            );
+            let Ok(mut channel) = accepted else {
+                return (false, 0, 0);
+            };
+            let mut policy = ObservedPolicy(0);
+            let mut factory_calls = 0;
+            let result =
+                serve_capability_record_session(&mut channel, 1, LIMITS, &mut policy, |_| {
+                    factory_calls += 1;
+                    Ok(source(&source_path))
+                });
+            // The host-owned fixture is allowed to cancel the socket after its
+            // operation; graceful close_notify is not part of this test.
+            match result {
+                Ok(()) => {}
+                Err(RecordSessionError::Io(error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset
+                    ) => {}
+                result => panic!("unexpected fixture server shutdown: {result:?}"),
+            }
+            (true, policy.0, factory_calls)
+        });
+        let mut child = Command::new(&swift)
+            .arg(addr.port().to_string())
+            .arg(&fixture.0)
+            .arg(mode)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start Swift TLS fixture");
+        let child_deadline = Instant::now() + Duration::from_secs(8);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= child_deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("Swift TLS fixture exceeded deadline: {mode}");
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let output = child.wait_with_output().unwrap();
+        let observed = worker.join().unwrap();
+        assert!(output.status.success(), "Swift TLS fixture failed: {mode}");
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+        match mode {
+            "healthy" => assert!(observed.0 && observed.1 > 0 && observed.2 >= 3),
+            "denied" => assert!(observed.0 && observed.1 > 0 && observed.2 == 0),
+            _ => assert_eq!((observed.1, observed.2), (0, 0)),
+        }
+        println!(
+            "Swift TLS fixture: {mode}; policy calls {}; source acquisitions {}",
+            observed.1, observed.2
+        );
+    }
 }

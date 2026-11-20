@@ -8,6 +8,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'tests/session_tls.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'tests/session_tls.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   workflow_dispatch:
@@ -41,3 +43,21 @@ jobs:
       - run: swift test
       - name: Headless Swift to Rust Sync Engine over TCP
         run: python3 clients/swift/e2e/run-head.py
+
+  swift-tls-e2e:
+    name: Swift to Rust TLS (Xcode 26)
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          swift --version
+          xcrun --sdk macosx --show-sdk-version
+          if ! brew list --versions openssl@3 >/dev/null; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          fi
+          sh clients/swift/e2e/run-tls.sh
