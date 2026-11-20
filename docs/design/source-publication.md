@@ -1,7 +1,6 @@
 # Durable record-source requirements (#47)
 
-**Status: native SQLite record-source ownership foundation. #47 and #54 remain
-open.** No optional core feature bit is assigned. Public source APIs cannot
+**Status: native SQLite record-source ownership foundation. See the [current acceptance map](source-head-acceptance.md); #54 remains open.** No optional core feature bit is assigned. Public source APIs cannot
 publish nonzero requirements until an encoder implementing those bits exists.
 Catalogue publication, production mixed-version upgrades and broader transport
 coverage remain separate work.

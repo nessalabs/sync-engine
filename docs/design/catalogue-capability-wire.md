@@ -1,7 +1,6 @@
 # Version1 catalogue capability operations (#47)
 
-**Status: explicit capability dialect on the development catalogue route. #47 and
-#54 remain open.** This is not a session catalogue, secure channel, compression,
+**Status: explicit capability dialect on the development catalogue route. See the [current acceptance map](source-head-acceptance.md); #54 remains open.** This is not a session catalogue, secure channel, compression,
 inline catalogue, multiplexing or instantaneous publication/apply fencing slice.
 Known optional masks remain zero; undefined feature publication is still refused.
 

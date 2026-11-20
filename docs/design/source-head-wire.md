@@ -3,8 +3,7 @@
 **Status: opt-in record wire slice, not complete capability rollout.** This adds
 capability admission to the existing bounded, serialized record session and its
 optimized first page. Catalogue/history/artifact routes, persistent follow
-integration and durable requirement publication remain outside this slice. #47
-and #54 remain open. No new optional core bit is assigned; both known masks remain
+integration and durable requirement publication remain outside this slice. See the [current acceptance map](source-head-acceptance.md); #54 remains open. No new optional core bit is assigned; both known masks remain
 zero. Hosts still own authenticated/encrypted channel composition.
 
 ## Explicit endpoint, version and no downgrade
@@ -117,8 +116,7 @@ not implement durable source publication. Tests also cover policy changes after
 metadata, canonical echoes, partial responses, no downgrade, ordinary page steps,
 the full source-owned 512KiB record ceiling and fresh post-pass requirements.
 
-Remaining work includes a real durable monotonic requirements owner/CAS tied to
-source encoding, proof for nonzero reader feature publication, capability metadata
-on follow/catalogue/history/artifact and all other planned routes, and the wider
-secure transport/priority/credit/cancel/outage gates. This slice does not authorize
-a nonzero reader-feature production rollout or establish complete #47/#54 safety.
+Durable publication and catalogue capability transport landed in later slices;
+see the [current acceptance map](source-head-acceptance.md). Nonzero format
+rollout and the wider secure transport/priority/credit/cancel/outage gates still
+need their own implementation and qualification under #54.

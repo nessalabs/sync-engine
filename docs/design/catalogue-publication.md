@@ -1,7 +1,6 @@
 # Durable catalogue publication (#47)
 
-**Status: native SQLite catalogue ownership and snapshot admission. #47 and #54
-remain open.** Known optional core masks remain zero. No public encoder can publish
+**Status: native SQLite catalogue ownership and snapshot admission. See the [current acceptance map](source-head-acceptance.md); #54 remains open.** Known optional core masks remain zero. No public encoder can publish
 undefined feature bits. This supplies no session catalogue adapter, production
 channel security or instantaneous receiver commit fencing.
 
