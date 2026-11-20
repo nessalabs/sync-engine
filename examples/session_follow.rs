@@ -1,15 +1,17 @@
 //! Owned loopback fixture for real polling/push comparisons; not production trust.
 use nessa_sync::replication::{
     application::{
-        begin_pass, begin_pass_with_page, finish_pass, Access, OpenRecordSource, RecordSource,
-        ReplicaStore, ScopeAuthorizer, SourceError, StoreError, SyncError, MAX_RECORD_BYTES,
+        begin_pass, begin_pass_with_page, finish_pass, Access, Clock, FreshnessPolicy,
+        FreshnessWake, FreshnessWork, OpenRecordSource, RecordFreshness, RecordSource,
+        ReplicaStore, RetryJitter, RetryPolicy, ScopeAuthorizer, SourceError, StoreError,
+        SyncError, MAX_RECORD_BYTES,
     },
-    domain::{Checkpoint, CommitPlan, Id, Limits, Scope},
+    domain::{CapabilitySupport, Checkpoint, CommitPlan, Id, Limits, Scope},
     infrastructure::session::{
-        connect_follow, serve_follow_record_session, DuplexSessionIo, FollowAuthorizer,
-        FollowSession, FollowSource, HintSignal, HintWake, InterruptibleSessionIo, RecordSession,
-        RecordSessionAuthorizer, RecordSessionSource, SessionInterrupt, SessionLimits,
-        TcpSessionIo, TcpSessionWriter,
+        connect_follow, serve_capability_follow_record_session, serve_follow_record_session,
+        CapabilityFollowSource, DuplexSessionIo, FollowAuthorizer, FollowSession, FollowSource,
+        HintSignal, HintWake, InterruptibleSessionIo, RecordSession, RecordSessionAuthorizer,
+        RecordSessionSource, SessionInterrupt, SessionLimits, TcpSessionIo, TcpSessionWriter,
     },
     infrastructure::{SqliteReferenceSource, SqliteReplicaStore, WireCounters},
 };
@@ -219,7 +221,7 @@ fn hint_sent(addr: SocketAddrV4, head: u64) -> Result<(u64, u64), Error> {
     s.write_all(&head.to_be_bytes())?;
     Ok((u64_from(&mut s)?, u64_from(&mut s)?))
 }
-fn serve(path: PathBuf, port: u16) -> Result<(), Error> {
+fn serve(path: PathBuf, port: u16, capability: bool) -> Result<(), Error> {
     drop(source(&path)?);
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))?;
     eprintln!("follow fixture listening on {}", listener.local_addr()?);
@@ -247,23 +249,35 @@ fn serve(path: PathBuf, port: u16) -> Result<(), Error> {
                             inner: TcpSessionIo::new(socket)?,
                             sent,
                         };
-                        serve_follow_record_session(
-                            io,
-                            number,
-                            limits(),
-                            Policy,
-                            move |_| {
-                                SqliteReferenceSource::open(
-                                    &path,
-                                    id("example-origin"),
-                                    id("transcript"),
-                                    id("first"),
-                                    id("text-v1"),
-                                )
-                                .map_err(|_| SourceError::Unavailable)
-                            },
-                            signal,
-                        )
+                        let factory = move |_: &Scope| {
+                            SqliteReferenceSource::open(
+                                &path,
+                                id("example-origin"),
+                                id("transcript"),
+                                id("first"),
+                                id("text-v1"),
+                            )
+                            .map_err(|_| SourceError::Unavailable)
+                        };
+                        if capability {
+                            serve_capability_follow_record_session(
+                                io,
+                                number,
+                                limits(),
+                                Policy,
+                                factory,
+                                signal,
+                            )
+                        } else {
+                            serve_follow_record_session(
+                                io,
+                                number,
+                                limits(),
+                                Policy,
+                                factory,
+                                signal,
+                            )
+                        }
                         .map_err(error)?;
                     }
                     2 => {
@@ -344,7 +358,26 @@ fn catch_up<A: ScopeAuthorizer, S: OpenRecordSource>(
         }
     }
 }
+struct Elapsed(Instant);
+impl Clock for Elapsed {
+    fn now(&self) -> Duration {
+        self.0.elapsed()
+    }
+}
+struct Half;
+impl RetryJitter for Half {
+    fn delay(&mut self, ceiling: Duration) -> Duration {
+        ceiling / 2
+    }
+}
+type FreshnessOwner = RecordFreshness<Elapsed, Half>;
 enum Ports {
+    Freshness {
+        root: FollowSession<TcpSessionWriter>,
+        a: FollowAuthorizer<TcpSessionWriter>,
+        s: CapabilityFollowSource<TcpSessionWriter>,
+        owner: Box<FreshnessOwner>,
+    },
     Poll {
         root: RecordSession<TcpSessionIo>,
         a: RecordSessionAuthorizer<TcpSessionIo>,
@@ -366,6 +399,26 @@ impl Ports {
                 let (a, s) = root.parts();
                 Ok(Self::Poll { root, a, s })
             }
+            "freshness" => {
+                let root = connect_follow(io, scope(), limits(), Duration::from_secs(20))
+                    .map_err(error)?;
+                let (a, s) = root.capability_parts(CapabilitySupport::current());
+                let owner = RecordFreshness::new(
+                    scope(),
+                    FreshnessPolicy::Never,
+                    CapabilitySupport::current(),
+                    Elapsed(Instant::now()),
+                    Half,
+                    RetryPolicy::new(Duration::from_millis(100), Duration::from_secs(2))
+                        .map_err(error)?,
+                );
+                Ok(Self::Freshness {
+                    root,
+                    a,
+                    s,
+                    owner: Box::new(owner),
+                })
+            }
             "push" => {
                 let root = connect_follow(io, scope(), limits(), Duration::from_secs(20))
                     .map_err(error)?;
@@ -378,7 +431,7 @@ impl Ports {
     fn counters(&self) -> Result<(WireCounters, u64, u64), Error> {
         match self {
             Self::Poll { root, .. } => Ok((root.counters().map_err(error)?, 0, 0)),
-            Self::Push { root, .. } => {
+            Self::Push { root, .. } | Self::Freshness { root, .. } => {
                 let c = root.counters().map_err(error)?;
                 Ok((c.wire, c.hints.frames_received, c.hints.coalesced))
             }
@@ -390,14 +443,16 @@ impl Ports {
                 thread::sleep(cadence);
                 Ok("explicit_poll")
             }
-            Self::Push { root, .. } => match root.hints().wait(cadence).map_err(error)? {
-                HintWake::Changed { .. } => Ok("push"),
-                HintWake::Timeout => Ok("fallback"),
-            },
+            Self::Push { root, .. } | Self::Freshness { root, .. } => {
+                match root.hints().wait(cadence).map_err(error)? {
+                    HintWake::Changed { .. } => Ok("push"),
+                    HintWake::Timeout => Ok("fallback"),
+                }
+            }
         }
     }
     fn pending(&self, head: u64) -> Result<(), Error> {
-        if let Self::Push { root, .. } = self {
+        if let Self::Push { root, .. } | Self::Freshness { root, .. } = self {
             let until = Instant::now() + Duration::from_secs(5);
             while root.hints().stats().map_err(error)?.pending_head != Some(head) {
                 if Instant::now() > until {
@@ -412,12 +467,30 @@ impl Ports {
         match self {
             Self::Poll { a, s, .. } => Ok(catch_up(a, s, store).map_err(error)?),
             Self::Push { a, s, .. } => Ok(catch_up(a, s, store).map_err(error)?),
+            Self::Freshness { a, s, owner, .. } => {
+                // Explicit host wake only in this prerequisite comparison. The
+                // owner retains the pass and mandatory recheck; no second loop.
+                owner.request(FreshnessWake::Explicit);
+                for _ in 0..128 {
+                    if owner.drive(budget(), a, s, store).map_err(error)? == FreshnessWork::Waiting
+                    {
+                        return owner
+                            .metadata()
+                            .map_err(error)?
+                            .position
+                            .ok_or_else(|| "unknown progress".into());
+                    }
+                }
+                Err("bounded fixture did not settle".into())
+            }
         }
     }
     fn close(&self) -> Result<(), Error> {
         match self {
             Self::Poll { root, .. } => root.close().map_err(error)?,
-            Self::Push { root, .. } => root.close().map_err(error)?,
+            Self::Push { root, .. } | Self::Freshness { root, .. } => {
+                root.close().map_err(error)?
+            }
         }
         Ok(())
     }
@@ -518,7 +591,7 @@ fn bench(
         let payload = after.payload_bytes - before.0.payload_bytes;
         let frames = hints - before.1;
         let count = after.exchanges - before.0.exchanges + host_auth;
-        let (sent_count, sent) = if mode == "push" && [1, 4, 5].contains(&index) {
+        let (sent_count, sent) = if mode != "poll" && [1, 4, 5].contains(&index) {
             hint_sent(control, target)?
         } else {
             (0, 0)
@@ -558,7 +631,7 @@ fn bench(
 }
 fn run() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
-    match args.get(1).map(String::as_str){Some("serve") if args.len()==4=>serve(PathBuf::from(&args[2]),args[3].parse()?),Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,address(&args[4])?,Path::new(&args[5]),Duration::from_millis(args[6].parse()?)),Some("inspect") if args.len()==3=>{let(c,n,b)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{b},\"ordered_complete\":true}}");Ok(())},_=>Err("usage: session_follow serve SOURCE PORT | bench poll|push DATA_ADDR CONTROL_ADDR NEW_CACHE CADENCE_MS | inspect CACHE".into())}
+    match args.get(1).map(String::as_str){Some("serve") if args.len()==4=>serve(PathBuf::from(&args[2]),args[3].parse()?,false),Some("serve-cap") if args.len()==4=>serve(PathBuf::from(&args[2]),args[3].parse()?,true),Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,address(&args[4])?,Path::new(&args[5]),Duration::from_millis(args[6].parse()?)),Some("inspect") if args.len()==3=>{let(c,n,b)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{b},\"ordered_complete\":true}}");Ok(())},_=>Err("usage: session_follow serve SOURCE PORT | bench poll|push DATA_ADDR CONTROL_ADDR NEW_CACHE CADENCE_MS | inspect CACHE".into())}
 }
 fn main() {
     if let Err(e) = run() {

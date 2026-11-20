@@ -422,8 +422,9 @@ pub use channel::{
 };
 
 pub use records::follow::{
-    connect_follow, serve_follow_record_session, FollowAuthorizer, FollowCounters, FollowError,
-    FollowIo, FollowSession, FollowSource, HintReceiver, HintSignal, HintStats, HintWake,
+    connect_follow, serve_capability_follow_record_session, serve_follow_record_session,
+    CapabilityFollowSource, FollowAuthorizer, FollowCounters, FollowError, FollowIo, FollowSession,
+    FollowSource, HintReceiver, HintSignal, HintStats, HintWake,
 };
 
 pub use records::capabilities::{

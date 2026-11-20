@@ -114,6 +114,9 @@ jobs:
       - name: Persistent advisory follow TCP and durable-cache lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-session-follow.py
+      - name: Capability follow single-connection prerequisite
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-session-follow.py --capability-follow
       - name: Native SourceHead initial compatibility admission
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-source-head.py
