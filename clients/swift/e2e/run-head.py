@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import struct
 import subprocess
 import tempfile
 import time
@@ -17,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[3]
 SCOPE = ("device-a", "example-origin", "transcript", "first", "text-v1", "local-epoch-1")
 SCOPE_BYTES = b"".join(bytes([len(s)]) + s.encode() for s in SCOPE)
 TOKEN = b"fixture-only"
-LIMITS = struct.pack(">BIH", 1, 2048, 1)
 
 
 def require(condition, message):
@@ -35,29 +33,9 @@ def exact(sock, count):
     return bytes(result)
 
 
-def control(sock, kind):
-    count, = struct.unpack(">I", exact(sock, 4))
-    require(7 <= count <= 2048, "control length")
-    frame = exact(sock, count)
-    require(frame[:7] == b"NSC1\0\1" + bytes([kind]), "control kind")
-    return frame[7:]
-
-
-def bind(sock):
+def authenticate_fixture(sock):
     sock.sendall(bytes([len(TOKEN)]) + TOKEN)
     require(exact(sock, 1) == b"\0", "fixture authorization")
-    body = b"NSC1\0\1\6" + LIMITS + struct.pack(">Q", 1) + SCOPE_BYTES
-    sock.sendall(struct.pack(">I", len(body)) + body)
-    welcome = control(sock, 2)
-    require(len(welcome) == 19 and welcome[8:15] == LIMITS, "welcome limits")
-    session, = struct.unpack(">Q", welcome[:8])
-    require(session != 0, "welcome session")
-    bound = control(sock, 4)
-    require(len(bound) == 36 + len(SCOPE_BYTES), "bound length")
-    echo_session, request, handle, generation = struct.unpack(">QQIQ", bound[:28])
-    require((echo_session, request) == (session, 1), "bound correlation")
-    require(bound[28:-8] == SCOPE_BYTES, "bound scope")
-    return session, handle, generation, struct.unpack(">I", welcome[-4:])[0]
 
 
 def wait_port(server, log):
@@ -91,15 +69,15 @@ def server_fixture(rust, root, readers, writers):
                     server.wait()
 
 
-def run_swift(swift, port, mode=None, state=None):
+def run_swift(swift, port, mode="head", state=None, scope=SCOPE):
     with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
-        session, handle, generation, record_limit = bind(sock)
+        authenticate_fixture(sock)
         # Pass a real blocking connected socket, not a Python read/write
         # proxy. This isolated process has our absolute watchdog.
         sock.setblocking(True)
-        argv = [swift, str(session), str(handle), str(generation), "2048", *SCOPE]
-        if mode is not None:
-            argv.extend([mode, state, str(record_limit)])
+        argv = [swift, *scope, mode]
+        if state is not None:
+            argv.append(state)
         result = subprocess.run(
             argv, stdin=sock, stdout=sock, stderr=subprocess.PIPE, timeout=8,
         )
@@ -122,6 +100,8 @@ def run_pages(rust, swift, repetitions):
         state = root / "records.json"
         with server_fixture(rust, root, 0, 0) as port:
             for _ in range(repetitions):
+                output = run_swift(swift, port, "deny-open", scope=("fixture-denied", *SCOPE[1:]))
+                require(output == ["open-denied"], output)
                 state.write_text('{"rows":[]}')
                 for mode, expected in (("first", "page:2:2"), ("interrupt", "interrupted"),
                                         ("refuse", "oversized"), ("resume", "page:7:5")):
@@ -172,6 +152,8 @@ def main():
         "peer": "rust-session_records-capability-v1",
         "connections": 3 * args.repetitions,
         "head_operations": 6 * args.repetitions,
+        "successful_swift_opens": 7 * args.repetitions,
+        "refused_swift_opens": args.repetitions,
         "page_connections": 4 * args.repetitions,
         "page_operations": 4 * args.repetitions,
         "reopened_exact_records": 7 * args.repetitions,

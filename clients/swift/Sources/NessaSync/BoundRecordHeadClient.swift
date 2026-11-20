@@ -1,8 +1,9 @@
-/// Blocking, host-owned byte channel for an already authenticated and bound
+/// Blocking, host-owned byte channel for an authenticated
 /// experimental NSR1 record endpoint. Implementations must enforce an absolute
 /// I/O deadline, must not call back into the client, and must never consume
 /// more than the requested count in readExactly.
 public protocol RecordHeadChannel {
+    /// Write and flush the full request before returning.
     mutating func writeAll(_ bytes: [UInt8]) throws
     mutating func readExactly(_ count: Int) throws -> [UInt8]
     mutating func close()
@@ -50,9 +51,9 @@ public struct RecordScopeIdentity: Hashable, Sendable {
     }
 }
 
-/// Owns request numbering on one serialized, already-bound NSR1 v1 channel.
-/// The host must verify the explicit peer dialect, authentication, Open/Bound
-/// exchange and exact scope before transferring exclusive channel ownership.
+/// Owns request numbering on one serialized, bound NSR1 v1 channel.
+/// The host selects the explicit peer dialect and authenticates the channel.
+/// Use open to negotiate the binding, or provide an externally validated one.
 /// Head and page receipts are never authorization grants or local checkpoints.
 /// This owner does not dispatch hints, perform retries, or restore a session.
 public final class BoundRecordClient<Channel: RecordHeadChannel> {
@@ -69,16 +70,25 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     var scope: [UInt8] { boundScope.canonicalBytes }
     let recordByteLimit: Int?
 
-    public init(
+    public convenience init(
         channel: Channel, session: UInt64, handle: UInt32, generation: UInt64,
         lastRequest: UInt64, frameBodyLimit: Int, scopeFields: [String], recordByteLimit: Int? = nil
+    ) throws(RecordHeadReadError) {
+        let scope = try RecordScopeIdentity(validatingFields: scopeFields)
+        try self.init(channel: channel, session: session, handle: handle, generation: generation,
+            lastRequest: lastRequest, frameBodyLimit: frameBodyLimit, scope: scope, recordByteLimit: recordByteLimit)
+    }
+
+    init(
+        channel: Channel, session: UInt64, handle: UInt32, generation: UInt64,
+        lastRequest: UInt64, frameBodyLimit: Int, scope: RecordScopeIdentity, recordByteLimit: Int?
     ) throws(RecordHeadReadError) {
         guard session != 0, handle != 0, generation != 0, lastRequest != 0,
             lastRequest != UInt64.max, (2_048...8_192).contains(frameBodyLimit),
             recordByteLimit.map({ (1...524_288).contains($0) }) ?? true
         else { throw .invalidBinding }
 
-        self.boundScope = try RecordScopeIdentity(validatingFields: scopeFields)
+        self.boundScope = scope
         self.channel = channel
         self.session = session
         self.handle = handle
