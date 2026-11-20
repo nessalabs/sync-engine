@@ -27,7 +27,9 @@ pub(super) const FORWARD_RECORD_METADATA_SQL: &str = "SELECT position, octet_len
 pub(super) const HISTORY_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position >= ?1 AND position < ?2 ORDER BY position DESC LIMIT ?3";
 
 mod publication;
+mod retention;
 pub use publication::SourcePublicationError;
+pub use retention::{RecordPinReceipt, RecordRetentionError};
 
 const MAX_PAGE_RECORDS: usize = 256;
 const MAX_PAGE_BYTES: usize = 1024 * 1024;
@@ -72,8 +74,8 @@ pub struct SqliteReferenceSource {
 impl SqliteReferenceSource {
     /// Opens or creates a source file. Existing identity is never reset or
     /// silently replaced, and no user-selected path is deleted. Recognized version1
-    /// record files migrate atomically to version2; old writers must be stopped
-    /// by the host before upgrade (already-open old binaries are not fenced).
+    /// and version2 record files migrate atomically to version3. Hosts must stop
+    /// old writers before upgrade (already-open old binaries are not fenced).
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
@@ -140,45 +142,6 @@ impl SqliteReferenceSource {
     /// History record payload bytes returned on this handle.
     pub fn history_payload_bytes(&self) -> u64 {
         self.history_payload_bytes
-    }
-
-    /// Advances the reference source's historical read floor without deleting
-    /// physical records. This preserves immutable record-ID deduplication while
-    /// exercising a pruned-range contract. The floor cannot move backwards or
-    /// past the committed head.
-    pub fn prune_through(&mut self, position: u64) -> Result<(), StoreError> {
-        let position = i64::try_from(position).map_err(|_| StoreError::Failed)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| StoreError::Failed)?;
-        publication::read(&tx)
-            .map_err(|_| StoreError::Failed)?
-            .writer()
-            .map_err(|_| StoreError::Failed)?;
-        let head: i64 = tx
-            .query_row(
-                "SELECT head FROM source_meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| StoreError::Failed)?;
-        let floor: i64 = tx
-            .query_row(
-                "SELECT pruned_through FROM source_history WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| StoreError::Failed)?;
-        if position < floor || position > head {
-            return Err(StoreError::Failed);
-        }
-        tx.execute(
-            "UPDATE source_history SET pruned_through = ?1 WHERE singleton = 1",
-            [position],
-        )
-        .map_err(|_| StoreError::Failed)?;
-        tx.commit().map_err(|_| StoreError::Uncertain)
     }
 
     fn matches(&self, scope: &Scope) -> bool {

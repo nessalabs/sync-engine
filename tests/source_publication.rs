@@ -116,7 +116,7 @@ fn populated_v1_migration_preserves_identity_rows_floor_and_dedup_after_restart(
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     assert_eq!(
         db.query_row("SELECT pruned_through FROM source_history", [], |r| r
@@ -468,7 +468,7 @@ fn partial_future_and_malformed_storage_are_refused_instead_of_defaulted() {
     let p = d.path("future.db");
     drop(source(&p));
     let db = Connection::open(&p).unwrap();
-    db.pragma_update(None, "user_version", 3).unwrap();
+    db.pragma_update(None, "user_version", 4).unwrap();
     assert!(matches!(
         SqliteReferenceSource::open(
             &p,

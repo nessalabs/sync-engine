@@ -49,7 +49,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != SOURCE_APPLICATION_ID || !matches!(version, 1 | 2) {
+    } else if application != SOURCE_APPLICATION_ID || !matches!(version, 1..=3) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -84,7 +84,7 @@ pub(super) fn initialize(
         "schema_id",
         "head",
     ];
-    if version == 2 {
+    if version >= 2 {
         expected.extend(["metadata_version", "reader_required", "writer_required"]);
     }
     if columns != expected {
@@ -97,8 +97,12 @@ pub(super) fn initialize(
         // Older slice2 files may lack the later history-floor table.
         tx.execute_batch("CREATE TABLE IF NOT EXISTS source_history (singleton INTEGER PRIMARY KEY CHECK(singleton=1), pruned_through INTEGER NOT NULL CHECK(pruned_through>=0));
             INSERT OR IGNORE INTO source_history VALUES(1,0);")?;
-        tx.pragma_update(None, "user_version", 2)?;
     }
+    if version < 3 {
+        super::retention::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 3)?;
+    }
+    super::retention::verify(&tx)?;
     read(&tx)?; // A malformed/missing/future partial row must never become zero.
     tx.commit()?;
     Ok(())
