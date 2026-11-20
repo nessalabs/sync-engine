@@ -1,0 +1,64 @@
+{
+  "checker": "TLC 2.19, one worker, TLA+ release v1.7.4",
+  "jar_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model_sha256": "fe191416c82c60b92d7427d1c8915e9ae285449a8250f809e679f8b931d99e91",
+  "config_sha256": "f2c5d708518287c425914de2059c32584a2c1a2c0180711265bc15cae545f43b",
+  "results": [
+    {
+      "case": "safe",
+      "generated_states": 2104,
+      "distinct_states": 795,
+      "expected_violation": null,
+      "reachability_witness": false
+    },
+    {
+      "case": "stale-epoch",
+      "generated_states": 284,
+      "distinct_states": 136,
+      "expected_violation": "NoStaleEpoch",
+      "reachability_witness": false
+    },
+    {
+      "case": "unstamped-result",
+      "generated_states": 99,
+      "distinct_states": 61,
+      "expected_violation": "StampedApply",
+      "reachability_witness": false
+    },
+    {
+      "case": "wrong-grant",
+      "generated_states": 256,
+      "distinct_states": 123,
+      "expected_violation": "ExactGrant",
+      "reachability_witness": false
+    },
+    {
+      "case": "reopen-loses-floor",
+      "generated_states": 23,
+      "distinct_states": 21,
+      "expected_violation": "DurableOriginFloor",
+      "reachability_witness": false
+    },
+    {
+      "case": "split-commit",
+      "generated_states": 94,
+      "distinct_states": 58,
+      "expected_violation": "AtomicCheckpoint",
+      "reachability_witness": false
+    },
+    {
+      "case": "authorized-apply-after-reopen",
+      "generated_states": 261,
+      "distinct_states": 128,
+      "expected_violation": "NoApplyAfterReopen",
+      "reachability_witness": true
+    },
+    {
+      "case": "authorized-higher-epoch-catchup",
+      "generated_states": 1050,
+      "distinct_states": 441,
+      "expected_violation": "NoCatchupAtHigherEpoch",
+      "reachability_witness": true
+    }
+  ]
+}
