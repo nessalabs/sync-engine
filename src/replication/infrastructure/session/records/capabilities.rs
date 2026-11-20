@@ -13,7 +13,7 @@ pub(super) type ViewHead<R> = fn(&mut R, &Scope) -> Result<SourceHead, SourceErr
 pub(super) fn operation(kind: u8) -> bool {
     matches!(kind, HEAD_CAP | OPEN_CAP | PAGE_CAP)
 }
-fn version(d: &mut Decoder<'_>) -> Result<u16, RecordSessionError> {
+pub(super) fn version(d: &mut Decoder<'_>) -> Result<u16, RecordSessionError> {
     Ok(u16::from_be_bytes(
         d.take(2)?
             .try_into()
@@ -46,12 +46,12 @@ pub(super) fn decode_incompatible(bytes: &[u8]) -> Result<CapabilityError, Recor
     encode_incompatible(error)?;
     Ok(error)
 }
-fn prefix(supported: CapabilitySupport) -> Vec<u8> {
+pub(super) fn prefix(supported: CapabilitySupport) -> Vec<u8> {
     let mut out = SOURCE_HEAD_VERSION.to_be_bytes().to_vec();
     out.extend_from_slice(&supported.reader_bits().to_be_bytes());
     out
 }
-fn put_metadata(out: &mut Vec<u8>, head: &SourceHead) {
+pub(super) fn put_metadata(out: &mut Vec<u8>, head: &SourceHead) {
     out.extend_from_slice(&head.version().to_be_bytes());
     for n in [
         head.position(),
@@ -61,7 +61,10 @@ fn put_metadata(out: &mut Vec<u8>, head: &SourceHead) {
         out.extend_from_slice(&n.to_be_bytes());
     }
 }
-fn metadata(d: &mut Decoder<'_>, scope: Scope) -> Result<SourceHead, RecordSessionError> {
+pub(super) fn metadata(
+    d: &mut Decoder<'_>,
+    scope: Scope,
+) -> Result<SourceHead, RecordSessionError> {
     Ok(SourceHead::advertised(
         scope,
         version(d)?,
@@ -73,14 +76,14 @@ fn metadata(d: &mut Decoder<'_>, scope: Scope) -> Result<SourceHead, RecordSessi
 fn source_failure(error: RecordSessionError) -> SourceError {
     source_error(error)
 }
-fn policy<A: ScopeAuthorizer>(a: &mut A, s: &Scope) -> Result<(), RecordSessionError> {
+pub(super) fn policy<A: ScopeAuthorizer>(a: &mut A, s: &Scope) -> Result<(), RecordSessionError> {
     match access_code(a.authorize(s), s) {
         0 => Ok(()),
         7 => Err(RecordSessionError::Protocol),
         code => Err(RecordSessionError::Source(decode_source_error(code))),
     }
 }
-fn number(d: &mut Decoder<'_>) -> Result<usize, RecordSessionError> {
+pub(super) fn number(d: &mut Decoder<'_>) -> Result<usize, RecordSessionError> {
     usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)
 }
 
@@ -110,7 +113,10 @@ where
         policy,
         &mut factory,
         None,
-        Some(R::view_head),
+        CapabilityRoutes {
+            head: Some(R::view_head),
+            history: None,
+        },
     )
 }
 pub(super) fn server_response<A, F, R>(
