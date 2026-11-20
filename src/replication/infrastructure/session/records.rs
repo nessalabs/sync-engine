@@ -38,6 +38,7 @@ enum Opening {
     Open,
     Follow,
     ScopePair,
+    ScopePairBatch,
 }
 pub(super) mod capabilities;
 pub(super) mod follow;
@@ -203,7 +204,7 @@ fn read_packet_wait(
     }
     let kind = d.byte()?;
     let status = d.byte()?;
-    if kind != HINT && !data_operation(kind & !REPLY) {
+    if kind != HINT && kind & !REPLY != scope_pair::HEAD_BATCH && !data_operation(kind & !REPLY) {
         return Err(RecordSessionError::Protocol);
     }
     let meta = Meta {
@@ -508,7 +509,10 @@ impl<S: Read + Write> RecordSession<S> {
             record_bytes: MAX_RECORD_BYTES,
             next: None,
         };
-        let welcome = if !matches!(opening, Opening::Hello | Opening::ScopePair) {
+        let welcome = if !matches!(
+            opening,
+            Opening::Hello | Opening::ScopePair | Opening::ScopePairBatch
+        ) {
             // The complete offer fits the mandatory minimum budget, before any
             // peer limit is selected. Retain the scope until Bound correlation.
             write_control(
@@ -530,6 +534,8 @@ impl<S: Read + Write> RecordSession<S> {
             )?;
             wire.flush()?;
             read_control(&mut wire, offered.control_bytes as usize)?
+        } else if matches!(opening, Opening::ScopePairBatch) {
+            wire.control(&ControlFrame::ScopePairBatchHello(offered))?
         } else if matches!(opening, Opening::ScopePair) {
             wire.control(&ControlFrame::ScopePairHello(offered))?
         } else {
@@ -544,7 +550,9 @@ impl<S: Read + Write> RecordSession<S> {
             ..
         } = welcome
         {
-            if matches!(opening, Opening::ScopePair) && limits.bindings != 2 {
+            if matches!(opening, Opening::ScopePair | Opening::ScopePairBatch)
+                && limits.bindings != 2
+            {
                 return Err(RecordSessionError::Protocol);
             }
             wire.limit = limits.control_bytes as usize;
@@ -553,7 +561,10 @@ impl<S: Read + Write> RecordSession<S> {
         let (request, frame) = owner
             .begin_bind(scope)
             .map_err(|_| RecordSessionError::Protocol)?;
-        let response = if !matches!(opening, Opening::Hello | Opening::ScopePair) {
+        let response = if !matches!(
+            opening,
+            Opening::Hello | Opening::ScopePair | Opening::ScopePairBatch
+        ) {
             if request.correlation().request != FIRST_REQUEST {
                 return Err(RecordSessionError::Protocol);
             }
@@ -577,7 +588,7 @@ impl<S: Read + Write> RecordSession<S> {
         let identity = owner
             .accept_bound(&key, &response)
             .map_err(|_| RecordSessionError::Protocol)?;
-        if matches!(opening, Opening::ScopePair)
+        if matches!(opening, Opening::ScopePair | Opening::ScopePairBatch)
             && (identity.handle() != 1 || identity.generation() != 1)
         {
             return Err(RecordSessionError::Protocol);
@@ -1087,6 +1098,7 @@ struct CapabilityRoutes<R> {
     head: Option<capabilities::ViewHead<R>>,
     history: Option<history::ServerReads<R>>,
     scope_pair: bool,
+    pair_batch: bool,
 }
 impl<R> CapabilityRoutes<R> {
     fn legacy() -> Self {
@@ -1094,6 +1106,7 @@ impl<R> CapabilityRoutes<R> {
             head: None,
             history: None,
             scope_pair: false,
+            pair_batch: false,
         }
     }
 }
@@ -1124,7 +1137,12 @@ where
         match read_control(stream, supported.control_bytes as usize)? {
             ControlFrame::Hello(offered) if !routes.scope_pair => (offered, None, false),
             ControlFrame::ScopePairHello(offered)
-                if routes.scope_pair && supported.bindings == 2 =>
+                if routes.scope_pair && !routes.pair_batch && supported.bindings == 2 =>
+            {
+                (offered, None, false)
+            }
+            ControlFrame::ScopePairBatchHello(offered)
+                if routes.scope_pair && routes.pair_batch && supported.bindings == 2 =>
             {
                 (offered, None, false)
             }
@@ -1201,6 +1219,24 @@ where
             || request.total != request.payload.len()
         {
             return Err(RecordSessionError::Protocol);
+        }
+        if request.kind == scope_pair::HEAD_BATCH {
+            if !routes.pair_batch || (request.meta.handle, request.meta.generation) != (1, 1) {
+                return Err(RecordSessionError::Protocol);
+            }
+            let second = secondary.as_ref().ok_or(RecordSessionError::Protocol)?;
+            let read = routes.head.ok_or(RecordSessionError::Protocol)?;
+            scope_pair::serve_batch(
+                stream,
+                &request,
+                [&scope, second],
+                policy,
+                &mut open_source,
+                read,
+                limit,
+            )?;
+            last = request.meta.request;
+            continue;
         }
         let scope = match (request.meta.handle, request.meta.generation) {
             (1, 1) => &scope,

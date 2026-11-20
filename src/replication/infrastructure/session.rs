@@ -78,6 +78,9 @@ pub enum ControlFrame {
     /// Explicitly offer the two-scope, head-only serialized session mode.
     /// The selected binding budget must be exactly two; never falls back.
     ScopePairHello(SessionLimits),
+    /// Explicit two-scope offer for the bounded batched Heads request.
+    /// Select only if both peers know this mode is supported; never falls back.
+    ScopePairBatchHello(SessionLimits),
     /// Opt-in combined hello and first binding offer on an authenticated channel.
     /// Peer support must be known by the host; no automatic fallback is implied.
     Open {
@@ -200,12 +203,18 @@ pub fn write_control(
     let mut body = Vec::from(MAGIC.as_slice());
     body.extend_from_slice(&VERSION.to_be_bytes());
     match frame {
-        ControlFrame::Hello(limits) | ControlFrame::ScopePairHello(limits) => {
-            if matches!(frame, ControlFrame::ScopePairHello(_)) {
+        ControlFrame::Hello(limits)
+        | ControlFrame::ScopePairHello(limits)
+        | ControlFrame::ScopePairBatchHello(limits) => {
+            if !matches!(frame, ControlFrame::Hello(_)) {
                 if limits.bindings != 2 {
                     return Err(ControlError::InvalidLimits);
                 }
-                body.push(8);
+                body.push(if matches!(frame, ControlFrame::ScopePairBatchHello(_)) {
+                    9
+                } else {
+                    8
+                });
             } else {
                 body.push(1);
             }
@@ -361,6 +370,7 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
     let frame = match decoder.take::<1>()?[0] {
         1 => ControlFrame::Hello(decoder.limits()?),
         8 => ControlFrame::ScopePairHello(decoder.limits()?),
+        9 => ControlFrame::ScopePairBatchHello(decoder.limits()?),
         2 => ControlFrame::Welcome {
             session: u64::from_be_bytes(decoder.take()?),
             limits: decoder.limits()?,
@@ -444,3 +454,5 @@ pub use records::capabilities::{
 };
 
 pub use records::scope_pair::{serve_scope_pair_heads, ScopePairHeadsSession};
+
+pub use records::scope_pair::{serve_scope_pair_batched_heads, PairHeadObservation};
