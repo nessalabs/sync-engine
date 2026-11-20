@@ -49,6 +49,13 @@ pub struct ClaimedNativePage {
 }
 
 impl ClaimedNativePage {
+    // Only the protected local-source-to-wire adapter may encode this native
+    // capture. The decoded wire value is never treated as a native capture.
+    #[cfg(feature = "tls")]
+    pub(crate) fn into_wire(self) -> (OriginAuthorityKey, OriginEpoch, Page) {
+        (self.stamp.key, self.stamp.epoch, self.page)
+    }
+
     /// Validate against the receiver's expected request, checkpoint and
     /// policy limits. Preserve the original stamp and exact operation echo.
     pub fn validate(

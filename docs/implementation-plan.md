@@ -297,3 +297,7 @@ core commits must not automatically advance that dependency.
 The native [catalogue horizon prerequisite](design/catalogue-horizon.md) adds explicit
 v2 coverage admission and durable exact-scope observations. Positive publication
 and marker collection remain disabled pending compatible reset/transport composition.
+
+The [native v2 reset composition](design/catalogue-horizon-reset.md) now uses the
+same candidate journal after typed horizon expiry, including atomic cold start and
+commit-time horizon fences. Source activation/collection remains disabled; Issue #49 remains open.

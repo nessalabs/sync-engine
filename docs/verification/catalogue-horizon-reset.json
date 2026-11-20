@@ -1,0 +1,1767 @@
+{
+  "scope": "native v2 reset composition; activation/collection/network dialect disabled",
+  "baseline_commit": "e42b01a98503035ccc3423709f9547cc40698d13",
+  "runtime_commit": "c7477895954da6dbedcd8ff2ed5e5e32ca8ec5c6",
+  "native_source_sha256": {
+    "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+    "Cargo.toml": "a077273d22f9e4a527982bc7ec408f6d2cc70ff3e5b9d65552730acd64a9fad9",
+    "examples/catalogue_reset/metrics.rs": "8d8502ff1e1d3a116c35d0f3618d1920d1ca977328520037702843fc8c4cdce6",
+    "examples/catalogue_reset.rs": "ca9133f10f92da9754643f1db4f9ceb16ea7c3ac4afc86e875f7678f97b08213",
+    "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+    "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+    "src/replication/application/freshness.rs": "1f789d9f724a40e3f990edaf90dff15a13d28c1dd0329705df5f598da056e19d",
+    "src/replication/application/mod.rs": "9b57a7b8e5f96a4a15f16e23716e947bc74a3854de4e19f54386b27102a9988d",
+    "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+    "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+    "src/replication/catalogue/application.rs": "656053a9697e1a3c0ce0d205dc4bae7e25582040afb2e86b9353820b88996003",
+    "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+    "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+    "src/replication/catalogue/horizon/recovery.rs": "2b11cec153ed18d95d1a047a4331dc47f6518bdc0979d99f2fad820a37c020ee",
+    "src/replication/catalogue/horizon.rs": "6bf907916e2d11b6b2bbceaa580a3811ececc446f03f66b3a3332af4523f0fcd",
+    "src/replication/catalogue/mod.rs": "6a5361a1be24914e0f95915d0c8da4a29568ae381415692b0b7085d804e419da",
+    "src/replication/catalogue/recovery.rs": "bfb9ae34b7f811277cbb6a368f02c962f8273086b1aeb5057b4ab234ac8c4d5b",
+    "src/replication/domain/mod.rs": "56a4a9b66530f6a94a3a6b20a0c8ea78077f0457b581ee5eb3efbe3e797721cc",
+    "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+    "src/replication/domain/retention.rs": "6ee22276f1d12132562196f9e23edd85a23f05b4f2c1c35ecc8f92abb900db47",
+    "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+    "src/replication/history/application.rs": "f450dba1e97dca11d94396a5cef67ea54670a2a187698a03c6d545f257eebc3c",
+    "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+    "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+    "src/replication/infrastructure/loopback/catalogue_capabilities.rs": "c759f1a3e737f7c8335184bc8c49d71c57f709dbf7f4b127ca66984884babbec",
+    "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+    "src/replication/infrastructure/loopback.rs": "5311cad018dbaf177719187e38f2c587ac97471e7f59ef01a2e5d2a3113dcc0f",
+    "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+    "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+    "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+    "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+    "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+    "src/replication/infrastructure/session/records/capabilities.rs": "5b9edc220aa9bca85bee9bbf59fefdeea2463aa906e0922204b2204de3268e49",
+    "src/replication/infrastructure/session/records/follow.rs": "608e2dc65b6f46ad40668426a6aee23fd3ded3daaec23300c5bbf68fcad9c2a3",
+    "src/replication/infrastructure/session/records/history.rs": "709eef3c9354a91fa21a4426288a2d63df32bd64ea55bfddc8655241bafc1ad2",
+    "src/replication/infrastructure/session/records/scope_pair/batch.rs": "3002390b64113a4ebfe403c681d60a8d3b166414c4e3b2cc6bab4960a548589b",
+    "src/replication/infrastructure/session/records/scope_pair.rs": "042d803d8a1539b0d0f625bae8bf3fd554cafae600a3b1a310eb76081163d9d6",
+    "src/replication/infrastructure/session/records.rs": "5a1694d4fee8d3880a05bff348aebc34e87c6de27ea40b790d5e444505b93ee0",
+    "src/replication/infrastructure/session.rs": "796ee3260af0934fd77ee35252d5f26ed7c437c60ce6cc1ec9f526696384a111",
+    "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+    "src/replication/infrastructure/sqlite/catalogue/horizon.rs": "375aa136fc4f97c7eb572226ae07cdc404bdf4b6f4417705b6968a1e0f98dda5",
+    "src/replication/infrastructure/sqlite/catalogue/publication.rs": "0aa28634b0960d1b0262f41a0ad8927699507da9bfd2bea182e40d9e8b181de1",
+    "src/replication/infrastructure/sqlite/catalogue/recovery.rs": "f4bb3b4a2abf91af43be2fdd7ffc0b56e909d701ab5335e891250c3bd830c4a5",
+    "src/replication/infrastructure/sqlite/catalogue/source_connection.rs": "e4b1047ddcb18f522c9d67b0f14efb8c8e09c1b31b25503539ef9aefc36628c8",
+    "src/replication/infrastructure/sqlite/catalogue.rs": "023adc2dd0c726a143f9f597aab1d08b34c1ba88dc48e08b5c22e9ceff5104fa",
+    "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+    "src/replication/infrastructure/sqlite/mod.rs": "79202283d102e168effc9010714616ef4e635f7bb9a24347e08be8c9cf049bd7",
+    "src/replication/infrastructure/sqlite/origin_authority.rs": "7911b56e12a6877b107dbeb2074ad0d5e6caac08ee086c4352287be962d0757d",
+    "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+    "src/replication/infrastructure/sqlite/replica/epoch.rs": "cd0928a63ae5c510050ee19b3d0abe840ff5bf6ed6ca61c1c09642cbdff71038",
+    "src/replication/infrastructure/sqlite/replica.rs": "a92fa64e2b2e99696e26a94b0d6ec6e8679f03c350a45c6e4f45635950246a78",
+    "src/replication/infrastructure/sqlite/source/epoch_head.rs": "e04f1ec620e3f54fc5a6fbd8bf8acf41bafd34c4fbcdcb0e4ba941bcec99212f",
+    "src/replication/infrastructure/sqlite/source/history_capability_tests.rs": "039316693a426a5f4f5fef446959de967997996fbf35eacca8285ab32483bb62",
+    "src/replication/infrastructure/sqlite/source/publication.rs": "aebaef308937b2ca353932e21857dcd87f064b4be83294a52c9f80bad1a863ce",
+    "src/replication/infrastructure/sqlite/source/retention.rs": "6abaef64d5b77f0f4af9baf7f4ff15b8931ff2e481aa84f331092ca9e9e17a79",
+    "src/replication/infrastructure/sqlite/source.rs": "bfb3624e6262ddbb6af7c23f15bd35d501044e732f7aebf643bc73421223d0c5",
+    "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+    "src/replication/mod.rs": "2d1a97e6d564f4df2ae3a7bb55096cdc2b60e2c2f97189ca14625f36506bb5c8",
+    "src/replication/origin_epoch.rs": "b2ca01ffa398d9b4f048d96520beb13b18bb3e70b8bcc30df3e78ab9902cc1ee"
+  },
+  "test_sha256": "abed85f9e493dd4fc8f343fea50149ec07e78160bf0a57ef04e400e45d36f571",
+  "raw_receipt_sha256": {
+    "native-before-zero.json": "fd28df12612035b7f09506f2eb557b41aeac8cca399ef962d205a09f5ce38309",
+    "native-before-refused.json": "0c3067757bf40da172913cde40d857310c95bb319ac2cf7cd65a3ed09ec717f5",
+    "native-after-zero.json": "954d43e7b4ca8e3a0f4cfc3e6488b4946987880c904c4a285913a52ac8eb8344",
+    "native-after-positive.json": "21716e596060fdd91a4c1eafc50cccf47916b8fcc3de3dabc0da91c0c32e066a",
+    "native-after-refused.json": "d80f0b403664b6bf27f93e4e2d848da2b4d99576b5b35bd7025ca5e35ce27e9e",
+    "wire-before-legacy.json": "344f62d07fca4fb8b8e3a90ab0b677c97d6785f0155031b3eee26777508e42bc",
+    "wire-before-capabilities.json": "ee20fa906060a93256c16687e84a8b0b75b311ca5ca72667336b7a2448a1fc4a",
+    "wire-after-legacy.json": "28afca471fc47ef1323ab905c3487e691b3359a28a3186c2fb35cdb584345e57",
+    "wire-after-capabilities.json": "3e181760b3927676b6a9a735ddc4362b31fb44e8f9e0e4558c05ece3d014be48",
+    "qualification.json": "d25f21a14dea36af76f138f8b6e80c9397d8e11111f2afaefe0df3c347231f6c",
+    "guards.json": "6d6835eea044a5afd8213b1b416033959cd11ed3d39b7e8b35d967d6a2785605",
+    "guards-restored.log": "718d98ca14d98583f7a93fec2a0d4ff362df2f443b2e41511c8f1188903fdc8d",
+    "empty-authority-before-fix.log": "393344b9dc1f590d2ae17db9abc98057f90eab4b392bab81aedb0a9623bdd15f"
+  },
+  "conditions": [
+    "620 prior cached live IDs;160 deletions;H780; fixture-only source metadata/membership changes",
+    "legacy-zero keeps all160 markers served; positive fixture hides159 strictly below780 and serves equal marker780",
+    "every start/step a fresh process; exact final source identity/current rows equal reopened receiver values/fences",
+    "source/candidate/observation/journal counts are application port calls; no network or disk fsync count claim",
+    "work_ms excludes open/verification, process_ms includes both open and effect/report; prepare/inspection excluded",
+    "unshaped debug shared-host timings; no speedup or storage-saving claim",
+    "no production source activation/collection or versioned network path is enabled"
+  ],
+  "native_summary": {
+    "before-zero": {
+      "process_ms": {
+        "median": 147.57006001309492,
+        "min": 145.0669620098779,
+        "max": 170.4804289911408
+      },
+      "work_ms": {
+        "median": 82.814204,
+        "min": 80.951277,
+        "max": 93.158415
+      },
+      "source_read_calls": {
+        "median": 638,
+        "min": 638,
+        "max": 638
+      },
+      "manifest_reads": {
+        "median": 16,
+        "min": 16,
+        "max": 16
+      },
+      "resolve_reads": {
+        "median": 620,
+        "min": 620,
+        "max": 620
+      },
+      "manifest_bytes": {
+        "median": 16740,
+        "min": 16740,
+        "max": 16740
+      },
+      "payload_bytes": {
+        "median": 8280,
+        "min": 8280,
+        "max": 8280
+      },
+      "journal_steps": {
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "allocated_receiver_bytes": {
+        "median": 98304,
+        "min": 98304,
+        "max": 98304
+      }
+    },
+    "before-refused": {},
+    "after-zero": {
+      "process_ms": {
+        "median": 145.23507801641244,
+        "min": 142.16212199244183,
+        "max": 152.66469397465698
+      },
+      "work_ms": {
+        "median": 83.239535,
+        "min": 81.243084,
+        "max": 84.854372
+      },
+      "source_read_calls": {
+        "median": 638,
+        "min": 638,
+        "max": 638
+      },
+      "manifest_reads": {
+        "median": 16,
+        "min": 16,
+        "max": 16
+      },
+      "resolve_reads": {
+        "median": 620,
+        "min": 620,
+        "max": 620
+      },
+      "manifest_bytes": {
+        "median": 16740,
+        "min": 16740,
+        "max": 16740
+      },
+      "payload_bytes": {
+        "median": 8280,
+        "min": 8280,
+        "max": 8280
+      },
+      "journal_steps": {
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "allocated_receiver_bytes": {
+        "median": 98304,
+        "min": 98304,
+        "max": 98304
+      },
+      "observation_calls": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "journal_effect_calls": {
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "candidate_read_calls": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    "after-positive": {
+      "process_ms": {
+        "median": 184.32276205567177,
+        "min": 177.01609901268966,
+        "max": 185.69449202914257
+      },
+      "work_ms": {
+        "median": 118.631664,
+        "min": 112.239735,
+        "max": 118.741425
+      },
+      "source_read_calls": {
+        "median": 634,
+        "min": 634,
+        "max": 634
+      },
+      "manifest_reads": {
+        "median": 12,
+        "min": 12,
+        "max": 12
+      },
+      "resolve_reads": {
+        "median": 620,
+        "min": 620,
+        "max": 620
+      },
+      "manifest_bytes": {
+        "median": 12447,
+        "min": 12447,
+        "max": 12447
+      },
+      "payload_bytes": {
+        "median": 8280,
+        "min": 8280,
+        "max": 8280
+      },
+      "journal_steps": {
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "allocated_receiver_bytes": {
+        "median": 98304,
+        "min": 98304,
+        "max": 98304
+      },
+      "observation_calls": {
+        "median": 634,
+        "min": 634,
+        "max": 634
+      },
+      "journal_effect_calls": {
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "candidate_read_calls": {
+        "median": 5,
+        "min": 5,
+        "max": 5
+      }
+    },
+    "after-refused": {}
+  },
+  "native_cases": {
+    "before-zero": [
+      {
+        "repetition": 1,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 658,
+        "work_ms": 82.814204,
+        "process_ms": 147.57006001309492,
+        "observation_calls": null,
+        "journal_effect_calls": null,
+        "candidate_read_calls": null,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 2,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 658,
+        "work_ms": 80.951277,
+        "process_ms": 145.0669620098779,
+        "observation_calls": null,
+        "journal_effect_calls": null,
+        "candidate_read_calls": null,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 3,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 658,
+        "work_ms": 93.158415,
+        "process_ms": 170.4804289911408,
+        "observation_calls": null,
+        "journal_effect_calls": null,
+        "candidate_read_calls": null,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      }
+    ],
+    "before-refused": [
+      {
+        "repetition": 1,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 45.88376100582536,
+        "source_payload_counters_available": false
+      },
+      {
+        "repetition": 2,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 6.585883995285258,
+        "source_payload_counters_available": false
+      },
+      {
+        "repetition": 3,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 3.7720640102634206,
+        "source_payload_counters_available": false
+      }
+    ],
+    "after-zero": [
+      {
+        "repetition": 1,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 659,
+        "work_ms": 84.854372,
+        "process_ms": 152.66469397465698,
+        "observation_calls": 0,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 1,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 2,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 659,
+        "work_ms": 81.243084,
+        "process_ms": 142.16212199244183,
+        "observation_calls": 0,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 1,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 3,
+        "head_reads": 2,
+        "manifest_reads": 16,
+        "resolve_reads": 620,
+        "manifest_bytes": 16740,
+        "payload_bytes": 8280,
+        "authorizations": 659,
+        "work_ms": 83.239535,
+        "process_ms": 145.23507801641244,
+        "observation_calls": 0,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 1,
+        "source_read_calls": 638,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 160,
+        "exact_reopened_rows_and_progress": true
+      }
+    ],
+    "after-positive": [
+      {
+        "repetition": 1,
+        "head_reads": 2,
+        "manifest_reads": 12,
+        "resolve_reads": 620,
+        "manifest_bytes": 12447,
+        "payload_bytes": 8280,
+        "authorizations": 1293,
+        "work_ms": 118.631664,
+        "process_ms": 185.69449202914257,
+        "observation_calls": 634,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 5,
+        "source_read_calls": 634,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 1,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 2,
+        "head_reads": 2,
+        "manifest_reads": 12,
+        "resolve_reads": 620,
+        "manifest_bytes": 12447,
+        "payload_bytes": 8280,
+        "authorizations": 1293,
+        "work_ms": 112.239735,
+        "process_ms": 177.01609901268966,
+        "observation_calls": 634,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 5,
+        "source_read_calls": 634,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 1,
+        "exact_reopened_rows_and_progress": true
+      },
+      {
+        "repetition": 3,
+        "head_reads": 2,
+        "manifest_reads": 12,
+        "resolve_reads": 620,
+        "manifest_bytes": 12447,
+        "payload_bytes": 8280,
+        "authorizations": 1293,
+        "work_ms": 118.741425,
+        "process_ms": 184.32276205567177,
+        "observation_calls": 634,
+        "journal_effect_calls": 20,
+        "candidate_read_calls": 5,
+        "source_read_calls": 634,
+        "journal_steps": 20,
+        "allocated_receiver_bytes": 98304,
+        "source_identity_rows": 620,
+        "retired_identity_rows": 160,
+        "served_markers": 1,
+        "exact_reopened_rows_and_progress": true
+      }
+    ],
+    "after-refused": [
+      {
+        "repetition": 1,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 2.920708997407928,
+        "source_payload_counters_available": false
+      },
+      {
+        "repetition": 2,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 12.768849002895877,
+        "source_payload_counters_available": false
+      },
+      {
+        "repetition": 3,
+        "typed_legacy_refusal": true,
+        "durable_state_unchanged": true,
+        "attempt_process_ms": 4.219733003992587,
+        "source_payload_counters_available": false
+      }
+    ]
+  },
+  "wire_before": {
+    "legacy": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 937.112,
+        "elapsed_ms_median": 1073.615,
+        "elapsed_ms_max": 1160.877,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 10.408,
+        "elapsed_ms_median": 11.484,
+        "elapsed_ms_max": 16.212,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 58.929,
+        "elapsed_ms_median": 67.491,
+        "elapsed_ms_max": 70.189,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 959.81,
+        "elapsed_ms_median": 966.297,
+        "elapsed_ms_max": 1200.414,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.398,
+        "elapsed_ms_median": 4.544,
+        "elapsed_ms_max": 7.216,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 1322.921,
+        "elapsed_ms_median": 1352.164,
+        "elapsed_ms_max": 1571.38,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 11.549,
+        "elapsed_ms_median": 12.329,
+        "elapsed_ms_max": 12.94,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 83.655,
+        "elapsed_ms_median": 93.386,
+        "elapsed_ms_max": 95.243,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 1246.928,
+        "elapsed_ms_median": 1318.008,
+        "elapsed_ms_max": 1334.766,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.883,
+        "elapsed_ms_median": 5.231,
+        "elapsed_ms_max": 11.381,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ],
+    "capabilities": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 996.18,
+        "elapsed_ms_median": 1017.41,
+        "elapsed_ms_max": 1051.559,
+        "exchanges": 637,
+        "wire_total_bytes": 242568,
+        "protocol_overhead_bytes": 214668,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 8.606,
+        "elapsed_ms_median": 9.597,
+        "elapsed_ms_max": 10.894,
+        "exchanges": 4,
+        "wire_total_bytes": 1100,
+        "protocol_overhead_bytes": 1039,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 62.984,
+        "elapsed_ms_median": 65.736,
+        "elapsed_ms_max": 84.827,
+        "exchanges": 42,
+        "wire_total_bytes": 14353,
+        "protocol_overhead_bytes": 12553,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 887.56,
+        "elapsed_ms_median": 901.537,
+        "elapsed_ms_max": 953.014,
+        "exchanges": 596,
+        "wire_total_bytes": 228397,
+        "protocol_overhead_bytes": 202297,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.552,
+        "elapsed_ms_median": 4.909,
+        "elapsed_ms_max": 5.459,
+        "exchanges": 1,
+        "wire_total_bytes": 182,
+        "protocol_overhead_bytes": 182,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 1308.875,
+        "elapsed_ms_median": 1314.154,
+        "elapsed_ms_max": 1385.428,
+        "exchanges": 637,
+        "wire_total_bytes": 242568,
+        "protocol_overhead_bytes": 214668,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 10.982,
+        "elapsed_ms_median": 11.152,
+        "elapsed_ms_max": 12.075,
+        "exchanges": 4,
+        "wire_total_bytes": 1100,
+        "protocol_overhead_bytes": 1039,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 87.358,
+        "elapsed_ms_median": 88.946,
+        "elapsed_ms_max": 91.134,
+        "exchanges": 42,
+        "wire_total_bytes": 14353,
+        "protocol_overhead_bytes": 12553,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 1193.074,
+        "elapsed_ms_median": 1239.067,
+        "elapsed_ms_max": 1283.951,
+        "exchanges": 596,
+        "wire_total_bytes": 228397,
+        "protocol_overhead_bytes": 202297,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.542,
+        "elapsed_ms_median": 4.57,
+        "elapsed_ms_max": 4.714,
+        "exchanges": 1,
+        "wire_total_bytes": 182,
+        "protocol_overhead_bytes": 182,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ]
+  },
+  "wire_after": {
+    "legacy": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 946.426,
+        "elapsed_ms_median": 1019.571,
+        "elapsed_ms_max": 1054.59,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 9.823,
+        "elapsed_ms_median": 10.403,
+        "elapsed_ms_max": 11.589,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 61.094,
+        "elapsed_ms_median": 64.66,
+        "elapsed_ms_max": 66.197,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 869.402,
+        "elapsed_ms_median": 883.418,
+        "elapsed_ms_max": 1012.476,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 3.735,
+        "elapsed_ms_median": 4.016,
+        "elapsed_ms_max": 4.542,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 1282.059,
+        "elapsed_ms_median": 1321.057,
+        "elapsed_ms_max": 1362.15,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 12.055,
+        "elapsed_ms_median": 12.643,
+        "elapsed_ms_max": 15.824,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 81.78,
+        "elapsed_ms_median": 86.757,
+        "elapsed_ms_max": 91.475,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 1210.205,
+        "elapsed_ms_median": 1227.197,
+        "elapsed_ms_max": 1291.785,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.734,
+        "elapsed_ms_median": 4.884,
+        "elapsed_ms_max": 11.166,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ],
+    "capabilities": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 917.484,
+        "elapsed_ms_median": 1007.73,
+        "elapsed_ms_max": 1020.32,
+        "exchanges": 637,
+        "wire_total_bytes": 242568,
+        "protocol_overhead_bytes": 214668,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 10.131,
+        "elapsed_ms_median": 11.132,
+        "elapsed_ms_max": 11.526,
+        "exchanges": 4,
+        "wire_total_bytes": 1100,
+        "protocol_overhead_bytes": 1039,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 65.305,
+        "elapsed_ms_median": 67.662,
+        "elapsed_ms_max": 72.006,
+        "exchanges": 42,
+        "wire_total_bytes": 14353,
+        "protocol_overhead_bytes": 12553,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 910.425,
+        "elapsed_ms_median": 949.101,
+        "elapsed_ms_max": 1039.547,
+        "exchanges": 596,
+        "wire_total_bytes": 228397,
+        "protocol_overhead_bytes": 202297,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.336,
+        "elapsed_ms_median": 4.398,
+        "elapsed_ms_max": 5.01,
+        "exchanges": 1,
+        "wire_total_bytes": 182,
+        "protocol_overhead_bytes": 182,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 3,
+        "elapsed_ms_min": 1289.741,
+        "elapsed_ms_median": 1414.79,
+        "elapsed_ms_max": 1445.957,
+        "exchanges": 637,
+        "wire_total_bytes": 242568,
+        "protocol_overhead_bytes": 214668,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 3,
+        "elapsed_ms_min": 10.915,
+        "elapsed_ms_median": 11.715,
+        "elapsed_ms_max": 17.631,
+        "exchanges": 4,
+        "wire_total_bytes": 1100,
+        "protocol_overhead_bytes": 1039,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 3,
+        "elapsed_ms_min": 82.338,
+        "elapsed_ms_median": 89.495,
+        "elapsed_ms_max": 165.947,
+        "exchanges": 42,
+        "wire_total_bytes": 14353,
+        "protocol_overhead_bytes": 12553,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 3,
+        "elapsed_ms_min": 1247.019,
+        "elapsed_ms_median": 1268.185,
+        "elapsed_ms_max": 1402.795,
+        "exchanges": 596,
+        "wire_total_bytes": 228397,
+        "protocol_overhead_bytes": 202297,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 3,
+        "elapsed_ms_min": 4.352,
+        "elapsed_ms_median": 4.628,
+        "elapsed_ms_max": 11.256,
+        "exchanges": 1,
+        "wire_total_bytes": 182,
+        "protocol_overhead_bytes": 182,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ]
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.121,
+      "log": "qualification-00.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.69,
+      "log": "qualification-01.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 3.198,
+      "log": "qualification-02.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.411,
+      "log": "qualification-03.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 3.922,
+      "log": "qualification-04.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 3.952,
+      "log": "qualification-05.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 15.709,
+      "log": "qualification-06.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.451,
+      "log": "qualification-07.log"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.374,
+      "log": "qualification-08.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.682,
+      "log": "qualification-09.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.923,
+      "log": "qualification-10.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.867,
+      "log": "qualification-11.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.574,
+      "log": "qualification-12.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.798,
+      "log": "qualification-13.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 3.015,
+      "log": "qualification-14.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.278,
+      "log": "qualification-15.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.118,
+      "log": "qualification-16.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 14.851,
+      "log": "qualification-17.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.319,
+      "log": "qualification-18.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.215,
+      "log": "qualification-19.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.208,
+      "log": "qualification-20.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.222,
+      "log": "qualification-21.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.521,
+      "log": "qualification-22.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 26.118,
+      "log": "qualification-23.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-head.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.385,
+      "log": "qualification-24.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.899,
+      "log": "qualification-25.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 1.238,
+      "log": "qualification-26.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.801,
+      "log": "qualification-27.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.691,
+      "log": "qualification-28.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 2.879,
+      "log": "qualification-29.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.332,
+      "log": "qualification-30.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.352,
+      "log": "qualification-31.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-retirement.py",
+        "--repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.72,
+      "log": "qualification-32.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 8.165,
+      "log": "qualification-33.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 9.753,
+      "log": "qualification-34.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--client-dialect",
+        "capabilities",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 8.184,
+      "log": "qualification-35.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-freshness.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.466,
+      "log": "qualification-36.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py",
+        "--capability-follow"
+      ],
+      "exit_code": 0,
+      "seconds": 17.353,
+      "log": "qualification-37.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-freshness.py"
+      ],
+      "exit_code": 0,
+      "seconds": 7.672,
+      "log": "qualification-38.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-reset.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.626,
+      "log": "qualification-39.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-horizon.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.614,
+      "log": "qualification-40.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-horizon-reset.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.467,
+      "log": "qualification-41.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-reset-model.py",
+        "--jar",
+        "/workspace/scratch/1e92cc46a545/issue-49-tooling/tla2tools.jar"
+      ],
+      "exit_code": 0,
+      "seconds": 10.683,
+      "log": "qualification-42.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-history.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.952,
+      "log": "qualification-43.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-origin-epoch-model.py",
+        "--jar",
+        "/workspace/scratch/1e92cc46a545/issue-49-tooling/tla2tools.jar"
+      ],
+      "exit_code": 0,
+      "seconds": 7.667,
+      "log": "qualification-44.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.011,
+      "log": "qualification-45.log"
+    }
+  ],
+  "reversion_guards": [
+    {
+      "guard": "reset-compares-h",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "cold_reset_uses_explicit_v2_without_an_ordinary_parent_checkpoint",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-reset-compares-h.log"
+    },
+    {
+      "guard": "refusal-mode",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "reset_refusal_using_zero_c_instead_of_covered_boundary_is_invalid_and_not_observed",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-refusal-mode.log"
+    },
+    {
+      "guard": "source-before-data",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "full_reset_uses_boundary_and_refused_reads_preserve_journal_until_explicit_supersession",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-source-before-data.log"
+    },
+    {
+      "guard": "refused-observation",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "full_reset_uses_boundary_and_refused_reads_preserve_journal_until_explicit_supersession",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-refused-observation.log"
+    },
+    {
+      "guard": "rebuild-effect-fence",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "every_reset_effect_rechecks_competing_observation_before_cache_cursor_or_completion",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-rebuild-effect-fence.log"
+    },
+    {
+      "guard": "start-effect-fence",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "staged_start_boundary_refuses_newer_observation_before_creation_or_live_erasure",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-start-effect-fence.log"
+    },
+    {
+      "guard": "finish-effect-fence",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "every_reset_effect_rechecks_competing_observation_before_cache_cursor_or_completion",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-finish-effect-fence.log"
+    },
+    {
+      "guard": "fresh-cas",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "fresh_parent_creation_is_atomic_cas_and_does_not_accept_existing_progress",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-fresh-cas.log"
+    },
+    {
+      "guard": "fresh-atomic-journal",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "fresh_parent_creation_is_atomic_cas_and_does_not_accept_existing_progress",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-fresh-atomic-journal.log"
+    },
+    {
+      "guard": "final-coverage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "final_fresh_v2_check_keeps_finish_fenced_on_expiry_lower_metadata_and_denial",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-final-coverage.log"
+    },
+    {
+      "guard": "final-observation",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "final_fresh_v2_check_keeps_finish_fenced_on_expiry_lower_metadata_and_denial",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-final-observation.log"
+    },
+    {
+      "guard": "start-final-authority",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "current_authority_is_checked_after_metadata_after_value_and_before_finish",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-start-final-authority.log"
+    },
+    {
+      "guard": "empty-read-authority",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_horizon_recovery",
+        "empty_candidate_read_reauthorizes_before_advancing_for_both_current_policy_refusals",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 101,
+      "intended_test_failed": true,
+      "log": "guard-empty-read-authority.log"
+    }
+  ],
+  "local_exclusions": [
+    "Swift toolchain absent; unchanged Swift package is checked by the existing macOS GitHub CI workflow",
+    "no public source collector or network v2 reset; positive horizons/hidden markers injected only into owned fixtures",
+    "existing finite reset model rechecks shared journal safety, not horizon publication/collection policy"
+  ],
+  "independent_review": "First source-round empty-read authorization finding resolved; second source round clean. Final independent evidence review approved c7477895954da6dbedcd8ff2ed5e5e32ca8ec5c6:15 native cases,120 wire observations,counter partitions,timings,fingerprints,46 passing gates and13 intended guard failures; no discrepancies or auto-close wording.",
+  "remaining": [
+    "native atomic monotone source horizon publication/marker selection and activation",
+    "collection-aware finite model plus native atomicity/restart qualification before enabling collection",
+    "versioned catalogue wire dialect and mixed-version expiry/reset coverage",
+    "#48 catalogue pin composition and broader #54 transport completion"
+  ]
+}

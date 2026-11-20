@@ -26,6 +26,9 @@ pub struct CatalogueRecovery {
     pub phase: RecoveryPhase,
 }
 /// Recovery-only ports under the existing catalogue store transaction owner.
+/// V2 composition requires every mutation to recheck the observed horizon in
+/// that transaction: captured H must cover it while rebuilding, and actual C
+/// must cover it before releasing published Finish. Refusal preserves the journal.
 pub trait CatalogueRecoveryStore: CatalogueStore {
     /// Reload exact current recovery. Uncertain outcomes require this reload.
     fn recovery(&mut self, scope: &Scope)
@@ -38,6 +41,16 @@ pub trait CatalogueRecoveryStore: CatalogueStore {
         expected: CatalogueProgress,
         boundary: u64,
     ) -> Result<CatalogueRecovery, CatalogueStoreError>;
+    /// Atomically CAS parent absence and create the first generation/phase.
+    /// No ordinary checkpoint may be created first. Unsupported adapters refuse;
+    /// callers must not fall back from a stale existing-parent comparison.
+    fn start_fresh_recovery(
+        &mut self,
+        _scope: &Scope,
+        _boundary: u64,
+    ) -> Result<CatalogueRecovery, CatalogueStoreError> {
+        Err(CatalogueStoreError::ResetRequired)
+    }
     /// Commit a complete resolved manifest page with its recovery continuation.
     fn recovery_page(
         &mut self,
@@ -154,6 +167,84 @@ pub fn step_catalogue_recovery<
     s: &mut S,
     d: &mut D,
 ) -> Result<RecoveryStep, CatalogueError> {
+    step_using(
+        r,
+        support,
+        limit,
+        max_bytes,
+        a,
+        &mut LegacyRecoveryReads(s),
+        d,
+    )
+}
+pub(super) trait RecoveryReads<A, D> {
+    fn finish_head(
+        &mut self,
+        scope: &Scope,
+        support: CapabilitySupport,
+        minimum: u64,
+        a: &mut A,
+        d: &mut D,
+    ) -> Result<SourceHead, CatalogueError>;
+    fn manifest(
+        &mut self,
+        r: &ManifestRequest,
+        support: CapabilitySupport,
+        a: &mut A,
+        d: &mut D,
+    ) -> Result<CatalogueManifestRead, CatalogueError>;
+    fn value(
+        &mut self,
+        p: &CataloguePass,
+        id: &crate::replication::domain::Id,
+        budget: usize,
+        support: CapabilitySupport,
+        a: &mut A,
+        d: &mut D,
+    ) -> Result<CatalogueValueRead, CatalogueError>;
+}
+struct LegacyRecoveryReads<'a, S>(&'a mut S);
+impl<A, D, S: CatalogueReadSource> RecoveryReads<A, D> for LegacyRecoveryReads<'_, S> {
+    fn finish_head(
+        &mut self,
+        s: &Scope,
+        _: CapabilitySupport,
+        _: u64,
+        _: &mut A,
+        _: &mut D,
+    ) -> Result<SourceHead, CatalogueError> {
+        Ok(self.0.source_head(s)?)
+    }
+    fn manifest(
+        &mut self,
+        r: &ManifestRequest,
+        c: CapabilitySupport,
+        _: &mut A,
+        _: &mut D,
+    ) -> Result<CatalogueManifestRead, CatalogueError> {
+        Ok(self.0.manifest_with_head(r, c)?)
+    }
+    fn value(
+        &mut self,
+        p: &CataloguePass,
+        id: &crate::replication::domain::Id,
+        b: usize,
+        c: CapabilitySupport,
+        _: &mut A,
+        _: &mut D,
+    ) -> Result<CatalogueValueRead, CatalogueError> {
+        Ok(self.0.resolve_with_head(p, id, b, c)?)
+    }
+}
+pub(super) fn step_using<A: ScopeAuthorizer, S: RecoveryReads<A, D>, D: CatalogueRecoveryStore>(
+    r: &CatalogueRecovery,
+    support: CapabilitySupport,
+    limit: usize,
+    max_bytes: usize,
+    a: &mut A,
+    s: &mut S,
+    d: &mut D,
+) -> Result<RecoveryStep, CatalogueError> {
     recovery_valid(r)?;
     if limit == 0
         || limit > MAX_CATALOGUE_ENTRIES
@@ -171,7 +262,7 @@ pub fn step_catalogue_recovery<
                 pass: pass.clone(),
                 max_entries: limit,
             };
-            let read = s.manifest_with_head(&request, support)?;
+            let read = s.manifest(&request, support, a, d)?;
             admit(&read.head, scope, support, r.boundary)?;
             validate_manifest(&request, &read.page, MAX_CATALOGUE_ENTRIES)
                 .map_err(CatalogueError::Validation)?;
@@ -187,11 +278,13 @@ pub fn step_catalogue_recovery<
             let mut bytes = 0;
             for floor in &read.page.entries {
                 authorize(scope, a)?;
-                let v = s.resolve_with_head(
+                let v = s.value(
                     pass,
                     &floor.key.id,
                     max_bytes.saturating_sub(bytes),
                     support,
+                    a,
+                    d,
                 )?;
                 admit(&v.head, scope, support, r.boundary)?;
                 validate_resolved(floor, &v.value, max_bytes)
@@ -238,6 +331,7 @@ pub fn step_catalogue_recovery<
                 return Err(CatalogueError::Store(CatalogueStoreError::Conflict));
             }
             if floors.is_empty() {
+                authorize(scope, a)?;
                 return Ok(RecoveryStep::Pending(confirm(
                     recovery_advance(r).map_err(CatalogueError::Store)?,
                     d.advance_recovery(r).map_err(CatalogueError::Store)?,
@@ -254,11 +348,13 @@ pub fn step_catalogue_recovery<
             let mut bytes = 0;
             for floor in floors {
                 authorize(scope, a)?;
-                let read = s.resolve_with_head(
+                let read = s.value(
                     &pass,
                     &floor.key.id,
                     max_bytes.saturating_sub(bytes),
                     support,
+                    a,
+                    d,
                 )?;
                 admit(&read.head, scope, support, r.boundary)?;
                 validate_resolved(&floor, &read.value, max_bytes)
@@ -286,7 +382,7 @@ pub fn step_catalogue_recovery<
                     d.advance_recovery(r).map_err(CatalogueError::Store)?,
                 )?));
             }
-            let head = s.source_head(scope)?;
+            let head = s.finish_head(scope, support, r.progress.completed, a, d)?;
             admit(&head, scope, support, r.boundary)?;
             authorize(scope, a)?;
             d.finish_recovery(r).map_err(CatalogueError::Store)?;
@@ -295,6 +391,20 @@ pub fn step_catalogue_recovery<
     }
 }
 
+pub(crate) fn recovery_fresh_start(
+    scope: &Scope,
+    boundary: u64,
+) -> Result<CatalogueRecovery, CatalogueStoreError> {
+    recovery_start(
+        &CatalogueProgress {
+            scope: scope.clone(),
+            completed: 0,
+            generation: 0,
+            active: None,
+        },
+        boundary,
+    )
+}
 pub(crate) fn recovery_start(
     p: &CatalogueProgress,
     h: u64,
@@ -367,7 +477,7 @@ pub(crate) fn recovery_advance(
     Ok(next)
 }
 
-fn confirm(
+pub(super) fn confirm(
     planned: CatalogueRecovery,
     returned: CatalogueRecovery,
 ) -> Result<CatalogueRecovery, CatalogueError> {

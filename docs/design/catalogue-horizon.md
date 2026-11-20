@@ -52,13 +52,11 @@ unknown file versions, but that does not fence a previously open old writer.
 
 **Positive publication and collection remain disabled.** There is no production
 horizon setter and no collector. Owned test/lab fixtures alone inject positive
-floors. This prerequisite does not promise native recovery after positive
-activation: the existing reset application still uses v1 ports, which correctly
-fail closed at a positive floor. The explicit FullReset source read kind requires
-C=0, but is only a read primitive; it does not authorize or complete a reset.
-Before exposing advancement/collection, the existing generation-bound
-Enumerate/Reconcile/Finish journal must consume v2 reset reads, including its
-fresh finish check. The source owner must then atomically select a monotone safe
+floors. The [native v2 reset composition](catalogue-horizon-reset.md) now consumes
+FullReset reads through the same generation-bound Enumerate/Reconcile/Finish
+journal, including its fresh finish check and an atomic cold start. Its C stays
+zero while rebuilding; captured H must cover the current horizon. This supports
+owned positive fixtures but does not expose source activation/collection. The source owner must then atomically select a monotone safe
 floor and marker removals. No parallel marker/identity owner is introduced here.
 
 Legacy native head, manifest and current-value operations fail closed for positive
@@ -85,8 +83,7 @@ Debug timings have no CI threshold. Wire measurement uses the existing developme
 plaintext loopback route, direct plus counted hop or with an additional opaque
 relay, with no session/secure transport/weak-link claim.
 
-Remaining #49 acceptance includes compatible reset composition, monotone source
-publication/atomic marker collection, versioned transport coverage and typed expiry,
+Remaining #49 acceptance includes monotone source publication/atomic marker collection, versioned transport coverage and typed expiry,
 full cross-boundary delayed-result/restart proof and collection measurements. The
 existing finite reset model remains a reset-only proof; it makes no horizon or
 collection claim. #48 pin integration, #51 encoding and #54 production transport

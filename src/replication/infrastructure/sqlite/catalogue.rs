@@ -210,6 +210,7 @@ impl CatalogueSource for SqliteCatalogueSource {
         horizon::admit(
             None,
             0,
+            0,
             &CatalogueHorizonHead::new(value.head(scope), horizon),
         )?;
         value.reader().map_err(CatalogueSourceError::Incompatible)?;
@@ -278,6 +279,7 @@ impl SqliteCatalogueSource {
         horizon::admit(
             kind,
             request.pass.completed,
+            request.pass.boundary,
             &CatalogueHorizonHead::new(snapshot_head.clone(), horizon),
         )?;
         let head: i64 = tx
@@ -367,6 +369,7 @@ impl SqliteCatalogueSource {
         horizon::admit(
             kind,
             pass.completed,
+            pass.boundary,
             &CatalogueHorizonHead::new(snapshot_head.clone(), horizon),
         )?;
         if snapshot_head.position() < pass.boundary {
@@ -772,6 +775,7 @@ impl CatalogueHeadSource for SqliteCatalogueSource {
             .map_err(|_| CatalogueSourceError::Unavailable)?;
         horizon::admit(
             None,
+            0,
             0,
             &CatalogueHorizonHead::new(value.head(scope), horizon),
         )?;

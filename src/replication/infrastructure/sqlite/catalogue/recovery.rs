@@ -162,7 +162,11 @@ fn check(conn: &Connection, r: &CatalogueRecovery) -> Result<(), CatalogueStoreE
     if read(conn, &r.progress.scope)?.as_ref() != Some(r) {
         return Err(CatalogueStoreError::Stale);
     }
-    Ok(())
+    if r.phase == RecoveryPhase::Finish && r.progress.completed == r.boundary {
+        horizon::check_completion(conn, &r.progress.scope, r.progress.completed)
+    } else {
+        horizon::check_reset_boundary(conn, &r.progress.scope, r.boundary)
+    }
 }
 fn save(conn: &Connection, r: &CatalogueRecovery) -> Result<(), CatalogueStoreError> {
     let p = &r.progress;
@@ -211,6 +215,57 @@ fn remaining(conn: &Connection, s: &Scope) -> Result<i64, CatalogueStoreError> {
     )
     .map_err(failed)
 }
+fn start(
+    conn: &mut Connection,
+    s: &Scope,
+    expected: Option<CatalogueProgress>,
+    boundary: u64,
+) -> Result<CatalogueRecovery, CatalogueStoreError> {
+    if expected.as_ref().is_some_and(|p| p.scope != *s) {
+        return Err(CatalogueStoreError::ResetRequired);
+    }
+    let next = match &expected {
+        Some(p) => crate::replication::catalogue::recovery_start(p, boundary)?,
+        None => crate::replication::catalogue::recovery_fresh_start(s, boundary)?,
+    };
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(failed)?;
+    if read_progress(&tx, s)? != expected {
+        return Err(CatalogueStoreError::Stale);
+    }
+    horizon::check_reset_boundary(&tx, s, boundary)?;
+    if expected.is_none() {
+        let count:i64=tx.query_row("SELECT count(*) FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()],|r|r.get(0)).map_err(failed)?;
+        if count != 0 || remaining(&tx, s)? != 0 {
+            return Err(CatalogueStoreError::Conflict);
+        }
+        tx.execute("INSERT INTO catalogue_progress(receiver,origin,stream,incarnation,schema_id,access_epoch,completed,generation) VALUES(?1,?2,?3,?4,?5,?6,0,0)",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str(),s.incarnation().as_str(),s.schema().as_str(),s.access_epoch().as_str()]).map_err(failed)?;
+    }
+    // Pending candidates from an interrupted same-scope reset remain owned
+    // by the parent generation. Fresh live rows raise their revision floor.
+    let conflict:i64=tx.query_row("SELECT count(*) FROM catalogue_candidates c JOIN catalogue_entries e USING(receiver,origin,stream,entry_id) WHERE c.receiver=?1 AND c.origin=?2 AND c.stream=?3 AND c.creation!=e.creation",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()],|r|r.get(0)).map_err(failed)?;
+    if conflict != 0 {
+        return Err(CatalogueStoreError::Conflict);
+    }
+    let max:i64=tx.query_row("SELECT max(revision) FROM (SELECT revision FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 UNION ALL SELECT revision FROM catalogue_candidates WHERE receiver=?1 AND origin=?2 AND stream=?3)",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()],|r|Ok(r.get::<_,Option<i64>>(0)?.unwrap_or(0))).map_err(failed)?;
+    if to_i64(boundary)? < max {
+        return Err(CatalogueStoreError::ResetRequired);
+    }
+    tx.execute("INSERT INTO catalogue_candidates(receiver,origin,stream,entry_id,creation,revision) SELECT receiver,origin,stream,entry_id,creation,revision FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 AND deleted=0 ON CONFLICT(receiver,origin,stream,entry_id) DO UPDATE SET revision=max(revision,excluded.revision)",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()]).map_err(failed)?;
+    tx.execute(
+        "DELETE FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 AND deleted=0",
+        params![
+            s.receiver().as_str(),
+            s.origin().as_str(),
+            s.stream().as_str()
+        ],
+    )
+    .map_err(failed)?;
+    save(&tx, &next)?;
+    tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
+    Ok(next)
+}
 impl CatalogueRecoveryStore for SqliteCatalogueStore {
     fn recovery(&mut self, s: &Scope) -> Result<Option<CatalogueRecovery>, CatalogueStoreError> {
         reload(&mut self.conn, s, || {})
@@ -221,32 +276,14 @@ impl CatalogueRecoveryStore for SqliteCatalogueStore {
         expected: CatalogueProgress,
         boundary: u64,
     ) -> Result<CatalogueRecovery, CatalogueStoreError> {
-        if expected.scope != *s {
-            return Err(CatalogueStoreError::ResetRequired);
-        }
-        let next = crate::replication::catalogue::recovery_start(&expected, boundary)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(failed)?;
-        if read_progress(&tx, s)?.as_ref() != Some(&expected) {
-            return Err(CatalogueStoreError::Stale);
-        }
-        // Pending candidates from an interrupted same-scope reset remain owned
-        // by the parent generation. Fresh live rows raise their revision floor.
-        let conflict:i64=tx.query_row("SELECT count(*) FROM catalogue_candidates c JOIN catalogue_entries e USING(receiver,origin,stream,entry_id) WHERE c.receiver=?1 AND c.origin=?2 AND c.stream=?3 AND c.creation!=e.creation",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()],|r|r.get(0)).map_err(failed)?;
-        if conflict != 0 {
-            return Err(CatalogueStoreError::Conflict);
-        }
-        let max:i64=tx.query_row("SELECT max(revision) FROM (SELECT revision FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 UNION ALL SELECT revision FROM catalogue_candidates WHERE receiver=?1 AND origin=?2 AND stream=?3)",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()],|r|Ok(r.get::<_,Option<i64>>(0)?.unwrap_or(0))).map_err(failed)?;
-        if to_i64(boundary)? < max {
-            return Err(CatalogueStoreError::ResetRequired);
-        }
-        tx.execute("INSERT INTO catalogue_candidates(receiver,origin,stream,entry_id,creation,revision) SELECT receiver,origin,stream,entry_id,creation,revision FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 AND deleted=0 ON CONFLICT(receiver,origin,stream,entry_id) DO UPDATE SET revision=max(revision,excluded.revision)",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()]).map_err(failed)?;
-        tx.execute("DELETE FROM catalogue_entries WHERE receiver=?1 AND origin=?2 AND stream=?3 AND deleted=0",params![s.receiver().as_str(),s.origin().as_str(),s.stream().as_str()]).map_err(failed)?;
-        save(&tx, &next)?;
-        tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
-        Ok(next)
+        start(&mut self.conn, s, Some(expected), boundary)
+    }
+    fn start_fresh_recovery(
+        &mut self,
+        s: &Scope,
+        boundary: u64,
+    ) -> Result<CatalogueRecovery, CatalogueStoreError> {
+        start(&mut self.conn, s, None, boundary)
     }
     fn recovery_page(
         &mut self,
