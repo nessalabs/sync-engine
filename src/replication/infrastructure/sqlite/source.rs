@@ -26,7 +26,9 @@ pub(super) const FORWARD_RECORD_METADATA_SQL: &str = "SELECT position, octet_len
 
 pub(super) const HISTORY_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position >= ?1 AND position < ?2 ORDER BY position DESC LIMIT ?3";
 
+mod epoch_head;
 mod publication;
+pub use epoch_head::{ClaimedNativeHead, EpochHeadError, SqliteEpochHeadSource};
 mod retention;
 pub use publication::SourcePublicationError;
 pub use retention::{RecordPinReceipt, RecordRetentionError};

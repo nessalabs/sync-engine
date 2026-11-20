@@ -41,7 +41,8 @@ pub use origin_authority::{OriginClaimError, OriginProvisionError, SqliteOriginA
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::SqliteReplicaStore;
 pub use source::{
-    RecordPinReceipt, RecordRetentionError, SourcePublicationError, SqliteReferenceSource,
+    ClaimedNativeHead, EpochHeadError, RecordPinReceipt, RecordRetentionError,
+    SourcePublicationError, SqliteEpochHeadSource, SqliteReferenceSource,
 };
 
 #[cfg(test)]
