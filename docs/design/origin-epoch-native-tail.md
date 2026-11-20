@@ -47,6 +47,7 @@ watermark 4 and lower bound 3, reopening as exact rows `c,d`; an exact
 repeat is refused by ordinary generation semantics. Separate fixtures
 check preflight limits and freshness of capability admission.
 
-These are sequential local-handle correctness cases. They do not qualify
-older pages, artifacts/catalogue, ordinary source files/writes, authenticated
+These are sequential local-handle correctness cases.
+[Older pages](origin-epoch-native-older.md) are separately qualified.
+No native case qualifies artifacts/catalogue, ordinary source files/writes, authenticated
 wire, cryptographic authority, physical crashes, or Nessa/Swift integration.

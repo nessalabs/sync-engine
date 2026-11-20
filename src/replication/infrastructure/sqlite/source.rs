@@ -29,9 +29,9 @@ pub(super) const HISTORY_RECORD_METADATA_SQL: &str = "SELECT position, octet_len
 mod epoch_head;
 mod publication;
 pub use epoch_head::{
-    ClaimedNativeHead, ClaimedNativePage, ClaimedNativePlan, ClaimedNativeTail,
-    ClaimedNativeTailPlan, EpochHeadError, EpochSourceError, SqliteEpochHeadSource,
-    SqliteEpochRecordSource,
+    ClaimedNativeHead, ClaimedNativeOlder, ClaimedNativeOlderPlan, ClaimedNativePage,
+    ClaimedNativePlan, ClaimedNativeTail, ClaimedNativeTailPlan, EpochHeadError, EpochSourceError,
+    SqliteEpochHeadSource, SqliteEpochRecordSource,
 };
 mod retention;
 pub use publication::SourcePublicationError;

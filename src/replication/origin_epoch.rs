@@ -118,3 +118,18 @@ pub trait NativeEpochTailAdmission: NativeEpochAdmission {
         evidence: Self::TailEvidence,
     ) -> Option<AdmittedEpochRead<crate::replication::history::TailPlan>>;
 }
+
+/// Optional trusted admission for an older page into an installed native tail.
+///
+/// This extends the same host admission object that already owns the forward
+/// read and tail operations. It is not an unqualified history store port.
+pub trait NativeEpochHistoryAdmission: NativeEpochTailAdmission {
+    /// Host-defined evidence for one exact validated older operation.
+    type OlderEvidence;
+
+    /// Verify the exact older result and current scope/binding.
+    fn admit_older(
+        &mut self,
+        evidence: Self::OlderEvidence,
+    ) -> Option<AdmittedEpochRead<crate::replication::history::OlderPlan>>;
+}

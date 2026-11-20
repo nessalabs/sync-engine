@@ -47,8 +47,9 @@ an oversized record and a fresh incompatible publication after the last
 compatible head.
 
 This is sequential real-handle evidence, not a timing or throughput claim.
-The [tail snapshot contract](origin-epoch-native-tail.md) is separate.
-This does not imply protected legacy files, older pages, catalogue,
+The [tail snapshot](origin-epoch-native-tail.md) and
+[older page](origin-epoch-native-older.md) contracts are separate.
+This does not imply protected legacy files, catalogue,
 appends, authenticated wire, source lease after delivery, separate-host
 authority or product integration. No new scheduler, checkpoint owner or
 restore contract is introduced.

@@ -7,7 +7,8 @@ use rusqlite::OpenFlags;
 use super::*;
 use crate::replication::domain::{validate_capabilities, CapabilityError, CapabilitySupport};
 use crate::replication::origin_epoch::{
-    NativeEpochAdmission, NativeEpochTailAdmission, OriginAuthorityKey, OriginEpoch,
+    NativeEpochAdmission, NativeEpochHistoryAdmission, NativeEpochTailAdmission,
+    OriginAuthorityKey, OriginEpoch,
 };
 
 const APPLICATION_ID: i64 = 0x4e53_5348;
@@ -87,14 +88,17 @@ pub enum EpochReplicaError {
     Store(StoreError),
 }
 
-/// Qualified tail operation or canonical history transaction refusal.
+/// Qualified native history operation or canonical transaction refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EpochTailError {
+pub enum EpochHistoryError {
     /// Exact trusted binding or durable writer-floor admission was refused.
     Epoch(EpochReplicaError),
-    /// The existing history transaction refused or could not confirm the tail.
+    /// The existing history transaction refused or could not confirm the operation.
     History(HistoryStoreError),
 }
+
+/// Compatibility name for qualified tail refusals.
+pub type EpochTailError = EpochHistoryError;
 
 use EpochReplicaError as Error;
 
@@ -365,6 +369,36 @@ impl<A: NativeEpochTailAdmission> SqliteEpochReplicaStore<A> {
         if progress.as_ref().is_some_and(|saved| &saved.scope != scope) {
             return Err(EpochTailError::History(HistoryStoreError::ResetRequired));
         }
+        Ok(progress)
+    }
+}
+
+impl<A: NativeEpochHistoryAdmission> SqliteEpochReplicaStore<A> {
+    /// Install an admitted older page into existing tail coverage.
+    ///
+    /// Check the writer floor in the existing mutation transaction before
+    /// overlap, generation or payload decisions. An older page does not
+    /// observe an epoch, replace a snapshot or advance the live checkpoint.
+    pub fn install_older(
+        &mut self,
+        evidence: A::OlderEvidence,
+    ) -> Result<HistoryProgress, EpochHistoryError> {
+        let (key, scope, epoch, plan) = self
+            .admission
+            .admit_older(evidence)
+            .ok_or(EpochHistoryError::Epoch(Error::Unadmitted))?
+            .into_parts();
+        self.check(&key, &scope, &plan.page().request.scope)
+            .map_err(EpochHistoryError::Epoch)?;
+        let tx = self
+            .store
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| EpochHistoryError::History(HistoryStoreError::Failed))?;
+        Self::require_epoch(&tx, &self.binding, epoch).map_err(EpochHistoryError::Epoch)?;
+        let progress = stage_older(&tx, plan.page()).map_err(EpochHistoryError::History)?;
+        tx.commit()
+            .map_err(|_| EpochHistoryError::History(HistoryStoreError::Uncertain))?;
         Ok(progress)
     }
 }
