@@ -8,12 +8,15 @@ import Glibc
 
 private struct FixtureStdio: RecordHeadChannel {
     var failAfterFirstFrame = false
+    var writes = 0
     var reads = 0
-    func writeAll(_ bytes: [UInt8]) throws {
+    mutating func writeAll(_ bytes: [UInt8]) throws {
+        writes += 1
+        reads = 0
         try FileHandle.standardOutput.write(contentsOf: Data(bytes))
     }
     mutating func readExactly(_ count: Int) throws -> [UInt8] {
-        if failAfterFirstFrame && reads == 2 {
+        if failAfterFirstFrame && writes == 2 && reads == 2 {
             #if canImport(Darwin) || canImport(Glibc)
             _ = shutdown(FileHandle.standardInput.fileDescriptor, Int32(SHUT_RDWR))
             #endif
@@ -35,18 +38,24 @@ private struct FixtureStdio: RecordHeadChannel {
 
 private func read() throws {
     let arguments = CommandLine.arguments
-    guard (arguments.count == 11 || arguments.count == 14), let session = UInt64(arguments[1]), let handle = UInt32(arguments[2]),
-        let generation = UInt64(arguments[3]), let limit = Int(arguments[4])
-    else { throw RecordHeadReadError.invalidBinding }
-    if arguments.count == 14 {
-        try page(arguments, session, handle, generation, limit)
+    guard arguments.count == 8 || arguments.count == 9 else { throw RecordSessionOpenError.invalidOffer }
+    let scope = Array(arguments[1..<7])
+    let mode = arguments[7]
+    var report = Report()
+    let client: BoundRecordClient<FixtureStdio>
+    do {
+        client = try BoundRecordClient.open(
+            channel: FixtureStdio(failAfterFirstFrame: mode == "interrupt"), scopeFields: scope
+        )
+    } catch RecordSessionOpenError.refused(.denied) where mode == "deny-open" {
+        print("open-denied", to: &report)
         return
     }
-    let client = try BoundRecordHeadClient(
-        channel: FixtureStdio(), session: session, handle: handle, generation: generation,
-        lastRequest: 1, frameBodyLimit: limit, scopeFields: Array(arguments[5...])
-    )
-    var report = Report()
+    if arguments.count == 9 {
+        try page(client, mode: mode, path: URL(fileURLWithPath: arguments[8]))
+        return
+    }
+    guard mode == "head" else { throw RecordSessionOpenError.malformedControl }
     for _ in 0..<2 {
         do {
             let value = try client.readHead()
@@ -69,14 +78,7 @@ private struct StoredPageState: Codable {
     let rows: [StoredRecord]
 }
 
-private func page(_ args: [String], _ session: UInt64, _ handle: UInt32, _ generation: UInt64, _ limit: Int) throws {
-    guard let recordLimit = Int(args[13]) else { throw RecordHeadReadError.invalidBinding }
-    let mode = args[11]
-    let path = URL(fileURLWithPath: args[12])
-    let channel = FixtureStdio(failAfterFirstFrame: mode == "interrupt")
-    let client = try BoundRecordClient(channel: channel, session: session, handle: handle,
-        generation: generation, lastRequest: 1, frameBodyLimit: limit, scopeFields: Array(args[5..<11]),
-        recordByteLimit: recordLimit)
+private func page(_ client: BoundRecordClient<FixtureStdio>, mode: String, path: URL) throws {
     let previous = try JSONDecoder().decode(StoredPageState.self, from: Data(contentsOf: path))
     let established = Data(client.boundScope.canonicalBytes)
     guard previous.scope == established || (previous.scope == nil && previous.rows.isEmpty)

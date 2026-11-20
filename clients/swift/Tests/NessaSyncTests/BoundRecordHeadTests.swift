@@ -266,3 +266,134 @@ struct BoundRecordPageTests {
         #expect(throws: RecordHeadReadError.source(.denied)) { try later.readPage(pageRequest) }
     }
 }
+
+private func controlFrame(_ kind: UInt8, _ fields: [UInt8]) -> [UInt8] {
+    var body: [UInt8] = [78, 83, 67, 49, 0, 1, kind]
+    body.append(contentsOf: fields)
+    return be(UInt32(body.count)) + body
+}
+
+private func welcome(
+    session: UInt64 = 1, mode: UInt8 = 1, limit: UInt32 = 2048,
+    slots: UInt16 = 1, maximumRecord: UInt32 = 524_288
+) -> [UInt8] {
+    var fields: [UInt8] = be(session)
+    fields.append(mode)
+    fields.append(contentsOf: be(limit))
+    fields.append(contentsOf: be(slots))
+    fields.append(contentsOf: be(maximumRecord))
+    return controlFrame(2, fields)
+}
+
+private func bound(
+    session: UInt64 = 1, request: UInt64 = 1, handle: UInt32 = 1,
+    generation: UInt64 = 1, scope: [UInt8] = pageScopeBytes
+) -> [UInt8] {
+    var fields: [UInt8] = be(session)
+    fields.append(contentsOf: be(request))
+    fields.append(contentsOf: be(handle))
+    fields.append(contentsOf: be(generation))
+    fields.append(contentsOf: scope)
+    fields.append(contentsOf: be(UInt64.max)) // metadata only
+    return controlFrame(4, fields)
+}
+
+struct RecordSessionOpenTests {
+    @Test func openHandsOneNegotiatedChannelToDataOwner() throws {
+        let channel = FixtureChannel()
+        channel.input = welcome(maximumRecord: 4096) + bound() + reply()
+        let owner = try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope, frameBodyLimit: 8192)
+        let offer = try #require(channel.output.first)
+        #expect(Array(offer[4..<13]) == [78, 83, 67, 49, 0, 1, 6, 1, 0])
+        #expect(Array(offer[12..<16]) == be(UInt32(8192)))
+        #expect(Array(offer[16..<18]) == be(UInt16(1)))
+        #expect(Array(offer[18..<26]) == be(UInt64(1)))
+        #expect(Array(offer[26...]) == pageScopeBytes)
+        #expect(owner.boundScope.canonicalBytes == pageScopeBytes)
+        let outsideLimit = RecordPageRequest(after: 1, target: 2, maxRecords: 1,
+            maxPayloadBytes: 4096, maxRecordBytes: 4097)
+        #expect(throws: RecordHeadReadError.invalidPageRequest) { try owner.readPage(outsideLimit) }
+        #expect(channel.output.count == 1)
+        #expect(try owner.readHead().position == 7) // Bound advisory head ignored.
+        #expect(channel.output.count == 2)
+        owner.close()
+        #expect(channel.closed == 1)
+    }
+
+    @Test func malformedBindingOrOfferClosesWithoutDowngrade() throws {
+        let different = Array(fixtureScope.dropLast()) + ["other"]
+        let differentScope = different.flatMap { [UInt8($0.utf8.count)] + Array($0.utf8) }
+        let bad: [[UInt8]] = [
+            welcome(session: 0), welcome(limit: 4096), welcome(slots: 2),
+            welcome(maximumRecord: 0), welcome(maximumRecord: 524_289),
+            welcome() + bound(session: 2), welcome() + bound(request: 2),
+            welcome() + bound(handle: 0), welcome() + bound(generation: 0),
+            welcome() + bound(scope: differentScope),
+        ]
+        for input in bad {
+            let channel = FixtureChannel()
+            channel.input = input
+            #expect(throws: RecordSessionOpenError.malformedControl) {
+                try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+            }
+            #expect(channel.output.count == 1)
+            #expect(channel.closed == 1)
+        }
+
+        let channel = FixtureChannel()
+        #expect(throws: RecordSessionOpenError.invalidOffer) {
+            try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope, frameBodyLimit: 8193)
+        }
+        #expect(channel.output.isEmpty)
+        #expect(channel.closed == 1)
+    }
+
+    @Test func oversizeControlStopsBeforeBodyRead() {
+        let channel = FixtureChannel()
+        channel.input = be(UInt32(2049))
+        #expect(throws: RecordSessionOpenError.malformedControl) {
+            try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+        }
+        #expect(channel.reads == [4])
+        #expect(channel.closed == 1)
+    }
+
+    @Test func wrongDialectOrderAndModeNeverInstallDataOwner() throws {
+        var wrongVersion = welcome()
+        wrongVersion[9] = 2
+        for input in [wrongVersion, bound(), welcome(mode: 2), welcome() + welcome()] {
+            let channel = FixtureChannel()
+            channel.input = input
+            #expect(throws: RecordSessionOpenError.incompatibleControl) {
+                try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+            }
+            #expect(channel.output.count == 1)
+            #expect(channel.closed == 1)
+        }
+    }
+
+    @Test func truncatedFramesAndCorrelatedRefusalsCloseExactlyOnce() throws {
+        let complete = welcome() + bound()
+        for count in 0..<complete.count {
+            let channel = FixtureChannel()
+            channel.input = Array(complete.prefix(count))
+            #expect(throws: RecordSessionOpenError.unavailableChannel) {
+                try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+            }
+            #expect(channel.closed == 1)
+        }
+        for status in [1, 2, 3, 4, 5, 6] as [UInt8] {
+            let channel = FixtureChannel()
+            var fields = be(UInt64(1))
+            fields.append(contentsOf: be(UInt64(1)))
+            fields.append(status)
+            channel.input = welcome() + controlFrame(5, fields)
+            let reason = try #require(RecordHeadRefusal(rawValue: status))
+            #expect(throws: RecordSessionOpenError.refused(reason)) {
+                try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+            }
+            #expect(channel.output.count == 1)
+            #expect(channel.closed == 1)
+        }
+    }
+}
