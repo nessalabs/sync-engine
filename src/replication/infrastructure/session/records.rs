@@ -31,6 +31,14 @@ const HEAD: u8 = 2;
 const PAGE: u8 = 3;
 const OPEN_PAGE: u8 = 4;
 const REPLY: u8 = 128;
+const HINT: u8 = 64;
+#[derive(Clone, Copy)]
+enum Opening {
+    Hello,
+    Open,
+    Follow,
+}
+pub(super) mod follow;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
 /// progress recovery; the adapter performs neither automatically.
@@ -142,12 +150,31 @@ fn write_packet(
     Ok(())
 }
 fn read_packet(reader: &mut impl Read, limit: usize) -> Result<Option<Packet>, RecordSessionError> {
+    read_packet_wait(reader, limit, false)
+}
+fn read_packet_wait(
+    reader: &mut impl Read,
+    limit: usize,
+    idle: bool,
+) -> Result<Option<Packet>, RecordSessionError> {
     let mut header = [0; 4];
     loop {
         match reader.read(&mut header[..1]) {
             Ok(0) => return Ok(None),
             Ok(_) => break,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e)
+                if e.kind() == io::ErrorKind::Interrupted
+                    || (idle
+                        && matches!(
+                            e.kind(),
+                            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                        )) =>
+            {
+                if e.kind() == io::ErrorKind::WouldBlock {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                continue;
+            }
             Err(e) => return Err(e.into()),
         }
     }
@@ -172,6 +199,7 @@ fn read_packet(reader: &mut impl Read, limit: usize) -> Result<Option<Packet>, R
         HEAD,
         PAGE,
         OPEN_PAGE,
+        HINT,
         AUTHORIZE | REPLY,
         HEAD | REPLY,
         PAGE | REPLY,
@@ -427,7 +455,7 @@ impl<S: Read + Write> RecordSession<S> {
         scope: Scope,
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
-        Self::connect_with(io, scope, offered, false, None)
+        Self::connect_with(io, scope, offered, Opening::Hello, None)
     }
     /// Combine the initial hello and binding offer into one bounded request.
     /// Use only when the host knows the peer supports Open. Welcome and Bound
@@ -437,13 +465,13 @@ impl<S: Read + Write> RecordSession<S> {
         scope: Scope,
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
-        Self::connect_with(io, scope, offered, true, None)
+        Self::connect_with(io, scope, offered, Opening::Open, None)
     }
     fn connect_with(
         io: S,
         scope: Scope,
         offered: SessionLimits,
-        opening: bool,
+        opening: Opening,
         interrupt: Option<Arc<dyn SessionInterrupt>>,
     ) -> Result<Self, RecordSessionError> {
         let mut owner =
@@ -456,15 +484,23 @@ impl<S: Read + Write> RecordSession<S> {
             record_bytes: MAX_RECORD_BYTES,
             next: None,
         };
-        let welcome = if opening {
+        let welcome = if !matches!(opening, Opening::Hello) {
             // The complete offer fits the mandatory minimum budget, before any
             // peer limit is selected. Retain the scope until Bound correlation.
             write_control(
                 &mut wire,
-                &ControlFrame::Open {
-                    limits: offered,
-                    request: FIRST_REQUEST,
-                    scope: scope.clone(),
+                &if matches!(opening, Opening::Follow) {
+                    ControlFrame::FollowOpen {
+                        limits: offered,
+                        request: FIRST_REQUEST,
+                        scope: scope.clone(),
+                    }
+                } else {
+                    ControlFrame::Open {
+                        limits: offered,
+                        request: FIRST_REQUEST,
+                        scope: scope.clone(),
+                    }
                 },
                 MIN_CONTROL_BYTES,
             )?;
@@ -488,7 +524,7 @@ impl<S: Read + Write> RecordSession<S> {
         let (request, frame) = owner
             .begin_bind(scope)
             .map_err(|_| RecordSessionError::Protocol)?;
-        let response = if opening {
+        let response = if !matches!(opening, Opening::Hello) {
             if request.correlation().request != FIRST_REQUEST {
                 return Err(RecordSessionError::Protocol);
             }
@@ -574,7 +610,7 @@ impl<S: InterruptibleSessionIo> RecordSession<S> {
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
         let interrupt = io.interrupt_handle();
-        Self::connect_with(io, scope, offered, false, Some(interrupt))
+        Self::connect_with(io, scope, offered, Opening::Hello, Some(interrupt))
     }
     /// Opt-in bounded Open with independently interruptible close. Peer support
     /// must already be known; this adds no fallback, authentication or retry.
@@ -584,7 +620,7 @@ impl<S: InterruptibleSessionIo> RecordSession<S> {
         offered: SessionLimits,
     ) -> Result<Self, RecordSessionError> {
         let interrupt = io.interrupt_handle();
-        Self::connect_with(io, scope, offered, true, Some(interrupt))
+        Self::connect_with(io, scope, offered, Opening::Open, Some(interrupt))
     }
 }
 fn active_client<'a, S>(
@@ -989,21 +1025,45 @@ where
     F: FnMut(&Scope) -> Result<R, SourceError>,
     R: RecordSource,
 {
+    serve_bound(stream, session, supported, policy, &mut open_source, None)
+}
+type BoundHook<'a> =
+    Option<&'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>>;
+fn serve_bound<S, A, F, R>(
+    stream: &mut S,
+    session: u64,
+    supported: SessionLimits,
+    policy: &mut A,
+    mut open_source: F,
+    mut hook: BoundHook<'_>,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordSource,
+{
     supported
         .validate()
         .map_err(|_| RecordSessionError::Protocol)?;
     if session == 0 {
         return Err(RecordSessionError::Protocol);
     }
-    let (offered, opening) = match read_control(stream, supported.control_bytes as usize)? {
-        ControlFrame::Hello(offered) => (offered, None),
-        ControlFrame::Open {
-            limits,
-            request,
-            scope,
-        } => (limits, Some((request, scope))),
-        _ => return Err(RecordSessionError::Protocol),
-    };
+    let (offered, opening, following) =
+        match read_control(stream, supported.control_bytes as usize)? {
+            ControlFrame::Hello(offered) => (offered, None, false),
+            ControlFrame::Open {
+                limits,
+                request,
+                scope,
+            } => (limits, Some((request, scope)), false),
+            ControlFrame::FollowOpen {
+                limits,
+                request,
+                scope,
+            } if hook.is_some() => (limits, Some((request, scope)), true),
+            _ => return Err(RecordSessionError::Protocol),
+        };
     let selected = SessionLimits {
         control_bytes: offered.control_bytes.min(supported.control_bytes),
         bindings: 1,
@@ -1082,9 +1142,13 @@ where
         }
     }
     stream.flush()?;
+    if following {
+        hook.as_mut().ok_or(RecordSessionError::Protocol)?(correlation, scope.clone(), limit)?;
+    }
     let mut last = correlation.request;
-    while let Some(request) = read_packet(stream, limit)? {
-        if request.kind & REPLY != 0
+    while let Some(request) = read_packet_wait(stream, limit, following)? {
+        if request.kind == HINT
+            || request.kind & REPLY != 0
             || request.status != 0
             || request.meta.session != session
             || request.meta.handle != 1

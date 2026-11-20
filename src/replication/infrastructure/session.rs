@@ -85,6 +85,16 @@ pub enum ControlFrame {
         /// Exact scope retained before sending; this offer grants no authority.
         scope: Scope,
     },
+    /// Opt-in first binding plus persistent advisory subscription. The host must
+    /// know peer support; Bound acknowledges the retained subscription cursor.
+    FollowOpen {
+        /// Offered bounds, retained until Welcome is checked.
+        limits: SessionLimits,
+        /// First binding/subscription request number.
+        request: u64,
+        /// Exact requested scope; this offer is not a grant.
+        scope: Scope,
+    },
     /// Return accepted bounds, session namespace and reference record ceiling.
     Welcome {
         /// Nonzero host-selected session namespace.
@@ -195,11 +205,20 @@ pub fn write_control(
             limits,
             request,
             scope,
+        }
+        | ControlFrame::FollowOpen {
+            limits,
+            request,
+            scope,
         } => {
             if *request == 0 {
                 return Err(ControlError::Malformed);
             }
-            body.push(6);
+            body.push(if matches!(frame, ControlFrame::FollowOpen { .. }) {
+                7
+            } else {
+                6
+            });
             put_limits(&mut body, *limits)?;
             body.extend_from_slice(&request.to_be_bytes());
             put_scope(&mut body, scope);
@@ -361,6 +380,11 @@ pub fn read_control(reader: &mut impl Read, limit: usize) -> Result<ControlFrame
             request: u64::from_be_bytes(decoder.take()?),
             scope: decoder.scope()?,
         },
+        7 => ControlFrame::FollowOpen {
+            limits: decoder.limits()?,
+            request: u64::from_be_bytes(decoder.take()?),
+            scope: decoder.scope()?,
+        },
         _ => return Err(ControlError::Incompatible),
     };
     if !decoder.0.is_empty() {
@@ -391,4 +415,9 @@ mod channel;
 pub use channel::{
     DuplexSessionIo, InterruptibleSessionIo, SessionInterrupt, TcpSessionIo, TcpSessionReader,
     TcpSessionWriter,
+};
+
+pub use records::follow::{
+    connect_follow, serve_follow_record_session, FollowAuthorizer, FollowCounters, FollowError,
+    FollowIo, FollowSession, FollowSource, HintReceiver, HintSignal, HintStats, HintWake,
 };
