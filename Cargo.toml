@@ -95,3 +95,7 @@ required-features = ["sqlite"]
 [[example]]
 name = "origin_authority"
 required-features = ["sqlite"]
+
+[[example]]
+name = "session_history"
+required-features = ["transport", "sqlite"]

@@ -3,6 +3,10 @@ use super::capabilities::CapabilitySessionSource;
 use super::*;
 use crate::replication::application::{RecordHeadSource, RecordReadView};
 use crate::replication::domain::{CapabilitySupport, SourceHead};
+use crate::replication::history::{
+    CapabilityHistorySource, HistorySource, HistorySourceError, OlderPage, OlderRequest,
+    TailRequest, TailSnapshot,
+};
 use crate::replication::infrastructure::session::DuplexSessionIo;
 use std::io::Cursor;
 use std::sync::Condvar;
@@ -156,8 +160,7 @@ impl Shared {
             let packet = read_packet(&mut bytes, s.limit)
                 .map_err(FollowError::from)?
                 .ok_or(FollowError::Protocol)?;
-            if !(matches!(packet.kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE)
-                || capabilities::operation(packet.kind))
+            if !data_operation(packet.kind)
                 || packet.status != 0
                 || packet.offset != 0
                 || packet.total != packet.payload.len()
@@ -232,7 +235,7 @@ impl Shared {
                     return Err(FollowError::Protocol);
                 }
                 if p.status != 0 {
-                    if p.status == 8 && capabilities::operation(p.kind & !REPLY) {
+                    if p.status == 8 && capability_operation(p.kind & !REPLY) {
                         if p.offset != 0 || p.total != p.payload.len() {
                             return Err(FollowError::Protocol);
                         }
@@ -724,6 +727,42 @@ impl<W: Write> OpenRecordSource for CapabilityFollowSource<W> {
     }
 }
 
+/// Bounded history reads over the same persistent connection and dispatcher.
+pub struct CapabilityFollowHistorySource<W: Write> {
+    inner: history::HistorySessionSource<FollowIo<W>>,
+    support: CapabilitySupport,
+    shared: Arc<Shared>,
+}
+impl<W: Write> CapabilityFollowHistorySource<W> {
+    fn read<T>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut history::HistorySessionSource<FollowIo<W>>,
+            CapabilitySupport,
+        ) -> Result<T, HistorySourceError>,
+    ) -> Result<T, HistorySourceError> {
+        if let Some(e) = self.shared.error() {
+            return Err(history::history_source(source_terminal(e)));
+        }
+        let result = operation(&mut self.inner, self.support);
+        match self.shared.error() {
+            Some(e) if e != FollowError::Closed => Err(history::history_source(source_terminal(e))),
+            _ => result,
+        }
+    }
+}
+impl<W: Write> HistorySource for CapabilityFollowHistorySource<W> {
+    fn tail(&mut self, r: &TailRequest) -> Result<TailSnapshot, HistorySourceError> {
+        self.read(|inner, support| inner.tail(r, support))
+            .map(|(_, tail)| tail)
+    }
+
+    fn older(&mut self, r: &OlderRequest) -> Result<OlderPage, HistorySourceError> {
+        self.read(|inner, support| inner.older(r, support))
+            .map(|(_, older)| older)
+    }
+}
+
 /// One opt-in follow connection: one bound scope, one RPC and one pending wake.
 pub struct FollowSession<W: Write> {
     inner: RecordSession<FollowIo<W>>,
@@ -757,6 +796,25 @@ impl<W: Write> FollowSession<W> {
             authorizer,
             CapabilityFollowSource {
                 inner: CapabilitySessionSource::from_source(source.inner, supported),
+                shared: self.shared.clone(),
+            },
+        )
+    }
+    /// Select explicit capability-aware history over the existing binding.
+    /// The host must know the peer has opted in to the history endpoint. A
+    /// refusal never retries as legacy history or replaces this connection.
+    pub fn history_parts(
+        &self,
+        supported: CapabilitySupport,
+    ) -> (FollowAuthorizer<W>, CapabilityFollowHistorySource<W>) {
+        let (authorizer, source) = self.parts();
+        (
+            authorizer,
+            CapabilityFollowHistorySource {
+                inner: history::HistorySessionSource {
+                    inner: source.inner,
+                },
+                support: supported,
                 shared: self.shared.clone(),
             },
         )
@@ -1125,7 +1183,15 @@ where
     F: FnMut(&Scope) -> Result<R, SourceError> + Send + 'static,
     R: RecordSource,
 {
-    serve_follow(io, session, limits, policy, factory, signal, None)
+    serve_follow(
+        io,
+        session,
+        limits,
+        policy,
+        factory,
+        signal,
+        CapabilityRoutes::legacy(),
+    )
 }
 
 /// Serve explicit capability reads and advisory hints on one bound connection.
@@ -1153,7 +1219,41 @@ where
         policy,
         factory,
         signal,
-        Some(R::view_head),
+        CapabilityRoutes {
+            head: Some(R::view_head),
+            history: None,
+        },
+    )
+}
+
+/// Serve explicit capability history alongside capability record reads over one
+/// existing follow binding. The source must supply coherent capability/history
+/// admission in its native read snapshot. Current channel policy remains host-owned.
+pub fn serve_history_follow_record_session<D, A, F, R>(
+    io: D,
+    session: u64,
+    limits: SessionLimits,
+    policy: A,
+    factory: F,
+    signal: HintSignal,
+) -> Result<(), RecordSessionError>
+where
+    D: DuplexSessionIo,
+    A: ScopeAuthorizer + Send + 'static,
+    F: FnMut(&Scope) -> Result<R, SourceError> + Send + 'static,
+    R: RecordReadView + CapabilityHistorySource,
+{
+    serve_follow(
+        io,
+        session,
+        limits,
+        policy,
+        factory,
+        signal,
+        CapabilityRoutes {
+            head: Some(R::view_head),
+            history: Some(history::ServerReads::new()),
+        },
     )
 }
 
@@ -1164,7 +1264,7 @@ fn serve_follow<D, A, F, R>(
     policy: A,
     factory: F,
     signal: HintSignal,
-    capability_head: Option<capabilities::ViewHead<R>>,
+    routes: CapabilityRoutes<R>,
 ) -> Result<(), RecordSessionError>
 where
     D: DuplexSessionIo,
@@ -1248,7 +1348,7 @@ where
                 .and_then(|mut b| (b.factory)(s))
         },
         Some(&mut hook),
-        capability_head,
+        routes,
     );
     stop.store(true, Ordering::Release);
     signal.wake();

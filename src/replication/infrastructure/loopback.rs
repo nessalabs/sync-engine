@@ -144,7 +144,7 @@ fn put_history_limits(
     }
 }
 
-fn put_wire_record(out: &mut Vec<u8>, record: &Record) {
+pub(super) fn put_wire_record(out: &mut Vec<u8>, record: &Record) {
     out.extend_from_slice(&record.position.to_be_bytes());
     put_id(out, &record.id);
     put_scope(out, &record.scope);

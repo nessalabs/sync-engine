@@ -40,6 +40,7 @@ enum Opening {
 }
 pub(super) mod capabilities;
 pub(super) mod follow;
+mod history;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
 /// progress recovery; the adapter performs neither automatically.
@@ -200,25 +201,7 @@ fn read_packet_wait(
     }
     let kind = d.byte()?;
     let status = d.byte()?;
-    if ![
-        AUTHORIZE,
-        HEAD,
-        PAGE,
-        OPEN_PAGE,
-        capabilities::HEAD_CAP,
-        capabilities::OPEN_CAP,
-        capabilities::PAGE_CAP,
-        HINT,
-        AUTHORIZE | REPLY,
-        HEAD | REPLY,
-        PAGE | REPLY,
-        OPEN_PAGE | REPLY,
-        capabilities::HEAD_CAP | REPLY,
-        capabilities::OPEN_CAP | REPLY,
-        capabilities::PAGE_CAP | REPLY,
-    ]
-    .contains(&kind)
-    {
+    if kind != HINT && !data_operation(kind & !REPLY) {
         return Err(RecordSessionError::Protocol);
     }
     let meta = Meta {
@@ -343,7 +326,7 @@ impl<S: Read + Write> Wire<S> {
                     return Err(RecordSessionError::Protocol);
                 }
                 if p.status != 0 {
-                    if p.status == 8 && capabilities::operation(kind) {
+                    if p.status == 8 && capability_operation(kind) {
                         if !result.is_empty()
                             || p.offset != 0
                             || p.total != p.payload.len()
@@ -435,8 +418,11 @@ impl<S: Read + Write> Client<S> {
             .max()
             .unwrap_or(self.seen)
             .max(self.seen);
-        self.wire.counters.payload_bytes += bytes as u64;
         self.wire.counters.duplicate_bytes += duplicates as u64;
+        self.count_payload(bytes);
+    }
+    fn count_payload(&mut self, bytes: usize) {
+        self.wire.counters.payload_bytes += bytes as u64;
         self.wire.counters.protocol_bytes = self
             .wire
             .counters
@@ -1065,8 +1051,26 @@ where
         policy,
         &mut open_source,
         None,
-        None,
+        CapabilityRoutes::legacy(),
     )
+}
+fn data_operation(kind: u8) -> bool {
+    matches!(kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE) || capability_operation(kind)
+}
+fn capability_operation(kind: u8) -> bool {
+    capabilities::operation(kind) || history::operation(kind)
+}
+struct CapabilityRoutes<R> {
+    head: Option<capabilities::ViewHead<R>>,
+    history: Option<history::ServerReads<R>>,
+}
+impl<R> CapabilityRoutes<R> {
+    fn legacy() -> Self {
+        Self {
+            head: None,
+            history: None,
+        }
+    }
 }
 type BoundHook<'a> =
     Option<&'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>>;
@@ -1077,7 +1081,7 @@ fn serve_bound<S, A, F, R>(
     policy: &mut A,
     mut open_source: F,
     mut hook: BoundHook<'_>,
-    capability_head: Option<capabilities::ViewHead<R>>,
+    routes: CapabilityRoutes<R>,
 ) -> Result<(), RecordSessionError>
 where
     S: Read + Write,
@@ -1210,10 +1214,18 @@ where
         }
         last = request.meta.request;
         let current = access_code(policy.authorize(&scope), &scope);
-        if capabilities::operation(request.kind) {
+        if capability_operation(request.kind) {
             let result = if current != 0 {
                 Err(RecordSessionError::Source(decode_source_error(current)))
-            } else if let Some(head) = capability_head {
+            } else if history::operation(request.kind) {
+                history::server_response(
+                    &request,
+                    &scope,
+                    policy,
+                    &mut open_source,
+                    routes.history.as_ref(),
+                )
+            } else if let Some(head) = routes.head {
                 capabilities::server_response(&request, &scope, policy, &mut open_source, head)
             } else {
                 Err(RecordSessionError::Source(SourceError::InvalidRequest))
@@ -1239,7 +1251,7 @@ where
             respond(stream, &request, status, &body, &scope, policy, limit)?;
             continue;
         }
-        if capability_head.is_some() && matches!(request.kind, HEAD | PAGE | OPEN_PAGE) {
+        if routes.head.is_some() && matches!(request.kind, HEAD | PAGE | OPEN_PAGE) {
             respond(
                 stream,
                 &request,
