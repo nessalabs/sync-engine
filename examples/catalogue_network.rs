@@ -4,11 +4,14 @@ use std::env;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
 
-use nessa_sync::replication::catalogue::{apply_next_page, begin_or_resume, CatalogueStore};
-use nessa_sync::replication::domain::{Id, Scope};
+use nessa_sync::replication::catalogue::{
+    apply_next_page, begin_or_resume, begin_or_resume_with_capabilities, CatalogueError,
+    CatalogueStore,
+};
+use nessa_sync::replication::domain::{CapabilitySupport, Id, Scope};
 use nessa_sync::replication::infrastructure::{
-    CatalogueFault, LoopbackClient, LoopbackConfig, LoopbackServer, MemoryAuthorizer,
-    SqliteCatalogueStore,
+    CapabilityCatalogueClient, CatalogueFault, LoopbackClient, LoopbackConfig, LoopbackServer,
+    MemoryAuthorizer, SqliteCatalogueStore,
 };
 
 fn id(value: &str) -> Id {
@@ -58,6 +61,30 @@ fn main() {
             let limit: usize = args[6].parse().unwrap();
             let mut pages = 0usize;
             let mut pass = begin_or_resume(&selected, &mut authorizer, &mut client, &mut store).unwrap();
+            while let Some(active) = pass {
+                if pages >= limit { break; }
+                pass = apply_next_page(&active, 40, 512 * 1024, &mut authorizer, &mut client, &mut store).unwrap().active;
+                pages += 1;
+            }
+            let saved = store.progress(&selected).unwrap().unwrap();
+            let wire = client.counters();
+            println!("{{\"pages\":{pages},\"completed\":{},\"active\":{},\"count\":{},\"manifest_bytes\":{},\"payload_bytes\":{},\"duplicate_bytes\":{},\"protocol_bytes\":{}}}",
+                saved.completed, saved.active.is_some(), store.count(&selected).unwrap(),
+                wire.catalogue_manifest_bytes, wire.catalogue_payload_bytes,
+                wire.catalogue_duplicate_bytes, wire.protocol_bytes);
+        }
+        Some("cap-pass") if args.len() == 7 => {
+            let selected = scope(&args[4]);
+            let mut client = CapabilityCatalogueClient::new(address(&args[2]), id(&args[5]),CapabilitySupport::current()).unwrap();
+            let mut store = SqliteCatalogueStore::open(&args[3]).unwrap();
+            let mut authorizer = MemoryAuthorizer::allowed(selected.clone());
+            let limit: usize = args[6].parse().unwrap();
+            let mut pages = 0usize;
+            let mut pass = match begin_or_resume_with_capabilities(&selected,CapabilitySupport::current(),&mut authorizer,&mut client,&mut store){
+                Ok(pass)=>pass,
+                Err(CatalogueError::Incompatible(_))=>{let wire=client.counters();println!("{{\"typed_incompatible\":true,\"exchanges\":{},\"protocol_bytes\":{},\"payload_bytes\":{}}}",wire.exchanges,wire.protocol_bytes,wire.catalogue_payload_bytes);return;},
+                Err(error)=>panic!("capability admission: {error:?}"),
+            };
             while let Some(active) = pass {
                 if pages >= limit { break; }
                 pass = apply_next_page(&active, 40, 512 * 1024, &mut authorizer, &mut client, &mut store).unwrap().active;

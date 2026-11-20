@@ -17,7 +17,7 @@ HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('owned_catalogue_link',HERE/'verify-session-e2e.py')
 link=importlib.util.module_from_spec(spec);spec.loader.exec_module(link)
 class CountHop(link.Forwarder):
- def __init__(self,port):self.bytes=0;super().__init__(port,'loopback',framed=True)
+ def __init__(self,port):self.bytes=0;self.statuses=Counter();super().__init__(port,'loopback',framed=True)
  def pump(self,source,target,up):
   try:
    while not self.stop.is_set():
@@ -25,6 +25,7 @@ class CountHop(link.Forwarder):
     with self.lock:
      self.bytes+=len(data)
      if up:self.requests[str(data[4])]+=1
+     else:self.statuses[f'{data[4]}:{data[5] if len(data)>5 else 0}:{len(data)}']+=1
     self.send(target,data)
   except (OSError,EOFError,ValueError):pass
   finally:
@@ -62,7 +63,7 @@ def native(root,folder,n):
   result.append({'phase':phase,'repetition':n,'elapsed_ms':elapsed,'head':head,'entries':count})
  final=rows(source,True);assert final[0][1:]==(1,621,0,b'changed') and final[-1][2:]==(622,1,b'')
  return result
-def wire(root,folder,path,n):
+def wire(root,folder,path,n,dialect):
  local=root/'target/debug/examples/catalogue_apps';network=root/'target/debug/examples/catalogue_network';source=folder/'source.db';unused=folder/'unused.db'
  assert run(local,'transcript',source,unused,'seed','620')[0]=={'seeded':620}
  with socket.socket() as listener:listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
@@ -73,11 +74,11 @@ def wire(root,folder,path,n):
   if path=='relay':
    opaque=link.Forwarder(port,'loopback');hops.append(opaque);port=opaque.port
   counted=CountHop(port);hops.append(counted);results=[];full=folder/'full.db';resume=folder/'resume.db'
-  phases=[('bootstrap',full,40,637),('partial',resume,1,42),('restart_resume',resume,40,595),('churn',full,40,4),('unchanged_recheck',full,40,1)]
+  phases=[('bootstrap',full,40,637),('partial',resume,1,42),('restart_resume',resume,40,596 if dialect=='capabilities' else 595),('churn',full,40,4),('unchanged_recheck',full,40,1)]
   for phase,cache,pages,expected_exchanges in phases:
    if phase=='churn':
     run(local,'transcript',source,unused,'upsert','entry-0000','changed');run(local,'transcript',source,unused,'delete','entry-0619')
-   before_bytes,before_requests=counted.stats();report,elapsed=run(network,'pass',counted.port,cache,'phone','reference-read',pages)
+   before_bytes,before_requests=counted.stats();report,elapsed=run(network,'cap-pass' if dialect=='capabilities' else 'pass',counted.port,cache,'phone','reference-read',pages)
    after_bytes,after_requests=counted.stats();requests=dict(Counter(after_requests)-Counter(before_requests));exchanges=sum(requests.values());total=after_bytes-before_bytes
    assert exchanges==expected_exchanges,(phase,requests)
    assert report['protocol_bytes']+report['manifest_bytes']+report['payload_bytes']==total
@@ -100,7 +101,7 @@ def summary(cases,fields):
   result.append(row)
  return result
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,default=HERE.parent);p.add_argument('--repetitions',type=int,default=1);p.add_argument('--native-repetitions',type=int,default=5);p.add_argument('--output',type=Path);args=p.parse_args();root=args.root.resolve()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,default=HERE.parent);p.add_argument('--client-dialect',choices=['legacy','capabilities'],default='legacy');p.add_argument('--repetitions',type=int,default=1);p.add_argument('--native-repetitions',type=int,default=5);p.add_argument('--output',type=Path);args=p.parse_args();root=args.root.resolve()
  if not 1<=args.repetitions<=5 or not 1<=args.native_repetitions<=10:p.error('bounded repetitions required')
  measured=[*root.glob('src/**/*.rs'),root/'Cargo.toml',root/'Cargo.lock',root/'examples/catalogue_apps.rs',root/'examples/catalogue_network.rs']
  def hashes():return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(measured)}
@@ -112,9 +113,9 @@ def main():
    folder=Path(temp)/f'native-{n}';folder.mkdir();native_cases.extend(native(root,folder,n+1))
   for n in range(args.repetitions):
    for path in ['direct','relay']:
-    folder=Path(temp)/f'wire-{n}-{path}';folder.mkdir();wire_cases.extend(wire(root,folder,path,n+1))
+    folder=Path(temp)/f'wire-{n}-{path}';folder.mkdir();wire_cases.extend(wire(root,folder,path,n+1,args.client_dialect))
  assert hashes()==fingerprints
- report={'scope':'native publication and620-entry development-loopback wire; no session catalogue or secure channel claim','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'source_sha256':fingerprints,'harness_sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__).resolve(),HERE/'verify-session-e2e.py']},'command':f'python3 scripts/measure-catalogue-publication.py --root {root} --repetitions {args.repetitions} --native-repetitions {args.native_repetitions}', 'conditions':['unshaped debug builds; timings have no CI threshold or performance gain claim','direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop','fixture plaintext tokens; no production authentication, encryption, session or weak-link claim','wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes','wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification','native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit','legacy active resume skips initial head; explicit unchanged_recheck is measured separately','fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress'],'native_cases':native_cases,'native_summary':summary(native_cases,['phase']),'wire_cases':wire_cases,'wire_summary':summary(wire_cases,['path','phase']),'full_issue47_ready':False}
+ report={'client_dialect':args.client_dialect,'scope':'native publication and620-entry development-loopback wire; no session catalogue or secure channel claim','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'source_sha256':fingerprints,'harness_sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__).resolve(),HERE/'verify-session-e2e.py']},'command':f'python3 scripts/measure-catalogue-publication.py --root {root} --repetitions {args.repetitions} --native-repetitions {args.native_repetitions} --client-dialect {args.client_dialect}', 'conditions':['unshaped debug builds; timings have no CI threshold or performance gain claim','direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop','fixture plaintext tokens; no production authentication, encryption, session or weak-link claim','wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes','wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification','native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit','legacy active resume skips initial head; capability resume rechecks metadata before returning a pass; explicit unchanged_recheck is measured separately','fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress'],'native_cases':native_cases,'native_summary':summary(native_cases,['phase']),'wire_cases':wire_cases,'wire_summary':summary(wire_cases,['path','phase']),'full_issue47_ready':False}
  if args.output:args.output.write_text(json.dumps(report,indent=2)+'\n')
  print(json.dumps(report,separators=(',',':')))
 if __name__=='__main__':main()

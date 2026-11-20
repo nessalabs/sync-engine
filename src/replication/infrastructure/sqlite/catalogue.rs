@@ -9,12 +9,13 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use crate::replication::catalogue::{
     catalogue_progress_after_begin, catalogue_progress_after_page, catalogue_progress_after_reset,
     validate_catalogue_pass, validate_catalogue_progress, validate_catalogue_revision_transition,
-    validate_manifest_request, CatalogueHeadSource, CataloguePagePlan, CataloguePass,
-    CatalogueProgress, CatalogueSource, CatalogueSourceError, CatalogueStore, CatalogueStoreError,
-    CatalogueValidationError, EntryKey, ManifestEntry, ManifestPage, ManifestRequest,
-    ResolvedEntry, MAX_CATALOGUE_ENTRIES, MAX_CATALOGUE_PAYLOAD_BYTES,
+    validate_manifest_request, CatalogueHeadSource, CatalogueManifestRead, CataloguePagePlan,
+    CataloguePass, CatalogueProgress, CatalogueReadSource, CatalogueSource, CatalogueSourceError,
+    CatalogueStore, CatalogueStoreError, CatalogueValidationError, CatalogueValueRead, EntryKey,
+    ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
+    MAX_CATALOGUE_PAYLOAD_BYTES,
 };
-use crate::replication::domain::{Id, Scope, SourceHead};
+use crate::replication::domain::{validate_capabilities, CapabilitySupport, Id, Scope, SourceHead};
 
 use super::{
     configure_connection, ensure_schema, open_connection, SqliteOpenError,
@@ -207,6 +208,31 @@ impl CatalogueSource for SqliteCatalogueSource {
         &mut self,
         request: &ManifestRequest,
     ) -> Result<ManifestPage, CatalogueSourceError> {
+        self.manifest_with_head(request, CapabilitySupport::current())
+            .map(|read| read.page)
+    }
+    fn resolve(
+        &mut self,
+        pass: &CataloguePass,
+        entry_id: &Id,
+        max_payload_bytes: usize,
+    ) -> Result<ResolvedEntry, CatalogueSourceError> {
+        self.resolve_with_head(
+            pass,
+            entry_id,
+            max_payload_bytes,
+            CapabilitySupport::current(),
+        )
+        .map(|read| read.value)
+    }
+}
+
+impl CatalogueReadSource for SqliteCatalogueSource {
+    fn manifest_with_head(
+        &mut self,
+        request: &ManifestRequest,
+        supported: CapabilitySupport,
+    ) -> Result<CatalogueManifestRead, CatalogueSourceError> {
         if !self.matches(&request.pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
@@ -230,9 +256,9 @@ impl CatalogueSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
-        publication::read(&tx)
-            .map_err(|_| CatalogueSourceError::Unavailable)?
-            .reader()
+        let publication = publication::read(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
+        let snapshot_head = publication.head(&request.pass.scope);
+        validate_capabilities(&snapshot_head, supported)
             .map_err(CatalogueSourceError::Incompatible)?;
         let head: i64 = tx
             .query_row(
@@ -278,19 +304,29 @@ impl CatalogueSource for SqliteCatalogueSource {
         }
         self.manifest_reads += 1;
         self.manifest_bytes = self.manifest_bytes.saturating_add(bytes);
-        Ok(ManifestPage {
-            request: request.clone(),
-            entries,
-            has_more,
+        if entries
+            .iter()
+            .any(|entry| entry.revision > snapshot_head.position())
+        {
+            return Err(CatalogueSourceError::Unavailable);
+        }
+        Ok(CatalogueManifestRead {
+            head: snapshot_head,
+            page: ManifestPage {
+                request: request.clone(),
+                entries,
+                has_more,
+            },
         })
     }
 
-    fn resolve(
+    fn resolve_with_head(
         &mut self,
         pass: &CataloguePass,
         entry_id: &Id,
         max_payload_bytes: usize,
-    ) -> Result<ResolvedEntry, CatalogueSourceError> {
+        supported: CapabilitySupport,
+    ) -> Result<CatalogueValueRead, CatalogueSourceError> {
         if !self.matches(&pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
@@ -302,10 +338,13 @@ impl CatalogueSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
-        publication::read(&tx)
-            .map_err(|_| CatalogueSourceError::Unavailable)?
-            .reader()
+        let publication = publication::read(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
+        let snapshot_head = publication.head(&pass.scope);
+        validate_capabilities(&snapshot_head, supported)
             .map_err(CatalogueSourceError::Incompatible)?;
+        if snapshot_head.position() < pass.boundary {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
         let metadata: Option<(i64, i64, i64, i64)> = tx.query_row(
             "SELECT creation, revision, deleted, length(payload) FROM catalogue_source_entries WHERE entry_id = ?1", [entry_id.as_str()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -315,6 +354,11 @@ impl CatalogueSource for SqliteCatalogueSource {
         if usize::try_from(len).map_err(|_| CatalogueSourceError::Unavailable)? > max_payload_bytes
         {
             return Err(CatalogueSourceError::OversizedEntry);
+        }
+        if u64::try_from(revision).map_err(|_| CatalogueSourceError::Unavailable)?
+            > snapshot_head.position()
+        {
+            return Err(CatalogueSourceError::Unavailable);
         }
         let payload: Vec<u8> = tx
             .query_row(
@@ -326,17 +370,21 @@ impl CatalogueSource for SqliteCatalogueSource {
         tx.commit().map_err(|_| CatalogueSourceError::Unavailable)?;
         self.resolve_reads += 1;
         self.payload_bytes = self.payload_bytes.saturating_add(payload.len() as u64);
-        Ok(ResolvedEntry {
-            manifest: ManifestEntry {
-                key: EntryKey {
-                    creation: u64::try_from(creation)
+        Ok(CatalogueValueRead {
+            head: snapshot_head,
+            value: ResolvedEntry {
+                manifest: ManifestEntry {
+                    key: EntryKey {
+                        creation: u64::try_from(creation)
+                            .map_err(|_| CatalogueSourceError::Unavailable)?,
+                        id: entry_id.clone(),
+                    },
+                    revision: u64::try_from(revision)
                         .map_err(|_| CatalogueSourceError::Unavailable)?,
-                    id: entry_id.clone(),
+                    deleted: deleted != 0,
                 },
-                revision: u64::try_from(revision).map_err(|_| CatalogueSourceError::Unavailable)?,
-                deleted: deleted != 0,
+                payload,
             },
-            payload,
         })
     }
 }

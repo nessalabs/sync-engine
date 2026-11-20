@@ -40,7 +40,16 @@ use crate::replication::history::{
 use super::{SqliteArtifactSource, SqliteCatalogueSource, SqliteReferenceSource};
 
 mod record_server;
+#[cfg(feature = "sqlite")]
+use crate::replication::{
+    catalogue::{CatalogueHeadSource, CatalogueReadSource},
+    domain::{validate_capabilities, CapabilitySupport},
+};
 pub use record_server::{LoopbackReadConfig, LoopbackRecordServer};
+mod catalogue_capabilities;
+pub use catalogue_capabilities::{
+    CapabilityCatalogueClient, CATALOGUE_HEAD_CAP, CATALOGUE_MANIFEST_CAP, CATALOGUE_VALUE_CAP,
+};
 
 /// Maximum complete wire body, checked before allocating a read buffer.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -334,7 +343,7 @@ fn put_catalogue_pass(out: &mut Vec<u8>, pass: &CataloguePass) {
     }
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", test))]
 fn put_manifest_entry(out: &mut Vec<u8>, entry: &ManifestEntry) {
     put_catalogue_key(out, &entry.key);
     out.extend_from_slice(&entry.revision.to_be_bytes());
@@ -1003,7 +1012,13 @@ fn serve_one(
                 counters
                     .catalogue_manifest_reads
                     .fetch_add(1, Ordering::Relaxed);
-                let result = config.open_catalogue_source()?.manifest(&request);
+                let result = config
+                    .open_catalogue_source()?
+                    .manifest_with_head(
+                        &request,
+                        CapabilitySupport::new(0, 0).map_err(|_| FrameError::Malformed)?,
+                    )
+                    .map(|read| read.page);
                 let mut response = Vec::new();
                 match result {
                     Ok(page) => {
@@ -1043,7 +1058,13 @@ fn serve_one(
                 let mut response = Vec::new();
                 match config
                     .open_catalogue_source()?
-                    .resolve(&pass, &id, max as usize)
+                    .resolve_with_head(
+                        &pass,
+                        &id,
+                        max as usize,
+                        CapabilitySupport::new(0, 0).map_err(|_| FrameError::Malformed)?,
+                    )
+                    .map(|read| read.value)
                 {
                     Ok(entry) => {
                         response.push(0);
@@ -1069,7 +1090,17 @@ fn serve_one(
             counters
                 .catalogue_head_reads
                 .fetch_add(1, Ordering::Relaxed);
-            match config.open_catalogue_source()?.head(&scope) {
+            match config
+                .open_catalogue_source()?
+                .source_head(&scope)
+                .and_then(|head| {
+                    validate_capabilities(
+                        &head,
+                        CapabilitySupport::new(0, 0).map_err(CatalogueSourceError::Incompatible)?,
+                    )
+                    .map_err(CatalogueSourceError::Incompatible)?;
+                    Ok(head.position())
+                }) {
                 Ok(head) => {
                     response.push(0);
                     put_scope(&mut response, &scope);
@@ -1078,6 +1109,9 @@ fn serve_one(
                 Err(error) => response.push(catalogue_error_code(error)),
             }
             write_catalogue_frame(&mut stream, &response, config, counters)?;
+        }
+        CATALOGUE_HEAD_CAP..=CATALOGUE_VALUE_CAP => {
+            catalogue_capabilities::serve(&mut stream, config, counters, operation, &token, input)?;
         }
         14 => {
             input.finish()?;
