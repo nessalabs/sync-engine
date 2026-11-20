@@ -49,6 +49,37 @@ neither the fixture token nor fixture networking.
 | Overlapping bound client lifetimes | Each independent Swift process reports real Bound over a test-side signal, then blocks until the parent releases the entire group. Every client completes Head and two Pages, verifying exact scope and seven exact records. Default 4 clients, 4 Heads, 8 Pages and 28 rows; opt-in 16, 16, 32 and 112. No claim about simultaneous server-side execution, production capacity or users. |
 | Host channel trust | Fixture token is loopback-only; dialing, authentication/TLS, peer support selection and deadlines remain host-owned. |
 
+## Verified TLS fixture (macOS)
+
+Run from the repository root on macOS 26+ with Xcode 26's macOS SDK or newer,
+Rust, and OpenSSL 3:
+
+```sh
+sh clients/swift/e2e/run-tls.sh
+```
+
+The separate fixture package under `clients/swift/e2e/tls` depends on this
+checkout's public `NessaSync` product. It is not a root SwiftPM target; regular
+Swift unit and headless tests still run on the macOS 15 / Swift 6.1 runner.
+The Apple Network/Security channel is private to the newer-SDK executable. The Rust
+test uses the existing TLS server and SQLite fixture; it owns short-lived
+keys in a private temporary directory. Swift creates a process-owned P-256
+identity without importing into the Keychain or changing system trust. It
+requires TLS 1.3, the Sync Engine ALPN, standard CA/hostname validation and
+the exact configured peer leaf before giving the channel to the unchanged
+serialized client. No fallback or early application data is used.
+
+| TLS fixture case | Evidence |
+| --- | --- |
+| Authorized exact peer | Real Swift Open, Head and Page against Rust; three exact IDs/positions, 3,000 exact payload bytes. |
+| TLS accepted; wrong fixture scope | Correlated typed Open Denied; Rust policy ran, source opened zero times. |
+| Known sibling with valid fixture chain and hostname but wrong exact leaf | Swift verifies the leaf mismatch, rejects it and transfers no channel to Open; Rust policy and source acquisition counts both remain zero. |
+
+This qualifies direct loopback interoperability, not production endpoint
+enrollment, device Keychain behavior, client-certificate timing, an actual LAN
+or relay, or outage recovery. The public Swift package still takes an
+authenticated host channel instead of supplying a default transport.
+
 ## Remaining client acceptance
 
 No unchecked row is covered by the Head/Page fixture. Each future slice should
