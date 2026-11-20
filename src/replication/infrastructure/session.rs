@@ -459,3 +459,7 @@ pub use records::scope_pair::{serve_scope_pair_batched_heads, PairHeadObservatio
 
 #[cfg(feature = "tls")]
 pub use channel::tls::{TlsIdentity, TlsPeer, TlsSessionIo};
+#[cfg(feature = "tls")]
+pub use records::artifact::{
+    serve_tls_artifact_manifest_session, ArtifactManifestAccess, ArtifactManifestSessionSource,
+};
