@@ -143,6 +143,20 @@ jobs:
       - name: Live per-scope freshness policy and replacement-connection lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-session-freshness.py
+      - name: Native same-scope catalogue reset and restart lab
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-catalogue-reset.py
+      - name: Set up Java for the pinned finite reset model
+        if: steps.changes.outputs.rust != 'false'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Finite catalogue reset model and negative controls
+        if: steps.changes.outputs.rust != 'false'
+        run: |
+          curl --fail --location --max-time 60 https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar --output "$RUNNER_TEMP/tla2tools.jar"
+          python3 scripts/verify-catalogue-reset-model.py --jar "$RUNNER_TEMP/tla2tools.jar"
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:
