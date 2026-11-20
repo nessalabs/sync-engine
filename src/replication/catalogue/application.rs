@@ -22,6 +22,17 @@ pub enum CatalogueSourceError {
     Denied,
     /// Source cannot currently answer or resolve an entry.
     Unavailable,
+    /// This operation cannot prove catalogue coverage without the v2 contract.
+    HorizonRequired,
+    /// Catalogue metadata uses an unsupported explicit contract version.
+    HorizonVersion(u16),
+    /// Durable completed revision is below the source coverage horizon.
+    HorizonExpired {
+        /// Requested completed revision, never a cursor or in-flight boundary.
+        completed: u64,
+        /// Coherent v2 publication, correlated to this explicit source call.
+        head: Box<super::CatalogueHorizonHead>,
+    },
     /// Exact source identity or access scope changed.
     IdentityChanged,
     /// Request exceeds configured bounds.
@@ -41,6 +52,20 @@ pub enum CatalogueStoreError {
     Stale,
     /// Existing scope/incarnation/epoch needs explicit reset.
     ResetRequired,
+    /// Previously observed coverage metadata moved backward for this exact scope.
+    HorizonRegressed {
+        /// Durable prior observation.
+        previous: u64,
+        /// Rejected lower observation.
+        received: u64,
+    },
+    /// Incremental effects were refused against a durable newer observation.
+    HorizonExpired {
+        /// Actual pass completion, not its cursor or boundary.
+        completed: u64,
+        /// Durable minimum completed revision.
+        horizon: u64,
+    },
     /// Permanent entry deletion fence rejected content.
     Fenced,
     /// Same revision carried different content or identity.
@@ -290,7 +315,7 @@ fn begin_with_head<A: ScopeAuthorizer, S: CatalogueSource, D: CatalogueStore>(
     begin_checked(scope, saved, head, store).map(|progress| progress.active)
 }
 
-fn begin_checked<D: CatalogueStore>(
+pub(super) fn begin_checked<D: CatalogueStore>(
     scope: &Scope,
     expected: Option<CatalogueProgress>,
     boundary: u64,
@@ -333,6 +358,60 @@ where
     S: CatalogueSource,
     D: CatalogueStore,
 {
+    apply_page_using(
+        pass,
+        max_entries,
+        max_payload_bytes,
+        authorizer,
+        &mut LegacyReads(source),
+        store,
+    )
+}
+pub(super) trait PageReads<A, D> {
+    fn manifest(
+        &mut self,
+        r: &ManifestRequest,
+        authorizer: &mut A,
+        store: &mut D,
+    ) -> Result<ManifestPage, CatalogueError>;
+    fn value(
+        &mut self,
+        p: &CataloguePass,
+        id: &Id,
+        budget: usize,
+        authorizer: &mut A,
+        store: &mut D,
+    ) -> Result<ResolvedEntry, CatalogueError>;
+}
+struct LegacyReads<'a, S>(&'a mut S);
+impl<A, D, S: CatalogueSource> PageReads<A, D> for LegacyReads<'_, S> {
+    fn manifest(
+        &mut self,
+        r: &ManifestRequest,
+        _: &mut A,
+        _: &mut D,
+    ) -> Result<ManifestPage, CatalogueError> {
+        self.0.manifest(r).map_err(CatalogueError::from)
+    }
+    fn value(
+        &mut self,
+        p: &CataloguePass,
+        id: &Id,
+        b: usize,
+        _: &mut A,
+        _: &mut D,
+    ) -> Result<ResolvedEntry, CatalogueError> {
+        self.0.resolve(p, id, b).map_err(CatalogueError::from)
+    }
+}
+pub(super) fn apply_page_using<A: ScopeAuthorizer, S: PageReads<A, D>, D: CatalogueStore>(
+    pass: &CataloguePass,
+    max_entries: usize,
+    max_payload_bytes: usize,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut D,
+) -> Result<CatalogueProgress, CatalogueError> {
     if max_payload_bytes == 0 || max_payload_bytes > MAX_CATALOGUE_PAYLOAD_BYTES {
         return Err(CatalogueError::Validation(
             CatalogueValidationError::InvalidRequest,
@@ -345,7 +424,7 @@ where
     validate_manifest_request(&request, MAX_CATALOGUE_ENTRIES)
         .map_err(CatalogueError::Validation)?;
     authorize(&pass.scope, authorizer)?;
-    let page = source.manifest(&request).map_err(CatalogueError::from)?;
+    let page = source.manifest(&request, authorizer, store)?;
     validate_manifest(&request, &page, MAX_CATALOGUE_ENTRIES)
         .map_err(CatalogueError::Validation)?;
     let mut resolved = Vec::new();
@@ -366,9 +445,7 @@ where
                 CatalogueValidationError::BoundsExceeded,
             ));
         }
-        let value = source
-            .resolve(pass, &entry.key.id, remaining)
-            .map_err(CatalogueError::from)?;
+        let value = source.value(pass, &entry.key.id, remaining, authorizer, store)?;
         validate_resolved(entry, &value, max_payload_bytes).map_err(CatalogueError::Validation)?;
         total_bytes =
             total_bytes

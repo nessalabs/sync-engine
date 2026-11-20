@@ -47,7 +47,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", CATALOGUE_SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=3) {
+    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=4) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -85,6 +85,9 @@ pub(super) fn initialize(
     if version >= 2 {
         expected.extend(["metadata_version", "reader_required", "writer_required"]);
     }
+    if version == 4 {
+        expected.push("horizon");
+    }
     if columns != expected {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
@@ -102,7 +105,7 @@ pub(super) fn initialize(
         rows
     };
     let mut expected = vec!["entry_id", "creation", "revision", "deleted", "payload"];
-    if version == 3 {
+    if version >= 3 {
         expected.push("manifest_visible");
     }
     if columns != expected {
@@ -115,7 +118,11 @@ pub(super) fn initialize(
             CHECK(manifest_visible IN (0,1) AND (manifest_visible = 1 OR deleted = 1));
             DROP INDEX catalogue_source_page;
             CREATE INDEX catalogue_source_page ON catalogue_source_entries(creation,entry_id) WHERE manifest_visible = 1;")?;
-        tx.pragma_update(None, "user_version", 3)?;
+        version = 3;
+    }
+    if version == 3 {
+        tx.execute_batch("ALTER TABLE catalogue_source_meta ADD COLUMN horizon INTEGER NOT NULL DEFAULT 0 CHECK(horizon>=0 AND horizon<=head);")?;
+        tx.pragma_update(None, "user_version", 4)?;
     }
     read(&tx)?; // A malformed/missing/future partial row must never become zero.
     tx.commit()?;
@@ -123,15 +130,28 @@ pub(super) fn initialize(
 }
 
 pub(super) fn read(conn: &Connection) -> rusqlite::Result<Publication> {
+    read_snapshot(conn).map(|p| p.0)
+}
+pub(super) fn read_snapshot(conn: &Connection) -> rusqlite::Result<(Publication, u64)> {
     conn.query_row(
         "SELECT metadata_version,head,
  CASE WHEN typeof(reader_required)='blob' AND length(reader_required)=8 THEN reader_required END,
- CASE WHEN typeof(writer_required)='blob' AND length(writer_required)=8 THEN writer_required END
+ CASE WHEN typeof(writer_required)='blob' AND length(writer_required)=8 THEN writer_required END,
+ CASE WHEN typeof(horizon)='integer' THEN horizon END
  FROM catalogue_source_meta WHERE singleton=1",
         [],
-        decode,
+        |r| {
+            let p = decode(r)?;
+            let raw: i64 = r.get(4)?;
+            let h = u64::try_from(raw).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            if h > p.position {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            Ok((p, h))
+        },
     )
 }
+
 impl SqliteCatalogueSource {
     /// Atomically compare head/version/masks and publish one current value with
     /// monotonic requirements. Only implemented encoder bits may be requested

@@ -122,7 +122,7 @@ fn populated_migration_preserves_current_values_creation_deletion_and_reopen() {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
 }
 #[test]
@@ -185,7 +185,7 @@ fn migration_identity_partial_future_and_rollback_never_default_requirements() {
     drop(source(&p));
     Connection::open(&p)
         .unwrap()
-        .pragma_update(None, "user_version", 4)
+        .pragma_update(None, "user_version", 5)
         .unwrap();
     assert!(matches!(
         SqliteCatalogueSource::open(
@@ -789,7 +789,7 @@ fn membership_migration_failure_rolls_back_schema_version_index_and_values() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     // A claimed v3 file missing its membership column is refused, not repaired.
     let q = d.path("partial-v3.db");
@@ -838,7 +838,7 @@ fn competing_openers_migrate_once_and_keep_one_identity_history() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(
         db.query_row(
