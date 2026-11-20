@@ -146,3 +146,6 @@ impl DuplexSessionIo for TcpSessionIo {
         ))
     }
 }
+
+#[cfg(feature = "tls")]
+pub(super) mod tls;

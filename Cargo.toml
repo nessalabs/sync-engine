@@ -10,10 +10,12 @@ publish = false
 default = []
 sqlite = ["dep:rusqlite"]
 transport = []
+tls = ["transport", "dep:rustls"]
 
 [dependencies]
 rusqlite = { version = "=0.40.2", features = ["bundled"], optional = true }
 sha2 = "=0.10.9"
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring"], optional = true }
 
 [[example]]
 name = "transcript_sqlite"
