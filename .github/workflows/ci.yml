@@ -157,6 +157,9 @@ jobs:
         run: |
           curl --fail --location --max-time 60 https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar --output "$RUNNER_TEMP/tla2tools.jar"
           python3 scripts/verify-catalogue-reset-model.py --jar "$RUNNER_TEMP/tla2tools.jar"
+      - name: Finite receiver origin-epoch model and controls
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-origin-epoch-model.py --jar "$RUNNER_TEMP/tla2tools.jar"
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:
