@@ -1,7 +1,9 @@
 //! Authorized catalogue reads and atomic page-commit ports.
 
 use crate::replication::application::{Access, ScopeAuthorizer};
-use crate::replication::domain::{Id, Scope};
+use crate::replication::domain::{
+    validate_capabilities, CapabilityError, CapabilitySupport, Id, Scope, SourceHead,
+};
 
 use super::{
     catalogue_progress_after_begin, catalogue_progress_after_page, catalogue_progress_after_reset,
@@ -58,6 +60,8 @@ impl From<CatalogueProgressError> for CatalogueStoreError {
 /// End-to-end refusal with source and store errors preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueError {
+    /// Source metadata version or reader requirements are incompatible.
+    Incompatible(CapabilityError),
     /// Authorization returned an unsupported or malformed reply.
     InvalidAccessResponse,
     /// Current policy denied delivery.
@@ -88,6 +92,14 @@ pub trait CatalogueSource {
         id: &Id,
         max_payload_bytes: usize,
     ) -> Result<ResolvedEntry, CatalogueSourceError>;
+}
+
+/// Explicit versioned metadata for initial catalogue admission. It does not
+/// fence current-value resolution during a pass and grants no authority. A
+/// transport must implement this port explicitly; legacy heads are not upgraded.
+pub trait CatalogueHeadSource: CatalogueSource {
+    /// Read the current committed revision and requirements for the exact scope.
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, CatalogueSourceError>;
 }
 
 /// Atomic receiver progress and latest-value store.
@@ -149,6 +161,45 @@ where
     S: CatalogueSource,
     D: CatalogueStore,
 {
+    begin_with_head(scope, authorizer, source, store, false, |s| {
+        s.head(scope).map_err(CatalogueError::Source)
+    })
+}
+
+/// Initial compatibility admission, including before returning a saved active
+/// pass. Unknown reader bits stop before manifest/begin/apply; writer bits are
+/// ignored. Catalogue resolve may observe newer values, so this initial check is
+/// not a mid-pass guarantee. Keep fresh metadata checks on explicit resumes.
+pub fn begin_or_resume_with_capabilities<
+    A: ScopeAuthorizer,
+    S: CatalogueHeadSource,
+    D: CatalogueStore,
+>(
+    scope: &Scope,
+    supported: CapabilitySupport,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut D,
+) -> Result<Option<CataloguePass>, CatalogueError> {
+    begin_with_head(scope, authorizer, source, store, true, |source| {
+        let head = source.source_head(scope).map_err(CatalogueError::Source)?;
+        if head.scope() != scope {
+            return Err(CatalogueError::Validation(
+                CatalogueValidationError::WrongRequest,
+            ));
+        }
+        validate_capabilities(&head, supported).map_err(CatalogueError::Incompatible)?;
+        Ok(head.position())
+    })
+}
+fn begin_with_head<A: ScopeAuthorizer, S: CatalogueSource, D: CatalogueStore>(
+    scope: &Scope,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut D,
+    fresh_resume: bool,
+    mut read_head: impl FnMut(&mut S) -> Result<u64, CatalogueError>,
+) -> Result<Option<CataloguePass>, CatalogueError> {
     authorize(scope, authorizer)?;
     let saved = store.progress(scope).map_err(CatalogueError::Store)?;
     if let Some(progress) = &saved {
@@ -158,11 +209,19 @@ where
         if progress.scope != *scope {
             return Err(CatalogueError::Store(CatalogueStoreError::ResetRequired));
         }
-        if let Some(pass) = &progress.active {
-            return Ok(Some(pass.clone()));
+        if !fresh_resume {
+            if let Some(pass) = &progress.active {
+                return Ok(Some(pass.clone()));
+            }
         }
     }
-    let head = source.head(scope).map_err(CatalogueError::Source)?;
+    let head = read_head(source)?;
+    if let Some(pass) = saved.as_ref().and_then(|progress| progress.active.as_ref()) {
+        if head < pass.boundary {
+            return Err(CatalogueError::Store(CatalogueStoreError::ResetRequired));
+        }
+        return Ok(Some(pass.clone()));
+    }
     let completed = saved.as_ref().map_or(0, |p| p.completed);
     if head < completed {
         return Err(CatalogueError::Store(CatalogueStoreError::ResetRequired));

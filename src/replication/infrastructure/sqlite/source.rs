@@ -5,9 +5,11 @@ use std::path::Path;
 
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
-use crate::replication::application::{RecordSource, SourceError, StoreError, MAX_RECORD_BYTES};
+use crate::replication::application::{
+    RecordHeadSource, RecordSource, SourceError, StoreError, MAX_RECORD_BYTES,
+};
 use crate::replication::domain::{
-    validate_page_request, Id, Limits, Page, PageRequest, Record, Scope,
+    validate_page_request, Id, Limits, Page, PageRequest, Record, Scope, SourceHead,
 };
 use crate::replication::history::{
     HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
@@ -573,5 +575,12 @@ impl HistorySource for SqliteReferenceSource {
             oldest_available: oldest,
             records,
         })
+    }
+}
+
+impl RecordHeadSource for SqliteReferenceSource {
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        RecordSource::head(self, scope)
+            .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
     }
 }

@@ -6,10 +6,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::replication::application::{
-    Access, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, StoreError,
+    Access, RecordHeadSource, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, StoreError,
 };
 use crate::replication::domain::{
     validate_page_request, Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Record, Scope,
+    SourceHead,
 };
 
 /// A canonical source fact before receiver-specific delivery scope is attached.
@@ -333,5 +334,12 @@ impl ReplicaStore for MemoryStore {
         } else {
             Ok(())
         }
+    }
+}
+
+impl RecordHeadSource for MemorySource {
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        RecordSource::head(self, scope)
+            .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
     }
 }
