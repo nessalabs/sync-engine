@@ -171,6 +171,15 @@ fn read_packet_wait(
     limit: usize,
     idle: bool,
 ) -> Result<Option<Packet>, RecordSessionError> {
+    read_packet_wait_kind(reader, limit, idle, None)
+}
+
+fn read_packet_wait_kind(
+    reader: &mut impl Read,
+    limit: usize,
+    idle: bool,
+    extra: Option<u8>,
+) -> Result<Option<Packet>, RecordSessionError> {
     let mut header = [0; 4];
     loop {
         match reader.read(&mut header[..1]) {
@@ -208,7 +217,11 @@ fn read_packet_wait(
     }
     let kind = d.byte()?;
     let status = d.byte()?;
-    if kind != HINT && kind & !REPLY != scope_pair::HEAD_BATCH && !data_operation(kind & !REPLY) {
+    if kind != HINT
+        && kind & !REPLY != scope_pair::HEAD_BATCH
+        && !data_operation(kind & !REPLY)
+        && extra != Some(kind & !REPLY)
+    {
         return Err(RecordSessionError::Protocol);
     }
     let meta = Meta {
@@ -284,6 +297,11 @@ impl<S: Write> Write for Wire<S> {
             .flush()
     }
 }
+enum WireBody {
+    Data(Vec<u8>),
+    Stopped(follow::cancel_page::PageCancelReceipt),
+}
+
 impl<S: Read + Write> Wire<S> {
     fn close(&mut self) {
         self.io.take();
@@ -313,82 +331,13 @@ impl<S: Read + Write> Wire<S> {
         max_reply: usize,
         isolate_identity: bool,
     ) -> Result<Vec<u8>, RecordSessionError> {
-        if self.io.is_none() {
-            return Err(RecordSessionError::Closed);
-        }
-        let request = self.next.ok_or(RecordSessionError::Protocol)?;
-        let meta = Meta::for_scope(identity, request);
-        self.next = request.checked_add(1);
-        let limit = self.limit;
-        let result = (|| {
-            write_packet(
-                self,
-                &Packet {
-                    kind,
-                    status: 0,
-                    meta,
-                    total: payload.len(),
-                    offset: 0,
-                    payload,
-                },
-                limit,
-            )?;
-            self.flush()?;
-            let mut result = Vec::new();
-            let mut total = None;
-            loop {
-                let p = read_packet(self, limit)?
-                    .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
-                if p.kind != kind | REPLY || p.meta != meta {
-                    return Err(RecordSessionError::Protocol);
-                }
-                if p.status != 0 {
-                    if p.status == 8 && capability_operation(kind) {
-                        if !result.is_empty()
-                            || p.offset != 0
-                            || p.total != p.payload.len()
-                            || p.payload.len() > 9
-                        {
-                            return Err(RecordSessionError::Protocol);
-                        }
-                        let error = capabilities::decode_incompatible(&p.payload)?;
-                        self.counters.exchanges += 1;
-                        return Err(RecordSessionError::Source(SourceError::Incompatible(error)));
-                    }
-                    if p.total != 0 || p.offset != 0 || !p.payload.is_empty() {
-                        return Err(RecordSessionError::Protocol);
-                    }
-                    self.counters.exchanges += 1;
-                    if !(1..=6).contains(&p.status) {
-                        return Err(RecordSessionError::Protocol);
-                    }
-                    return Err(RecordSessionError::Source(decode_source_error(p.status)));
-                }
-                if p.total > max_reply {
-                    return Err(RecordSessionError::TooLarge);
-                }
-                if p.total == 0
-                    || p.offset != result.len()
-                    || total.is_some_and(|n| n != p.total)
-                    || p.payload.is_empty()
-                    || p.payload.len() > p.total.saturating_sub(p.offset)
-                {
-                    return Err(RecordSessionError::Protocol);
-                }
-                if total.is_none() {
-                    result.reserve(p.total);
-                    total = Some(p.total);
-                }
-                result.extend_from_slice(&p.payload);
-                if result.len() == p.total {
-                    self.counters.exchanges += 1;
-                    return Ok(result);
-                }
-                if p.payload.len() != limit - HEADER {
-                    return Err(RecordSessionError::Protocol);
-                }
-            }
-        })();
+        let result = self
+            .send_request(kind, identity, payload)
+            .and_then(|meta| self.receive_response(kind, meta, max_reply, false))
+            .and_then(|body| match body {
+                WireBody::Data(body) => Ok(body),
+                WireBody::Stopped(_) => Err(RecordSessionError::Protocol),
+            });
         match &result {
             Ok(_)
             | Err(RecordSessionError::Source(
@@ -403,6 +352,112 @@ impl<S: Read + Write> Wire<S> {
             _ => self.close(),
         }
         result
+    }
+
+    fn send_request(
+        &mut self,
+        kind: u8,
+        identity: &ScopeIdentity,
+        payload: Vec<u8>,
+    ) -> Result<Meta, RecordSessionError> {
+        if self.io.is_none() {
+            return Err(RecordSessionError::Closed);
+        }
+        let request = self.next.ok_or(RecordSessionError::Protocol)?;
+        let meta = Meta::for_scope(identity, request);
+        self.next = request.checked_add(1);
+        let limit = self.limit;
+        write_packet(
+            self,
+            &Packet {
+                kind,
+                status: 0,
+                meta,
+                total: payload.len(),
+                offset: 0,
+                payload,
+            },
+            limit,
+        )?;
+        self.flush()?;
+        Ok(meta)
+    }
+
+    fn receive_response(
+        &mut self,
+        kind: u8,
+        meta: Meta,
+        max_reply: usize,
+        cancel: bool,
+    ) -> Result<WireBody, RecordSessionError> {
+        let limit = self.limit;
+        let mut result = Vec::new();
+        let mut total = None;
+        loop {
+            let p = read_packet_wait_kind(
+                self,
+                limit,
+                false,
+                cancel.then_some(follow::cancel_page::CANCEL),
+            )?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
+            if cancel && p.kind == follow::cancel_page::CANCEL | REPLY {
+                let ack = follow::cancel_page::decode_ack(&p, meta)?;
+                if ack == follow::cancel_page::PageCancelReceipt::TooLate {
+                    return Err(RecordSessionError::Protocol);
+                }
+                self.counters.exchanges += 1;
+                return Ok(WireBody::Stopped(ack));
+            }
+            if p.kind != kind | REPLY || p.meta != meta {
+                return Err(RecordSessionError::Protocol);
+            }
+            if p.status != 0 {
+                if p.status == 8 && capability_operation(kind) {
+                    if !result.is_empty()
+                        || p.offset != 0
+                        || p.total != p.payload.len()
+                        || p.payload.len() > 9
+                    {
+                        return Err(RecordSessionError::Protocol);
+                    }
+                    let error = capabilities::decode_incompatible(&p.payload)?;
+                    self.counters.exchanges += 1;
+                    return Err(RecordSessionError::Source(SourceError::Incompatible(error)));
+                }
+                if p.total != 0 || p.offset != 0 || !p.payload.is_empty() {
+                    return Err(RecordSessionError::Protocol);
+                }
+                self.counters.exchanges += 1;
+                if !(1..=6).contains(&p.status) {
+                    return Err(RecordSessionError::Protocol);
+                }
+                return Err(RecordSessionError::Source(decode_source_error(p.status)));
+            }
+            if p.total > max_reply {
+                return Err(RecordSessionError::TooLarge);
+            }
+            if p.total == 0
+                || p.offset != result.len()
+                || total.is_some_and(|n| n != p.total)
+                || p.payload.is_empty()
+                || p.payload.len() > p.total.saturating_sub(p.offset)
+            {
+                return Err(RecordSessionError::Protocol);
+            }
+            if total.is_none() {
+                result.reserve(p.total);
+                total = Some(p.total);
+            }
+            result.extend_from_slice(&p.payload);
+            if result.len() == p.total {
+                self.counters.exchanges += 1;
+                return Ok(WireBody::Data(result));
+            }
+            if p.payload.len() != limit - HEADER {
+                return Err(RecordSessionError::Protocol);
+            }
+        }
     }
 }
 struct Client<S> {
@@ -775,16 +830,7 @@ impl<S: Read + Write> RecordSource for RecordSessionSource<S> {
         c.scope(&request.scope)?;
         validate_page_request(request, physical(c.wire.record_bytes))
             .map_err(|_| SourceError::InvalidRequest)?;
-        let mut payload = Vec::new();
-        for n in [
-            request.after,
-            request.target,
-            request.max_records as u64,
-            request.max_payload_bytes as u64,
-            request.max_record_bytes as u64,
-        ] {
-            payload.extend_from_slice(&n.to_be_bytes());
-        }
+        let payload = encode_page_request(request);
         let result = {
             let Client { identity, wire, .. } = &mut *c;
             wire.exchange(
@@ -971,56 +1017,100 @@ fn respond_checked<S: Write>(
     limit: usize,
     mut current_access: impl FnMut() -> u8,
 ) -> Result<(), RecordSessionError> {
-    let cap = limit - HEADER;
     let mut offset = 0;
     loop {
         let current = current_access();
-        let status = if current == 0 { status } else { current };
-        if status != 0 {
-            write_packet(
-                stream,
-                &Packet {
-                    kind: request.kind | REPLY,
-                    status,
-                    meta: request.meta,
-                    total: if status == 8 && current == 0 {
-                        body.len()
-                    } else {
-                        0
-                    },
-                    offset: 0,
-                    payload: if status == 8 && current == 0 {
-                        body.to_vec()
-                    } else {
-                        Vec::new()
-                    },
-                },
-                limit,
-            )?;
-            stream.flush()?;
+        let (packet, final_frame) =
+            response_fragment(request, status, body, limit, offset, current)?;
+        offset += packet.payload.len();
+        write_packet(stream, &packet, limit)?;
+        stream.flush()?;
+        if final_frame {
             return Ok(());
         }
+    }
+}
+
+fn response_fragment(
+    request: &Packet,
+    status: u8,
+    body: &[u8],
+    limit: usize,
+    offset: usize,
+    current: u8,
+) -> Result<(Packet, bool), RecordSessionError> {
+    let status = if current == 0 { status } else { current };
+    let (offset, total, payload, final_frame) = if status != 0 {
+        let payload = if status == 8 && current == 0 {
+            body.to_vec()
+        } else {
+            Vec::new()
+        };
+        (0, payload.len(), payload, true)
+    } else {
         if body.is_empty() {
             return Err(RecordSessionError::Protocol);
         }
-        let end = (offset + cap).min(body.len());
-        write_packet(
-            stream,
-            &Packet {
-                kind: request.kind | REPLY,
-                status: 0,
-                meta: request.meta,
-                total: body.len(),
-                offset,
-                payload: body[offset..end].to_vec(),
-            },
-            limit,
-        )?;
-        stream.flush()?;
-        if end == body.len() {
-            return Ok(());
+        let end = (offset + limit - HEADER).min(body.len());
+        (
+            offset,
+            body.len(),
+            body[offset..end].to_vec(),
+            end == body.len(),
+        )
+    };
+    Ok((
+        Packet {
+            kind: request.kind | REPLY,
+            status,
+            meta: request.meta,
+            total,
+            offset,
+            payload,
+        },
+        final_frame,
+    ))
+}
+
+fn encode_page_request(request: &PageRequest) -> Vec<u8> {
+    [
+        request.after,
+        request.target,
+        request.max_records as u64,
+        request.max_payload_bytes as u64,
+        request.max_record_bytes as u64,
+    ]
+    .into_iter()
+    .flat_map(u64::to_be_bytes)
+    .collect()
+}
+
+fn decode_page_request(bytes: &[u8], scope: &Scope) -> Result<PageRequest, RecordSessionError> {
+    let mut d = Decoder::new(bytes);
+    let request = PageRequest {
+        scope: scope.clone(),
+        after: d.u64()?,
+        target: d.u64()?,
+        max_records: usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)?,
+        max_payload_bytes: usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)?,
+        max_record_bytes: usize::try_from(d.u64()?).map_err(|_| RecordSessionError::TooLarge)?,
+    };
+    d.finish()?;
+    Ok(request)
+}
+
+fn prepare_page_response<R: RecordSource>(
+    request: Result<PageRequest, RecordSessionError>,
+    open_source: impl FnOnce(&Scope) -> Result<R, SourceError>,
+) -> Result<Vec<u8>, u8> {
+    match request {
+        Ok(request) if validate_page_request(&request, physical(MAX_RECORD_BYTES)).is_ok() => {
+            open_source(&request.scope)
+                .and_then(|mut source| source.page(&request))
+                .and_then(|page| encode_record_page(&request, page))
+                .map_err(source_error_code)
         }
-        offset = end;
+        _ => Err(4),
     }
 }
 
@@ -1131,8 +1221,15 @@ impl<R> CapabilityRoutes<R> {
         }
     }
 }
-type BoundHook<'a> =
-    Option<&'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>>;
+type HintBoundHook<'a> =
+    &'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>;
+type PageBoundHook<'a> =
+    &'a mut dyn FnMut(&mut dyn Read, Correlation, Scope, usize) -> Result<(), RecordSessionError>;
+enum FollowBoundHook<'a> {
+    Hints(HintBoundHook<'a>),
+    SinglePage(PageBoundHook<'a>),
+}
+type BoundHook<'a> = Option<FollowBoundHook<'a>>;
 struct BoundHooks<'a> {
     follow: BoundHook<'a>,
     #[cfg(feature = "tls")]
@@ -1188,9 +1285,12 @@ where
     if session == 0 {
         return Err(RecordSessionError::Protocol);
     }
+    let single_page = matches!(hooks.follow, Some(FollowBoundHook::SinglePage(_)));
     let (offered, opening, following) =
         match read_control(stream, supported.control_bytes as usize)? {
-            ControlFrame::Hello(offered) if !routes.scope_pair => (offered, None, false),
+            ControlFrame::Hello(offered) if !routes.scope_pair && !single_page => {
+                (offered, None, false)
+            }
             ControlFrame::ScopePairHello(offered)
                 if routes.scope_pair && !routes.pair_batch && supported.bindings == 2 =>
             {
@@ -1205,12 +1305,14 @@ where
                 limits,
                 request,
                 scope,
-            } if !routes.scope_pair => (limits, Some((request, scope)), false),
+            } if !routes.scope_pair && !single_page => (limits, Some((request, scope)), false),
             ControlFrame::FollowOpen {
                 limits,
                 request,
                 scope,
-            } if hooks.follow.is_some() => (limits, Some((request, scope)), true),
+            } if hooks.follow.is_some() && (!single_page || request == FIRST_REQUEST) => {
+                (limits, Some((request, scope)), true)
+            }
             _ => return Err(RecordSessionError::Protocol),
         };
     let selected = SessionLimits {
@@ -1252,11 +1354,10 @@ where
         return Ok(());
     }
     if following {
-        hooks.follow.as_mut().ok_or(RecordSessionError::Protocol)?(
-            correlation,
-            scope.clone(),
-            limit,
-        )?;
+        match hooks.follow.as_mut().ok_or(RecordSessionError::Protocol)? {
+            FollowBoundHook::Hints(hook) => hook(correlation, scope.clone(), limit)?,
+            FollowBoundHook::SinglePage(hook) => return hook(stream, correlation, scope, limit),
+        }
     }
     let secondary = if routes.scope_pair {
         scope_pair::bind_secondary(stream, correlation, &scope, policy, &mut open_source, limit)?
@@ -1409,36 +1510,10 @@ where
                         _ => Err(4),
                     }
                 }
-                PAGE => {
-                    let decoded = (|| -> Result<PageRequest, RecordSessionError> {
-                        let mut d = Decoder::new(&request.payload);
-                        let request = PageRequest {
-                            scope: scope.clone(),
-                            after: d.u64()?,
-                            target: d.u64()?,
-                            max_records: usize::try_from(d.u64()?)
-                                .map_err(|_| RecordSessionError::TooLarge)?,
-                            max_payload_bytes: usize::try_from(d.u64()?)
-                                .map_err(|_| RecordSessionError::TooLarge)?,
-                            max_record_bytes: usize::try_from(d.u64()?)
-                                .map_err(|_| RecordSessionError::TooLarge)?,
-                        };
-                        d.finish()?;
-                        Ok(request)
-                    })();
-                    match decoded {
-                        Ok(request)
-                            if validate_page_request(&request, physical(MAX_RECORD_BYTES))
-                                .is_ok() =>
-                        {
-                            open_source(scope)
-                                .and_then(|mut source| source.page(&request))
-                                .and_then(|page| encode_record_page(&request, page))
-                                .map_err(source_error_code)
-                        }
-                        _ => Err(4),
-                    }
-                }
+                PAGE => prepare_page_response(
+                    decode_page_request(&request.payload, scope),
+                    &mut open_source,
+                ),
                 _ => Err(4),
             }
         };

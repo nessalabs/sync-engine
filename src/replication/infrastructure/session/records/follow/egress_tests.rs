@@ -70,7 +70,7 @@ fn outer_wire_admits_and_flushes_one_complete_frame_through_real_follow_facade()
     let writer = ShortWriter::new(Failure::None);
     let mut wire = Wire {
         io: Some(FollowIo {
-            writer,
+            writer: Some(writer),
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: WAIT,
@@ -85,8 +85,8 @@ fn outer_wire_admits_and_flushes_one_complete_frame_through_real_follow_facade()
     // The containing Wire flush is only a receipt check, not another send.
     wire.flush().unwrap();
     let facade = wire.io.as_ref().unwrap();
-    assert_eq!(*facade.writer.out.lock().unwrap(), golden);
-    assert_eq!(facade.writer.flushes, 1);
+    assert_eq!(*facade.writer.as_ref().unwrap().out.lock().unwrap(), golden);
+    assert_eq!(facade.writer.as_ref().unwrap().flushes, 1);
     assert_eq!(wire.counters.protocol_bytes, golden.len() as u64);
     let dispatch = shared.state.lock().unwrap();
     assert_eq!(dispatch.tx, golden.len() as u64);
@@ -112,7 +112,7 @@ fn actual_wire_counts_accepted_prefix_or_full_unflushed_frame_and_then_fences() 
         let out = writer.out.clone();
         let mut wire = Wire {
             io: Some(FollowIo {
-                writer,
+                writer: Some(writer),
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: WAIT,
@@ -236,7 +236,7 @@ fn a_client_send_admits_one_frame_not_a_buffered_batch() {
     let writer = ShortWriter::new(Failure::None);
     let out = writer.out.clone();
     let mut facade = FollowIo {
-        writer,
+        writer: Some(writer),
         shared: shared.clone(),
         current: Cursor::new(Vec::new()),
         deadline: WAIT,
@@ -305,7 +305,7 @@ fn next_client_frame_cannot_admit_over_unread_local_reply_bytes() {
     let out = writer.out.clone();
     let request = packet(HEAD, Vec::new(), 0, 0);
     let mut facade = FollowIo {
-        writer,
+        writer: Some(writer),
         shared: shared.clone(),
         current: Cursor::new(Vec::new()),
         deadline: WAIT,

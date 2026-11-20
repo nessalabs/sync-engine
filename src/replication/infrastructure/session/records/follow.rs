@@ -13,6 +13,8 @@ use std::sync::Condvar;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+pub(in super::super) mod cancel_page;
+
 const MIN_FRAME_BODY: usize = 7; // NSC1 magic, version and kind.
 
 /// Terminal follow failure. It never supplies authority or resets cached state.
@@ -97,6 +99,7 @@ impl Rpc {
 struct Dispatch {
     frame: Option<Vec<u8>>,
     rpc: Option<Rpc>,
+    cancel: Option<cancel_page::Control>,
     closed: bool,
     error: Option<FollowError>,
     identity: Option<ScopeIdentity>,
@@ -190,6 +193,7 @@ impl Shared {
     fn route(&self, mut bytes: &[u8]) -> Result<bool, FollowError> {
         let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
         let limit = s.limit;
+        let single_page = s.cancel.is_some();
         let rpc = s.rpc.as_mut().ok_or(FollowError::Protocol)?;
         if rpc.complete {
             return Err(FollowError::Protocol);
@@ -256,6 +260,7 @@ impl Shared {
                     rpc.complete = true;
                 } else {
                     if p.total == 0
+                        || (single_page && (p.offset != 0 || p.total != p.payload.len()))
                         || p.offset != *offset
                         || total.is_some_and(|n| n != p.total)
                         || p.payload.is_empty()
@@ -276,6 +281,50 @@ impl Shared {
             s.limit = s.limit.min(selected);
         }
         Ok(handoff)
+    }
+    fn route_cancel_ack(&self, packet: &Packet) -> Result<bool, FollowError> {
+        let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
+        if s.closed {
+            return Err(FollowError::Closed);
+        }
+        let Dispatch { rpc, cancel, .. } = &mut *s;
+        let control = cancel.as_mut().ok_or(FollowError::Protocol)?;
+        let deadline = control.deadline.ok_or(FollowError::Protocol)?;
+        if control.receipt.is_some() {
+            return Err(FollowError::Protocol);
+        }
+        if Instant::now() > deadline {
+            return Err(FollowError::Unavailable);
+        }
+        let rpc = rpc.as_mut().ok_or(FollowError::Protocol)?;
+        let Expect::Data {
+            kind, meta, offset, ..
+        } = &rpc.expected
+        else {
+            return Err(FollowError::Protocol);
+        };
+        if *kind != PAGE | REPLY {
+            return Err(FollowError::Protocol);
+        }
+        let receipt = cancel_page::decode_ack(packet, *meta).map_err(FollowError::from)?;
+        let stops = match receipt {
+            cancel_page::PageCancelReceipt::StoppedBeforeResponse
+                if !rpc.complete && *offset == 0 =>
+            {
+                true
+            }
+            cancel_page::PageCancelReceipt::TooLate if rpc.complete => false,
+            _ => return Err(FollowError::Protocol),
+        };
+        if stops {
+            // The same exact frame terminates the page accumulator, while
+            // its typed control result is independently observable.
+            rpc.complete = true;
+            rpc.owned_refusal = true;
+        }
+        control.receipt = Some(receipt);
+        self.ready.notify_all();
+        Ok(stops)
     }
     fn activate(
         &self,
@@ -300,6 +349,9 @@ impl Shared {
         let mut s = self.state.lock().map_err(|_| FollowError::Closed)?;
         if s.closed {
             return Err(s.error.clone().unwrap_or(FollowError::Closed));
+        }
+        if s.cancel.is_some() {
+            return Err(FollowError::Protocol);
         }
         let identity = s.identity.as_ref().ok_or(FollowError::Protocol)?;
         if p.meta != Meta::for_scope(identity, FIRST_REQUEST) {
@@ -342,7 +394,7 @@ impl SessionInterrupt for DispatchInterrupt {
 /// Read/write facade used only by this follow owner. One background reader feeds
 /// one bounded reply-frame slot; records still pass through the original ports.
 pub struct FollowIo<W: Write> {
-    writer: W,
+    writer: Option<W>,
     shared: Arc<Shared>,
     current: Cursor<Vec<u8>>,
     deadline: Duration,
@@ -394,6 +446,18 @@ impl<W: Write> Read for FollowIo<W> {
         self.current.read(out)
     }
 }
+fn complete_frame(writer: &mut impl Write, bytes: &[u8], accepted: &mut usize) -> io::Result<()> {
+    while *accepted < bytes.len() {
+        match writer.write(&bytes[*accepted..]) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(written) => *accepted += written,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    writer.flush()
+}
+
 impl<W: Write> Write for FollowIo<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.is_empty() {
@@ -418,17 +482,11 @@ impl<W: Write> Write for FollowIo<W> {
         }
 
         let mut accepted = 0;
-        let result = (|| {
-            while accepted < bytes.len() {
-                match self.writer.write(&bytes[accepted..]) {
-                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                    Ok(written) => accepted += written,
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(error) => return Err(error),
-                }
-            }
-            self.writer.flush()
-        })();
+        let result = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))
+            .and_then(|writer| complete_frame(writer, bytes, &mut accepted));
         if let Ok(mut state) = self.shared.state.lock() {
             state.tx += accepted as u64;
         }
@@ -557,7 +615,29 @@ fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: imp
                 })?;
                 continue;
             }
-            let handoff = shared.route(&frame)?;
+            let handoff = if &frame[4..8] == b"NSR1" && frame[10] == cancel_page::CANCEL | REPLY {
+                let packet = read_packet_wait_kind(
+                    &mut frame.as_slice(),
+                    limit,
+                    false,
+                    Some(cancel_page::CANCEL),
+                )
+                .map_err(FollowError::from)?
+                .ok_or(FollowError::Protocol)?;
+                if !shared.route_cancel_ack(&packet)? {
+                    // TooLate owns its control receipt immediately. The
+                    // successfully parsed final page keeps its parked slot
+                    // until the existing consumer takes it, even at EOF.
+                    let mut s = shared.state.lock().map_err(|_| FollowError::Closed)?;
+                    while !s.closed && s.frame.is_some() {
+                        s = shared.ready.wait(s).map_err(|_| FollowError::Closed)?;
+                    }
+                    continue;
+                }
+                false
+            } else {
+                shared.route(&frame)?
+            };
             before_publish(handoff);
             let mut s = shared.state.lock().map_err(|_| FollowError::Closed)?;
             while s.frame.is_some() && !s.closed {
@@ -882,6 +962,16 @@ pub fn connect_follow<D: DuplexSessionIo>(
     offered: SessionLimits,
     reply_deadline: Duration,
 ) -> Result<FollowSession<D::Writer>, FollowError> {
+    connect_follow_mode(io, scope, offered, reply_deadline, false)
+}
+
+fn connect_follow_mode<D: DuplexSessionIo>(
+    io: D,
+    scope: Scope,
+    offered: SessionLimits,
+    reply_deadline: Duration,
+    cancel: bool,
+) -> Result<FollowSession<D::Writer>, FollowError> {
     if reply_deadline.is_zero() || reply_deadline > Duration::from_secs(600) {
         return Err(FollowError::Protocol);
     }
@@ -892,6 +982,7 @@ pub fn connect_follow<D: DuplexSessionIo>(
         state: Mutex::new(Dispatch {
             frame: None,
             rpc: None,
+            cancel: cancel.then(cancel_page::Control::default),
             closed: false,
             error: None,
             identity: None,
@@ -907,7 +998,7 @@ pub fn connect_follow<D: DuplexSessionIo>(
     let held = shared.clone();
     let task = thread::spawn(move || reader(r, held));
     let facade = FollowIo {
-        writer: w,
+        writer: Some(w),
         shared: shared.clone(),
         current: Cursor::new(Vec::new()),
         deadline: reply_deadline,
@@ -1401,7 +1492,7 @@ where
                 .map_err(|_| SourceError::Unavailable)
                 .and_then(|mut b| (b.factory)(s))
         },
-        Some(&mut hook),
+        Some(FollowBoundHook::Hints(&mut hook)),
         routes,
     );
     stop.store(true, Ordering::Release);
@@ -1493,6 +1584,7 @@ mod tests {
             state: Mutex::new(Dispatch {
                 frame: None,
                 rpc: None,
+                cancel: None,
                 closed: false,
                 error: None,
                 identity: Some(identity()),
@@ -1578,7 +1670,7 @@ mod tests {
         peer.write_all(&last).unwrap();
         until(|| shared.state.lock().unwrap().stats.pending_head == Some(9));
         let mut facade = FollowIo {
-            writer: Vec::new(),
+            writer: Some(Vec::new()),
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_secs(1),
@@ -1601,7 +1693,7 @@ mod tests {
     fn hint_traffic_cannot_extend_an_admitted_rpc_deadline() {
         let (shared, mut peer, task) = fixture();
         let mut facade = FollowIo {
-            writer: Vec::new(),
+            writer: Some(Vec::new()),
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_millis(100),
@@ -1784,7 +1876,7 @@ mod tests {
         let (entered, waiting) = std::sync::mpsc::channel();
         let (release, resumed) = std::sync::mpsc::channel();
         let facade = FollowIo {
-            writer: Vec::new(),
+            writer: Some(Vec::new()),
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_secs(1),
@@ -2030,7 +2122,7 @@ mod tests {
             let (shared, mut peer, reader) = fixture();
             shared.state.lock().unwrap().identity = None;
             let mut facade = FollowIo {
-                writer: Vec::new(),
+                writer: Some(Vec::new()),
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(1),
@@ -2134,7 +2226,7 @@ mod tests {
             let (shared, mut peer, reader) = fixture();
             shared.state.lock().unwrap().identity = None;
             let mut facade = FollowIo {
-                writer: Vec::new(),
+                writer: Some(Vec::new()),
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_millis(100),
@@ -2177,7 +2269,7 @@ mod tests {
         let (started, entered) = std::sync::mpsc::channel();
         let consumer = thread::spawn(move || {
             let mut io = FollowIo {
-                writer: Vec::new(),
+                writer: Some(Vec::new()),
                 shared: owned,
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(1),
@@ -2308,7 +2400,7 @@ mod tests {
                 }
             });
             let mut facade = FollowIo {
-                writer: Vec::new(),
+                writer: Some(Vec::new()),
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(2),
