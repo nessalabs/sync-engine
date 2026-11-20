@@ -14,6 +14,8 @@
 //! `catalogue_progress_after_reset` own planned progress replacements.
 //! Adapters retain coherent reads, actual CAS, cache effects and commit ownership;
 //! application callers correlate returned progress with the planned replacement.
+//! `recovery` owns opt-in same-scope reset phases, finite candidate work and exact
+//! planned receipts; the existing durable store owns CAS, cache effects and restart.
 //! Application ports coordinate authorization,
 //! bounded source reads, and atomic local commits. Hosts supply scheduling and
 //! interpret opaque entry payloads.
@@ -25,3 +27,6 @@ mod domain;
 
 pub use application::*;
 pub use domain::*;
+
+mod recovery;
+pub use recovery::*;

@@ -18,11 +18,12 @@ use crate::replication::catalogue::{
 use crate::replication::domain::{validate_capabilities, CapabilitySupport, Id, Scope, SourceHead};
 
 use super::{
-    configure_connection, ensure_schema, open_connection, SqliteOpenError,
-    CATALOGUE_REPLICA_APPLICATION_ID, CATALOGUE_SOURCE_APPLICATION_ID,
+    configure_connection, open_connection, SqliteOpenError, CATALOGUE_REPLICA_APPLICATION_ID,
+    CATALOGUE_SOURCE_APPLICATION_ID,
 };
 
 mod publication;
+mod recovery;
 pub use publication::CataloguePublicationError;
 
 const SOURCE_SCHEMA: &str = "
@@ -396,14 +397,11 @@ pub struct SqliteCatalogueStore {
 
 impl SqliteCatalogueStore {
     /// Opens an isolated receiver file without replacing unrelated user data.
+    /// Version1 receivers migrate atomically to version2 recovery metadata;
+    /// populated cache/progress survive. Stop old binaries before upgrading.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
-        ensure_schema(
-            &mut conn,
-            CATALOGUE_REPLICA_APPLICATION_ID,
-            STORE_SCHEMA,
-            |_| Ok(()),
-        )?;
+        recovery::initialize(&mut conn)?;
         configure_connection(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         Ok(Self { conn })
@@ -539,7 +537,7 @@ impl CatalogueStore for SqliteCatalogueStore {
         &mut self,
         scope: &Scope,
     ) -> Result<Option<CatalogueProgress>, CatalogueStoreError> {
-        read_progress(&self.conn, scope)
+        recovery::progress_snapshot(&mut self.conn, scope, || {})
     }
 
     fn begin(
@@ -552,6 +550,7 @@ impl CatalogueStore for SqliteCatalogueStore {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| CatalogueStoreError::Failed)?;
+        recovery::ordinary(&tx, scope)?;
         let current = read_progress(&tx, scope)?;
         if current != expected {
             return Err(CatalogueStoreError::Stale);
@@ -598,6 +597,7 @@ impl CatalogueStore for SqliteCatalogueStore {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| CatalogueStoreError::Failed)?;
+        recovery::ordinary(&tx, &plan.pass.scope)?;
         let current = read_progress(&tx, &plan.pass.scope)?.ok_or(CatalogueStoreError::Stale)?;
         if current.scope != plan.pass.scope {
             return Err(CatalogueStoreError::ResetRequired);
@@ -606,57 +606,7 @@ impl CatalogueStore for SqliteCatalogueStore {
             return Err(CatalogueStoreError::Stale);
         }
         let scope = &plan.pass.scope;
-        for entry in &plan.unchanged {
-            let saved: Option<(i64, i64, i64)> = tx.query_row("SELECT creation, revision, deleted FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND entry_id = ?4",
-                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), entry.key.id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
-            let (creation, revision, deleted) = saved.ok_or(CatalogueStoreError::Stale)?;
-            let cached = ManifestEntry {
-                key: EntryKey {
-                    creation: to_u64(creation)?,
-                    id: entry.key.id.clone(),
-                },
-                revision: to_u64(revision)?,
-                deleted: deleted != 0,
-            };
-            validate_catalogue_revision_transition(entry, &cached).map_err(revision_error)?;
-        }
-        for value in &plan.entries {
-            let key = &value.manifest.key;
-            let saved: Option<(i64, i64, i64, Vec<u8>)> = tx.query_row("SELECT creation, revision, deleted, payload FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND entry_id = ?4",
-                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
-            if let Some((creation, revision, deleted, payload)) = saved {
-                let cached = ManifestEntry {
-                    key: EntryKey {
-                        creation: to_u64(creation)?,
-                        id: key.id.clone(),
-                    },
-                    revision: to_u64(revision)?,
-                    deleted: deleted != 0,
-                };
-                let (earlier, later) = if cached.revision > value.manifest.revision {
-                    (&value.manifest, &cached)
-                } else {
-                    (&cached, &value.manifest)
-                };
-                validate_catalogue_revision_transition(earlier, later).map_err(revision_error)?;
-                if cached.revision > value.manifest.revision {
-                    continue;
-                }
-                if cached.revision == value.manifest.revision {
-                    if payload != value.payload {
-                        return Err(CatalogueStoreError::Conflict);
-                    }
-                    continue;
-                }
-            }
-            tx.execute("INSERT INTO catalogue_entries (receiver, origin, stream, entry_id, creation, revision, deleted, payload)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                ON CONFLICT(receiver, origin, stream, entry_id) DO UPDATE SET revision=excluded.revision, deleted=excluded.deleted, payload=excluded.payload",
-                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str(), to_i64(key.creation)?, to_i64(value.manifest.revision)?, i64::from(value.manifest.deleted), &value.payload]
-            ).map_err(|_| CatalogueStoreError::Failed)?;
-        }
+        write_values(&tx, scope, &plan.entries, &plan.unchanged)?;
         let cursor = progress
             .active
             .as_ref()
@@ -686,21 +636,95 @@ impl CatalogueStore for SqliteCatalogueStore {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| CatalogueStoreError::Failed)?;
+        // An explicitly authorized scope replacement may cancel old work;
+        // same-scope normal reset must not abandon unclassified candidates.
+        if *scope == expected.scope {
+            recovery::ordinary(&tx, scope)?;
+        }
         let current = read_progress(&tx, scope)?.ok_or(CatalogueStoreError::Stale)?;
         if current != expected {
             return Err(CatalogueStoreError::Stale);
         }
+        tx.execute(
+            "DELETE FROM catalogue_candidates WHERE receiver=?1 AND origin=?2 AND stream=?3",
+            params![
+                scope.receiver().as_str(),
+                scope.origin().as_str(),
+                scope.stream().as_str()
+            ],
+        )
+        .map_err(|_| CatalogueStoreError::Failed)?;
         tx.execute("DELETE FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND deleted = 0",
             params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str()])
             .map_err(|_| CatalogueStoreError::Failed)?;
         tx.execute("UPDATE catalogue_progress SET incarnation = ?4, schema_id = ?5, access_epoch = ?6,
-            completed = 0, generation = ?7, active_boundary = NULL, cursor_creation = NULL, cursor_id = NULL
+            completed = 0, generation = ?7, active_boundary = NULL, cursor_creation = NULL, cursor_id = NULL, reset_phase = 0, reset_boundary = NULL
             WHERE receiver = ?1 AND origin = ?2 AND stream = ?3",
             params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), to_i64(progress.generation)?])
             .map_err(|_| CatalogueStoreError::Failed)?;
         tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
         Ok(progress)
     }
+}
+
+fn write_values(
+    tx: &Connection,
+    scope: &Scope,
+    entries: &[ResolvedEntry],
+    unchanged: &[ManifestEntry],
+) -> Result<(), CatalogueStoreError> {
+    for entry in unchanged {
+        let saved: Option<(i64, i64, i64)> = tx.query_row("SELECT creation, revision, deleted FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND entry_id = ?4",
+                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), entry.key.id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
+        let (creation, revision, deleted) = saved.ok_or(CatalogueStoreError::Stale)?;
+        let cached = ManifestEntry {
+            key: EntryKey {
+                creation: to_u64(creation)?,
+                id: entry.key.id.clone(),
+            },
+            revision: to_u64(revision)?,
+            deleted: deleted != 0,
+        };
+        validate_catalogue_revision_transition(entry, &cached).map_err(revision_error)?;
+    }
+    for value in entries {
+        let key = &value.manifest.key;
+        let saved: Option<(i64, i64, i64, Vec<u8>)> = tx.query_row("SELECT creation, revision, deleted, payload FROM catalogue_entries WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND entry_id = ?4",
+                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).optional().map_err(|_| CatalogueStoreError::Failed)?;
+        if let Some((creation, revision, deleted, payload)) = saved {
+            let cached = ManifestEntry {
+                key: EntryKey {
+                    creation: to_u64(creation)?,
+                    id: key.id.clone(),
+                },
+                revision: to_u64(revision)?,
+                deleted: deleted != 0,
+            };
+            let (earlier, later) = if cached.revision > value.manifest.revision {
+                (&value.manifest, &cached)
+            } else {
+                (&cached, &value.manifest)
+            };
+            validate_catalogue_revision_transition(earlier, later).map_err(revision_error)?;
+            if cached.revision > value.manifest.revision {
+                continue;
+            }
+            if cached.revision == value.manifest.revision {
+                if payload != value.payload {
+                    return Err(CatalogueStoreError::Conflict);
+                }
+                continue;
+            }
+        }
+        tx.execute("INSERT INTO catalogue_entries (receiver, origin, stream, entry_id, creation, revision, deleted, payload)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                ON CONFLICT(receiver, origin, stream, entry_id) DO UPDATE SET revision=excluded.revision, deleted=excluded.deleted, payload=excluded.payload",
+                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), key.id.as_str(), to_i64(key.creation)?, to_i64(value.manifest.revision)?, i64::from(value.manifest.deleted), &value.payload]
+            ).map_err(|_| CatalogueStoreError::Failed)?;
+    }
+    Ok(())
 }
 
 fn revision_error(error: CatalogueValidationError) -> CatalogueStoreError {

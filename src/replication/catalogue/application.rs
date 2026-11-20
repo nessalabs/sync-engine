@@ -186,7 +186,10 @@ pub trait CatalogueStore {
     ) -> Result<CatalogueProgress, CatalogueStoreError>;
 }
 
-fn authorize<A: ScopeAuthorizer>(scope: &Scope, authorizer: &mut A) -> Result<(), CatalogueError> {
+pub(super) fn authorize<A: ScopeAuthorizer>(
+    scope: &Scope,
+    authorizer: &mut A,
+) -> Result<(), CatalogueError> {
     match authorizer.authorize(scope) {
         Access::Allowed(current) if current == *scope => Ok(()),
         Access::Allowed(_) => Err(CatalogueError::WrongAccessScope),
