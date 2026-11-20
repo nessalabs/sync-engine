@@ -104,6 +104,16 @@ pub struct ClaimedNativeTail {
 }
 
 impl ClaimedNativeTail {
+    #[cfg(feature = "tls")]
+    pub(crate) fn into_wire(self) -> (OriginAuthorityKey, OriginEpoch, SourceHead, TailSnapshot) {
+        (
+            self.stamp.key,
+            self.stamp.epoch,
+            self.metadata,
+            self.snapshot,
+        )
+    }
+
     /// Validate the exact request, snapshot bounds and metadata from the same
     /// capture. This does not independently authenticate requester access or
     /// advance the receiver's observed epoch.
@@ -152,6 +162,11 @@ pub struct ClaimedNativeOlder {
 }
 
 impl ClaimedNativeOlder {
+    #[cfg(feature = "tls")]
+    pub(crate) fn into_wire(self) -> (OriginAuthorityKey, OriginEpoch, SourceHead, OlderPage) {
+        (self.stamp.key, self.stamp.epoch, self.metadata, self.page)
+    }
+
     /// Validate the caller's exact expected request, bounded range, and
     /// source metadata. Preserve the captured claim without observing it.
     pub fn validate(

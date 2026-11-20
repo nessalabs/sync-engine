@@ -10,6 +10,10 @@ use crate::replication::domain::{
     validate_capabilities, validate_page, CapabilitySupport, Checkpoint, CommitPlan, SourceHead,
     ValidationError,
 };
+use crate::replication::history::{
+    validate_older, validate_older_request, validate_tail, validate_tail_request,
+    HistoryValidationError, OlderPlan, OlderRequest, TailPlan, TailRequest,
+};
 use crate::replication::infrastructure::session::{
     TcpSessionIo, TlsIdentity, TlsPeer, TlsSessionIo,
 };
@@ -17,7 +21,8 @@ use crate::replication::infrastructure::{
     EpochSourceError, OriginClaimError, SqliteEpochRecordSource, SqliteOriginAuthority,
 };
 use crate::replication::origin_epoch::{
-    AdmittedEpochRead, NativeEpochAdmission, OriginAuthorityKey, OriginEpoch,
+    AdmittedEpochRead, NativeEpochAdmission, NativeEpochHistoryAdmission, NativeEpochTailAdmission,
+    OriginAuthorityKey, OriginEpoch,
 };
 
 const OFFER: &[u8; 8] = b"NSEPOCH1";
@@ -32,6 +37,8 @@ pub enum EpochSessionError {
     WrongClaim,
     /// The exact page failed canonical record/checkpoint validation.
     Validation(ValidationError),
+    /// The exact history operation failed canonical bounds/boundary validation.
+    History(HistoryValidationError),
     /// The existing bounded TLS/record channel or scope operation refused.
     Record(RecordSessionError),
 }
@@ -120,6 +127,12 @@ pub struct VerifiedEpochHead(AdmittedEpochRead<SourceHead>);
 /// Page evidence made only by a verified exact protected session result.
 pub struct VerifiedEpochPage(AdmittedEpochRead<CommitPlan>);
 
+/// Tail evidence made only by a verified exact protected session result.
+pub struct VerifiedEpochTail(AdmittedEpochRead<TailPlan>);
+
+/// Older-page evidence made only by a verified exact protected session result.
+pub struct VerifiedEpochOlder(AdmittedEpochRead<OlderPlan>);
+
 /// Device-side current scope policy for applying admitted protected results.
 ///
 /// Only actual session evidence is accepted. This policy rechecks exact current
@@ -151,6 +164,25 @@ impl<A: ScopeAuthorizer> NativeEpochAdmission for EpochSessionAdmission<A> {
     }
 
     fn admit_plan(&mut self, evidence: VerifiedEpochPage) -> Option<AdmittedEpochRead<CommitPlan>> {
+        self.admit(evidence.0)
+    }
+}
+
+impl<A: ScopeAuthorizer> NativeEpochTailAdmission for EpochSessionAdmission<A> {
+    type TailEvidence = VerifiedEpochTail;
+
+    fn admit_tail(&mut self, evidence: VerifiedEpochTail) -> Option<AdmittedEpochRead<TailPlan>> {
+        self.admit(evidence.0)
+    }
+}
+
+impl<A: ScopeAuthorizer> NativeEpochHistoryAdmission for EpochSessionAdmission<A> {
+    type OlderEvidence = VerifiedEpochOlder;
+
+    fn admit_older(
+        &mut self,
+        evidence: VerifiedEpochOlder,
+    ) -> Option<AdmittedEpochRead<OlderPlan>> {
         self.admit(evidence.0)
     }
 }
@@ -302,6 +334,89 @@ impl EpochRecordSession {
         })
     }
 
+    /// Read a claim-qualified tail snapshot for the exact request.
+    pub fn tail(
+        &self,
+        request: &TailRequest,
+        limits: Limits,
+    ) -> Result<VerifiedEpochTail, EpochSessionError> {
+        validate_tail_request(request, limits).map_err(EpochSessionError::History)?;
+        self.history(
+            history::Request {
+                common: request.clone(),
+                before: None,
+            },
+            limits,
+            |response| match response {
+                history::Response::Tail(snapshot) => {
+                    validate_tail(request, snapshot, limits).map_err(EpochSessionError::History)
+                }
+                _ => Err(RecordSessionError::Protocol.into()),
+            },
+        )
+        .map(VerifiedEpochTail)
+    }
+
+    /// Read a claim-qualified older page for the exact installed generation and boundary.
+    pub fn older(
+        &self,
+        request: &OlderRequest,
+        limits: Limits,
+    ) -> Result<VerifiedEpochOlder, EpochSessionError> {
+        validate_older_request(request, limits).map_err(EpochSessionError::History)?;
+        self.history(
+            history::Request::from_older(request),
+            limits,
+            |response| match response {
+                history::Response::Older(page) => {
+                    validate_older(request, page, limits).map_err(EpochSessionError::History)
+                }
+                _ => Err(RecordSessionError::Protocol.into()),
+            },
+        )
+        .map(VerifiedEpochOlder)
+    }
+
+    fn history<T>(
+        &self,
+        request: history::Request,
+        limits: Limits,
+        qualify: impl FnOnce(history::Response) -> Result<T, EpochSessionError>,
+    ) -> Result<AdmittedEpochRead<T>, EpochSessionError> {
+        self.use_client(|client, claim| {
+            client
+                .scope(&request.common.scope)
+                .map_err(RecordSessionError::from)?;
+            let Client { identity, wire, .. } = client;
+            request.validate(wire.record_bytes)?;
+            let support = CapabilitySupport::current();
+            let mut offer = capabilities::prefix(support);
+            request.numbers(&mut offer);
+            let bytes = wire.exchange(
+                request.kind(),
+                identity,
+                offer,
+                claim
+                    .stamp_bytes()
+                    .saturating_add(request.response_bound())
+                    .min(MAX_FRAME_BYTES),
+            )?;
+            let mut decoder = Decoder::new(&bytes);
+            claim.check_stamp(&mut decoder)?;
+            let (_, response) =
+                history::decode_response(&bytes[claim.stamp_bytes()..], &request, support, limits)?;
+            let bytes = response.records().iter().map(|r| r.payload.len()).sum();
+            let plan = qualify(response)?;
+            client.count_payload(bytes);
+            Ok(AdmittedEpochRead::new(
+                claim.key.clone(),
+                claim.scope.clone(),
+                claim.epoch,
+                plan,
+            ))
+        })
+    }
+
     /// Application protocol counters, including protected preface, excluding TLS bytes.
     pub fn counters(&self) -> Result<WireCounters, EpochSessionError> {
         Ok(self.inner.counters()?)
@@ -337,6 +452,7 @@ fn source_failure(error: EpochSourceError) -> RecordSessionError {
         EpochSourceError::Authority(OriginClaimError::Stale { .. }) => SourceError::IdentityChanged,
         EpochSourceError::Authority(_) => SourceError::Unavailable,
         EpochSourceError::Source(error) => error,
+        EpochSourceError::History(error) => return history::record_source(error),
         _ => SourceError::InvalidRequest,
     }
     .into()
@@ -385,6 +501,31 @@ fn read_protected(
             .into_wire();
         encode_stamp(&mut output, &key, epoch);
         output.extend_from_slice(&encode_record_page(&request, page)?);
+    } else if history::operation(packet.kind) {
+        let request = history::Request::decode(packet.kind, scope.clone(), &mut decoder)?;
+        decoder.finish()?;
+        request.validate(MAX_RECORD_BYTES)?;
+        let limits = physical(MAX_RECORD_BYTES);
+        let (key, epoch, head, response) = match request.before {
+            Some(before) => {
+                let (key, epoch, head, page) = source
+                    .capture_older(&request.older(before), limits)
+                    .map_err(source_failure)?
+                    .into_wire();
+                (key, epoch, head, history::Response::Older(page))
+            }
+            None => {
+                let (key, epoch, head, snapshot) = source
+                    .capture_tail(&request.common, limits)
+                    .map_err(source_failure)?
+                    .into_wire();
+                (key, epoch, head, history::Response::Tail(snapshot))
+            }
+        };
+        encode_stamp(&mut output, &key, epoch);
+        output.extend_from_slice(&history::encode_response(
+            scope, &request, head, response, support,
+        )?);
     } else {
         return Err(RecordSessionError::Protocol);
     }
@@ -500,7 +641,8 @@ pub fn serve_epoch_record_session(
     }
     let mut last = FIRST_REQUEST;
     while let Some(packet) = read_packet(stream, limit)? {
-        if !matches!(packet.kind, capabilities::HEAD_CAP | capabilities::PAGE_CAP)
+        if !(matches!(packet.kind, capabilities::HEAD_CAP | capabilities::PAGE_CAP)
+            || history::operation(packet.kind))
             || packet.status != 0
             || packet.offset != 0
             || packet.total != packet.payload.len()

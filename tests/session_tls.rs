@@ -44,7 +44,16 @@ impl Fixture {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed),
         ));
-        fs::create_dir(&path).unwrap();
+        #[cfg(unix)]
+        let directory = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut directory = fs::DirBuilder::new();
+            directory.mode(0o700);
+            directory
+        };
+        #[cfg(not(unix))]
+        let directory = fs::DirBuilder::new();
+        directory.create(&path).unwrap();
         let fixture = Self(path);
         fixture.openssl(&[
             "req",
@@ -559,13 +568,14 @@ mod epochs {
     use super::*;
     use nessa_sync::replication::{
         domain::{Checkpoint, PageRequest},
+        history::{OlderRequest, TailRequest},
         infrastructure::{
             session::{
                 serve_epoch_record_session, EpochRecordSession, EpochSessionAdmission,
                 EpochSessionBinding, EpochSessionError,
             },
-            EpochBinding, EpochReplicaError, SqliteEpochRecordSource, SqliteEpochReplicaStore,
-            SqliteOriginAuthority,
+            EpochBinding, EpochHistoryError, EpochReplicaError, SqliteEpochRecordSource,
+            SqliteEpochReplicaStore, SqliteOriginAuthority,
         },
         origin_epoch::{OriginAuthorityKey, OriginEpoch},
     };
@@ -822,6 +832,228 @@ mod epochs {
     }
 
     #[test]
+    fn protected_tls_history_handoff_preserves_durable_coverage_until_new_claim_applies() {
+        let fixture = Fixture::new();
+        let source_file = fixture.0.join("history-source");
+        let authority = fixture.0.join("history-claim-ledger");
+        let cache = fixture.0.join("history-cache");
+        let key = key("history-origin");
+        let scope = scope();
+        let mut writer = source(&source_file);
+        for (name, payload) in [("one", b"a"), ("two", b"b"), ("three", b"c")] {
+            writer.append(&id(name), payload).unwrap();
+        }
+        let first = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::provision(&authority).unwrap(),
+            key.clone(),
+            None,
+        )
+        .unwrap();
+        let e1 = first.epoch();
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (addr1, server1) = listen(
+            &fixture,
+            "server",
+            first,
+            false,
+            GatePolicy {
+                armed: armed.clone(),
+                arrived: arrived_tx,
+                release: release_rx,
+            },
+        );
+        let old = connect(
+            &fixture,
+            addr1,
+            approved(&fixture, &authority, key.clone(), e1, "server"),
+        )
+        .unwrap();
+        let binding = EpochBinding::new(
+            scope.receiver().clone(),
+            scope.origin().clone(),
+            key.clone(),
+        );
+        let mut receiver = SqliteEpochReplicaStore::provision(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(receiver.observe_head(old.head().unwrap()), Ok(e1));
+        let limits = Limits::new(1, 1, 1).unwrap();
+        let initial = TailRequest {
+            scope: scope.clone(),
+            generation: 1,
+            max_records: 1,
+            max_payload_bytes: 1,
+            max_record_bytes: 1,
+        };
+        let saved = receiver
+            .install_tail(old.tail(&initial, limits).unwrap())
+            .unwrap();
+        assert_eq!(
+            (saved.generation, saved.lower_bound, saved.live_head),
+            (1, 3, 3)
+        );
+        let before = OlderRequest {
+            scope: scope.clone(),
+            generation: 1,
+            before: 3,
+            max_records: 1,
+            max_payload_bytes: 1,
+            max_record_bytes: 1,
+        };
+        // The wire can accept these budgets, but this application's
+        // budget cannot. Neither operation may reach source authorization.
+        let oversized_tail = TailRequest {
+            max_payload_bytes: 2,
+            ..initial.clone()
+        };
+        let oversized_older = OlderRequest {
+            max_payload_bytes: 2,
+            ..before.clone()
+        };
+        let counters = old.counters().unwrap();
+        armed.store(true, Ordering::Release);
+        assert!(matches!(
+            old.tail(&oversized_tail, limits),
+            Err(EpochSessionError::History(_))
+        ));
+        assert!(matches!(
+            old.older(&oversized_older, limits),
+            Err(EpochSessionError::History(_))
+        ));
+        assert_eq!(old.counters().unwrap(), counters);
+        assert!(armed.swap(false, Ordering::AcqRel));
+        assert!(arrived_rx.try_recv().is_err());
+        let delayed_older = old.older(&before, limits).unwrap();
+        writer.append(&id("four"), b"d").unwrap();
+        let replacement = TailRequest {
+            generation: 2,
+            ..initial
+        };
+        let delayed_tail = old.tail(&replacement, limits).unwrap();
+        let parked = before.clone();
+        armed.store(true, Ordering::Release);
+        let attempt = thread::spawn(move || {
+            let result = old.older(&parked, limits);
+            (old, result)
+        });
+        arrived_rx.recv_timeout(DEADLINE).unwrap();
+        let second = SqliteEpochRecordSource::claim(
+            source(&source_file),
+            SqliteOriginAuthority::open(&authority).unwrap(),
+            key.clone(),
+            Some(e1),
+        )
+        .unwrap();
+        let e2 = second.epoch();
+        release_tx.send(()).unwrap();
+        let (old, refused) = attempt.join().unwrap();
+        assert!(matches!(
+            refused,
+            Err(EpochSessionError::Record(RecordSessionError::Source(
+                SourceError::IdentityChanged
+            )))
+        ));
+        let (addr2, server2) = listen(&fixture, "server-sibling", second, false, Policy);
+        let new = connect(
+            &fixture,
+            addr2,
+            approved(&fixture, &authority, key, e2, "server-sibling"),
+        )
+        .unwrap();
+        assert_eq!(
+            receiver.install_tail(new.tail(&replacement, limits).unwrap()),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Unobserved))
+        );
+        assert_eq!(receiver.observe_head(new.head().unwrap()), Ok(e2));
+        drop(receiver);
+        let mut receiver = SqliteEpochReplicaStore::open(
+            &cache,
+            binding.clone(),
+            EpochSessionAdmission::new(Policy),
+        )
+        .unwrap();
+        assert_eq!(
+            receiver.install_older(delayed_older),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Fenced))
+        );
+        assert_eq!(
+            receiver.install_tail(delayed_tail),
+            Err(EpochHistoryError::Epoch(EpochReplicaError::Fenced))
+        );
+        assert_eq!(receiver.history_progress(&scope), Ok(Some(saved)));
+        assert_eq!(
+            receiver.checkpoint(&scope),
+            Ok(Some(Checkpoint::new(scope.clone(), 3)))
+        );
+        assert_eq!(
+            receiver.read_after(&scope, 2, 2, 2).unwrap()[0].payload,
+            b"c"
+        );
+        let installed = receiver
+            .install_tail(new.tail(&replacement, limits).unwrap())
+            .unwrap();
+        assert_eq!(
+            (
+                installed.generation,
+                installed.lower_bound,
+                installed.live_head
+            ),
+            (2, 4, 4)
+        );
+        let extended = receiver
+            .install_older(
+                new.older(
+                    &OlderRequest {
+                        generation: 2,
+                        before: 4,
+                        ..before
+                    },
+                    limits,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                extended.generation,
+                extended.lower_bound,
+                extended.live_head
+            ),
+            (2, 3, 4)
+        );
+        drop(receiver);
+        let mut receiver =
+            SqliteEpochReplicaStore::open(&cache, binding, EpochSessionAdmission::new(Policy))
+                .unwrap();
+        assert_eq!(receiver.history_progress(&scope), Ok(Some(extended)));
+        assert_eq!(
+            receiver.checkpoint(&scope),
+            Ok(Some(Checkpoint::new(scope.clone(), 4)))
+        );
+        let rows = receiver.read_after(&scope, 2, 2, 2).unwrap();
+        assert_eq!(
+            rows.into_iter().map(|row| row.payload).collect::<Vec<_>>(),
+            [b"c".to_vec(), b"d".to_vec()]
+        );
+        for (phase, session) in [("old", old), ("new", new)] {
+            let counters = session.counters().unwrap();
+            eprintln!(
+                "protected history {phase}: {} exchanges, {} protocol bytes, {} payload bytes",
+                counters.exchanges, counters.protocol_bytes, counters.payload_bytes
+            );
+            session.close().unwrap();
+        }
+        server1.join().unwrap();
+        server2.join().unwrap();
+    }
+
+    #[test]
     fn verified_tls_without_protected_version_or_matching_claim_never_admits_evidence() {
         let fixture = Fixture::new();
         let authority = fixture.0.join("outside-source-backup-claims");
@@ -898,5 +1130,123 @@ mod epochs {
             ),
             Err(EpochSessionError::WrongClaim)
         ));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "requires the standalone SwiftTLSFixture package; run clients/swift/e2e/run-tls.sh"]
+fn swift_tls_open_head_page_against_rust() {
+    use nessa_sync::replication::infrastructure::session::serve_capability_record_session;
+    use std::process::Stdio;
+
+    struct ObservedPolicy(u64);
+    impl ScopeAuthorizer for ObservedPolicy {
+        fn authorize(&mut self, requested: &Scope) -> Access {
+            self.0 += 1;
+            Policy.authorize(requested)
+        }
+    }
+
+    let swift = std::env::var_os("NESSA_SWIFT_TLS_FIXTURE").expect("set the Swift fixture path");
+    let fixture = Fixture::new();
+    let path = fixture.0.join("source.db");
+    let mut store = source(&path);
+    for n in 1..=3 {
+        store
+            .append(&id(&format!("record-{n}")), &vec![n; 1000])
+            .unwrap();
+    }
+    drop(store);
+
+    for (mode, server, expected) in [
+        ("healthy", "server", "tls13-open-head-page:3:3000"),
+        ("denied", "server", "typed-scope-denied"),
+        (
+            "peer-mismatch",
+            "server-sibling",
+            "peer-mismatch-before-record-dispatch",
+        ),
+    ] {
+        let listener = endpoint();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let local = fixture.identity(server);
+        let expected_client = fixture.peer("client");
+        let source_path = path.clone();
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + DEADLINE;
+            let socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "Swift fixture never reached listener"
+                        );
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("TLS fixture connect: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            let accepted = TlsSessionIo::accept(
+                tcp(socket),
+                local,
+                expected_client,
+                Instant::now() + DEADLINE,
+            );
+            let Ok(mut channel) = accepted else {
+                return (false, 0, 0);
+            };
+            let mut policy = ObservedPolicy(0);
+            let mut factory_calls = 0;
+            let result =
+                serve_capability_record_session(&mut channel, 1, LIMITS, &mut policy, |_| {
+                    factory_calls += 1;
+                    Ok(source(&source_path))
+                });
+            // The host-owned fixture is allowed to cancel the socket after its
+            // operation; graceful close_notify is not part of this test.
+            match result {
+                Ok(()) => {}
+                Err(RecordSessionError::Io(error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset
+                    ) => {}
+                result => panic!("unexpected fixture server shutdown: {result:?}"),
+            }
+            (true, policy.0, factory_calls)
+        });
+        let mut child = Command::new(&swift)
+            .arg(addr.port().to_string())
+            .arg(&fixture.0)
+            .arg(mode)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start Swift TLS fixture");
+        let child_deadline = Instant::now() + Duration::from_secs(8);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= child_deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("Swift TLS fixture exceeded deadline: {mode}");
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let output = child.wait_with_output().unwrap();
+        let observed = worker.join().unwrap();
+        assert!(output.status.success(), "Swift TLS fixture failed: {mode}");
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+        match mode {
+            "healthy" => assert!(observed.0 && observed.1 > 0 && observed.2 >= 3),
+            "denied" => assert!(observed.0 && observed.1 > 0 && observed.2 == 0),
+            _ => assert_eq!((observed.1, observed.2), (0, 0)),
+        }
+        println!(
+            "Swift TLS fixture: {mode}; policy calls {}; source acquisitions {}",
+            observed.1, observed.2
+        );
     }
 }
