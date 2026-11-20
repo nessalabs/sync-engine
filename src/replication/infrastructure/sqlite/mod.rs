@@ -39,7 +39,10 @@ use connection::{
 };
 pub use origin_authority::{OriginClaimError, OriginProvisionError, SqliteOriginAuthority};
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
-pub use replica::SqliteReplicaStore;
+pub use replica::{
+    EpochBinding, EpochReplicaError, EpochReplicaOpenError, SqliteEpochReplicaStore,
+    SqliteReplicaStore,
+};
 pub use source::{
     RecordPinReceipt, RecordRetentionError, SourcePublicationError, SqliteReferenceSource,
 };
