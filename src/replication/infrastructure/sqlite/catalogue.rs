@@ -29,6 +29,7 @@ use super::{
 mod horizon;
 mod publication;
 mod recovery;
+mod source_connection;
 pub use publication::CataloguePublicationError;
 
 const SOURCE_SCHEMA: &str = "
@@ -103,7 +104,7 @@ impl SqliteCatalogueSource {
     ) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
         publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema])?;
-        configure_connection(&conn)?;
+        source_connection::configure(&conn)?;
         Ok(Self {
             conn,
             origin,
