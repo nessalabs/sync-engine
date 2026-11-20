@@ -16,13 +16,16 @@ use crate::replication::history::{
 };
 
 use super::{
-    configure_connection, ensure_schema, open_connection, read_record_row, SqliteOpenError,
-    MAX_STORED_ID_BYTES, SOURCE_APPLICATION_ID,
+    configure_connection, open_connection, read_record_row, SqliteOpenError, MAX_STORED_ID_BYTES,
+    SOURCE_APPLICATION_ID,
 };
 
 pub(super) const FORWARD_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position > ?1 AND position <= ?2 ORDER BY position LIMIT ?3";
 
 pub(super) const HISTORY_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?4, length(payload) FROM source_records WHERE position >= ?1 AND position < ?2 ORDER BY position DESC LIMIT ?3";
+
+mod publication;
+pub use publication::SourcePublicationError;
 
 const MAX_PAGE_RECORDS: usize = 256;
 const MAX_PAGE_BYTES: usize = 1024 * 1024;
@@ -66,7 +69,9 @@ pub struct SqliteReferenceSource {
 
 impl SqliteReferenceSource {
     /// Opens or creates a source file. Existing identity is never reset or
-    /// silently replaced, and no user-selected path is deleted.
+    /// silently replaced, and no user-selected path is deleted. Recognized version1
+    /// record files migrate atomically to version2; old writers must be stopped
+    /// by the host before upgrade (already-open old binaries are not fenced).
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
@@ -75,42 +80,8 @@ impl SqliteReferenceSource {
         schema: Id,
     ) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
-        ensure_schema(&mut conn, SOURCE_APPLICATION_ID, SCHEMA, |tx| {
-            tx.execute(
-                "INSERT INTO source_meta VALUES (1, ?1, ?2, ?3, ?4, 0)",
-                params![
-                    origin.as_str(),
-                    stream.as_str(),
-                    incarnation.as_str(),
-                    schema.as_str()
-                ],
-            )?;
-            Ok(())
-        })?;
-        let saved: Option<(String, String, String, String)> = conn
-            .query_row(
-                "SELECT origin, stream, incarnation, schema_id FROM source_meta WHERE singleton = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .optional()?;
-        match saved {
-            Some((o, s, i, k))
-                if o == origin.as_str()
-                    && s == stream.as_str()
-                    && i == incarnation.as_str()
-                    && k == schema.as_str() => {}
-            Some(_) => return Err(SqliteOpenError::SourceIdentityMismatch),
-            None => return Err(SqliteOpenError::UnexpectedDatabase),
-        }
+        publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema])?;
         configure_connection(&conn)?;
-        // Additive reference-source metadata for files created by slice 2.
-        // Physical fact rows remain available for immutable ID deduplication;
-        // the floor is the historical read contract.
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS source_history (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), pruned_through INTEGER NOT NULL CHECK (pruned_through >= 0));
-             INSERT OR IGNORE INTO source_history VALUES (1, 0);",
-        )?;
         Ok(Self {
             conn,
             origin,
@@ -128,60 +99,15 @@ impl SqliteReferenceSource {
 
     /// Appends one committed fact. Repeating the same ID and bytes returns its
     /// original position; different bytes under that ID are refused. Payloads
-    /// above [`MAX_RECORD_BYTES`] are refused.
+    /// above [`MAX_RECORD_BYTES`] are refused. Fresh unsupported writer
+    /// requirements return Failed before dedup or mutation; compare_append
+    /// preserves typed publication errors.
     pub fn append(&mut self, id: &Id, payload: &[u8]) -> Result<u64, StoreError> {
-        if payload.len() > MAX_RECORD_BYTES {
-            return Err(StoreError::Failed);
-        }
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| StoreError::Failed)?;
-        let existing: Option<(i64, i64)> = tx
-            .query_row(
-                "SELECT position, length(payload) FROM source_records WHERE record_id = ?1",
-                [id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(|_| StoreError::Failed)?;
-        if let Some((position, length)) = existing {
-            if usize::try_from(length).ok() != Some(payload.len()) {
-                return Err(StoreError::ConflictingRecord);
-            }
-            let saved: Vec<u8> = tx
-                .query_row(
-                    "SELECT payload FROM source_records WHERE record_id = ?1",
-                    [id.as_str()],
-                    |row| row.get(0),
-                )
-                .map_err(|_| StoreError::Failed)?;
-            return if saved == payload {
-                u64::try_from(position).map_err(|_| StoreError::Failed)
-            } else {
-                Err(StoreError::ConflictingRecord)
-            };
-        }
-        let head: i64 = tx
-            .query_row(
-                "SELECT head FROM source_meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| StoreError::Failed)?;
-        let next = head.checked_add(1).ok_or(StoreError::Failed)?;
-        tx.execute(
-            "INSERT INTO source_records (position, record_id, payload) VALUES (?1, ?2, ?3)",
-            params![next, id.as_str(), payload],
-        )
-        .map_err(|_| StoreError::Failed)?;
-        tx.execute(
-            "UPDATE source_meta SET head = ?1 WHERE singleton = 1",
-            [next],
-        )
-        .map_err(|_| StoreError::Failed)?;
-        tx.commit().map_err(|_| StoreError::Uncertain)?;
-        u64::try_from(next).map_err(|_| StoreError::Failed)
+        self.append_publication(id, payload, None)
+            .map_err(|error| match error {
+                SourcePublicationError::Store(error) => error,
+                _ => StoreError::Failed,
+            })
     }
 
     /// Number of head reads issued through the source port by this handle.
@@ -224,6 +150,10 @@ impl SqliteReferenceSource {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| StoreError::Failed)?;
+        publication::read(&tx)
+            .map_err(|_| StoreError::Failed)?
+            .writer()
+            .map_err(|_| StoreError::Failed)?;
         let head: i64 = tx
             .query_row(
                 "SELECT head FROM source_meta WHERE singleton = 1",
@@ -263,15 +193,9 @@ impl RecordSource for SqliteReferenceSource {
         if !self.matches(scope) {
             return Err(SourceError::IdentityChanged);
         }
-        let head: i64 = self
-            .conn
-            .query_row(
-                "SELECT head FROM source_meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| SourceError::Unavailable)?;
-        u64::try_from(head).map_err(|_| SourceError::Unavailable)
+        publication::read(&self.conn)
+            .map(|value| value.position)
+            .map_err(|_| SourceError::Unavailable)
     }
 
     fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError> {
@@ -297,6 +221,10 @@ impl RecordSource for SqliteReferenceSource {
             .conn
             .transaction()
             .map_err(|_| SourceError::Unavailable)?;
+        publication::read(&tx)
+            .map_err(|_| SourceError::Unavailable)?
+            .reader()
+            .map_err(SourceError::Incompatible)?;
         let head: i64 = tx
             .query_row(
                 "SELECT head FROM source_meta WHERE singleton = 1",
@@ -386,6 +314,10 @@ impl RecordSource for SqliteReferenceSource {
 }
 
 fn history_meta(tx: &rusqlite::Transaction<'_>) -> Result<(u64, u64), HistorySourceError> {
+    publication::read(tx)
+        .map_err(|_| HistorySourceError::Unavailable)?
+        .reader()
+        .map_err(HistorySourceError::Incompatible)?;
     let head: i64 = tx
         .query_row(
             "SELECT head FROM source_meta WHERE singleton = 1",
@@ -580,13 +512,20 @@ impl HistorySource for SqliteReferenceSource {
 
 impl RecordHeadSource for SqliteReferenceSource {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
-        RecordSource::head(self, scope)
-            .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
+        self.head_reads += 1;
+        if !self.matches(scope) {
+            return Err(SourceError::IdentityChanged);
+        }
+        publication::read(&self.conn)
+            .map(|value| value.head(scope))
+            .map_err(|_| SourceError::Unavailable)
     }
 }
 
-// This reference format has permanently zero optional requirements and immutable
-// records; append-only growth cannot change the encoding of the captured range.
+// Native records are immutable and this encoder implements only zero optional
+// features. Every page checks fresh requirements in its row-read snapshot; a
+// concurrent unsupported publication refuses the page rather than returning a
+// DTO under stale metadata. Future supported format changes need snapshot proof.
 impl RecordReadView for SqliteReferenceSource {
     fn view_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
         RecordHeadSource::source_head(self, scope)

@@ -75,3 +75,7 @@ required-features = ["transport", "sqlite"]
 [[example]]
 name = "source_head"
 required-features = ["sqlite"]
+
+[[example]]
+name = "source_publication"
+required-features = ["sqlite"]

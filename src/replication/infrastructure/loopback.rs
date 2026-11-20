@@ -512,6 +512,7 @@ pub(super) fn encode_record_page(
 #[cfg(feature = "sqlite")]
 fn history_error_code(error: HistorySourceError) -> u8 {
     match error {
+        HistorySourceError::Incompatible(_) => 7,
         HistorySourceError::Denied => 1,
         HistorySourceError::Unavailable => 2,
         HistorySourceError::ResetRequired => 3,

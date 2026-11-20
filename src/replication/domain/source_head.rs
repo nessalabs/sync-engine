@@ -105,6 +105,33 @@ impl CapabilitySupport {
     pub fn reader_bits(&self) -> u64 {
         self.reader
     }
+    /// Validate version and reader requirements independently of scope authority.
+    pub fn validate_reader(self, version: u16, reader: u64) -> Result<(), CapabilityError> {
+        if version != SOURCE_HEAD_VERSION {
+            return Err(CapabilityError::UnsupportedVersion(version));
+        }
+        let missing = reader & !self.reader;
+        if missing != 0 {
+            Err(CapabilityError::MissingReader(missing))
+        } else {
+            Ok(())
+        }
+    }
+    /// Validate source-writer format requirements; this never grants write authority.
+    pub fn validate_writer(
+        self,
+        version: u16,
+        reader: u64,
+        writer: u64,
+    ) -> Result<(), CapabilityError> {
+        self.validate_reader(version, reader)?;
+        let missing = writer & !self.writer;
+        if missing != 0 {
+            Err(CapabilityError::MissingWriter(missing))
+        } else {
+            Ok(())
+        }
+    }
     /// Select a subset of implemented features. Unknown declarations are refused.
     pub fn new(reader: u64, writer: u64) -> Result<Self, CapabilityError> {
         let unknown_reader = reader & !KNOWN_READER_CAPABILITIES;
@@ -125,15 +152,7 @@ pub fn validate_capabilities(
     head: &SourceHead,
     supported: CapabilitySupport,
 ) -> Result<(), CapabilityError> {
-    if head.version != SOURCE_HEAD_VERSION {
-        return Err(CapabilityError::UnsupportedVersion(head.version));
-    }
-    let missing = head.reader_required & !supported.reader;
-    if missing != 0 {
-        Err(CapabilityError::MissingReader(missing))
-    } else {
-        Ok(())
-    }
+    supported.validate_reader(head.version, head.reader_required)
 }
 /// Check compatibility for a writer which must understand both requirement sets.
 /// Success is not permission to write and supplies no source mutation port.
@@ -141,13 +160,7 @@ pub fn validate_writer_capabilities(
     head: &SourceHead,
     supported: CapabilitySupport,
 ) -> Result<(), CapabilityError> {
-    validate_capabilities(head, supported)?;
-    let missing = head.writer_required & !supported.writer;
-    if missing != 0 {
-        Err(CapabilityError::MissingWriter(missing))
-    } else {
-        Ok(())
-    }
+    supported.validate_writer(head.version, head.reader_required, head.writer_required)
 }
 
 /// Source publication-transition refusal, independent of receiver progress.

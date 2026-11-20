@@ -1,0 +1,2110 @@
+{
+  "scope": "native SQLite record-source publication only; #47 and #54 remain open",
+  "source_commit": "401ce50c924850270072d4d7b1950c2add09e682",
+  "base_commit": "641c6940c251b0b3f757276b7eb1f92b42d2fcce",
+  "native_process_lab": {
+    "scope": "native record-source durable publication only",
+    "integration_tests": 9,
+    "supported": {
+      "typed_incompatible": false,
+      "checkpoint": 7,
+      "records": 7,
+      "page_reads": 1,
+      "payload_bytes": 35
+    },
+    "writer_only": {
+      "typed_incompatible": false,
+      "checkpoint": 7,
+      "records": 7,
+      "page_reads": 0,
+      "payload_bytes": 0
+    },
+    "reopened_refusal": {
+      "typed_incompatible": true,
+      "checkpoint": 7,
+      "records": 7,
+      "page_reads": 0,
+      "payload_bytes": 0
+    },
+    "cold_refusal": {
+      "typed_incompatible": true,
+      "checkpoint": 0,
+      "records": 0,
+      "page_reads": 0,
+      "payload_bytes": 0
+    },
+    "catalogue_publication": false,
+    "nonzero_publication_enabled": false
+  },
+  "matched_transport_before": {
+    "modes": [
+      "session-caps"
+    ],
+    "source_sha256": {
+      "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+      "Cargo.toml": "6a81d5f08a890b7d10811d81383727d0eea530b2149950e9d3ac504a2822f636",
+      "examples/loopback_sync.rs": "3e85a86bc928f17fa47197c35f69d5dae831cf32fabd5a34f1e7cccd3753e91e",
+      "examples/session_records.rs": "155ddd14265f40ef3f30781dce6b0c4ead596c6f4c773c68232f7e8f02d8b120",
+      "scripts/verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b",
+      "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+      "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+      "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+      "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+      "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+      "src/replication/catalogue/application.rs": "e754186b28291748e967d5bb4168a0efdc7d6dbd7385e46f0b468e55d849d7cc",
+      "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+      "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+      "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+      "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+      "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+      "src/replication/domain/source_head.rs": "e3187d1fcf4f93a72264933b85ecd801ef2767f164caa7c82a00d2527ae04500",
+      "src/replication/history/application.rs": "8981be8aa7b65dc629394116c0b16b9e0c90e41fc14470839ae19469874b72e6",
+      "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+      "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+      "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+      "src/replication/infrastructure/loopback.rs": "bb0732f4eeb7f0cbe0e8c15eee31ef9f3ef46a322f06cb790c40a959fc68d379",
+      "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+      "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+      "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+      "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+      "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+      "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+      "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+      "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+      "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+      "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+      "src/replication/infrastructure/sqlite/catalogue.rs": "a83cf990e8475fb985005e8d61475a20563588307df815b9a04ebbea79e89798",
+      "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+      "src/replication/infrastructure/sqlite/mod.rs": "b511aa2488ac401afe2f6787b55ad0638dd1761480418ddbd7a78a77ab2c725c",
+      "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+      "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+      "src/replication/infrastructure/sqlite/source.rs": "744c3853789f8391d113d751e74c001e71c84c414aa7fbd13a91b0c8605c0bcd",
+      "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+    },
+    "base_commit": "641c6940c251b0b3f757276b7eb1f92b42d2fcce",
+    "scope": "matched record-session subset including explicit version1 capability operations; full epic incomplete",
+    "completion_ready": false,
+    "coverage_gaps": [
+      "production authenticated/encrypted direct and relay channel qualification",
+      "catalogue and matching 620-entry bootstrap workload",
+      "tail, older history and artifact session adapters",
+      "multiple scopes per session and multi-stream resume",
+      "wire cancellation versus commit and bounded credit/urgent-under-bulk scheduling",
+      "uniform status metadata, piggyback heads and capability negotiation",
+      "controlled multi-second outage and packet-loss performance profiles"
+    ],
+    "contract_tests_passed": 26,
+    "environment": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "command": "python3 scripts/verify-session-e2e.py --repetitions 2 --modes session-caps",
+    "conditions": [
+      "real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",
+      "direct path includes a zero/delayed fixture frame shaper; relay adds an opaque raw TCP forwarding hop",
+      "loopback-only plaintext token fixture: session bytes/exchanges include its separate cold/reconnect preamble+ACK",
+      "legacy sync includes one-shot subscribe; session supports explicit catch-up only, not hints/follow yet",
+      "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends, verification reopen and inter-phase close/interruption cleanup",
+      "application-frame half-RTT delay per direction and 256-byte throttling; no IP/TCP/TLS overhead, packet loss, mobile power or shared duplex contention model",
+      "one Open request produces two reply frames; application-frame delay is charged per frame, not per logical exchange",
+      "short_session sums each run cold/warm/reconnect timed intervals, excluding idle and inter-phase append/verification; not wall-clock session lifetime",
+      "session-page captures target with first page and retains both pre-read authorization checks; idle therefore adds one authorize versus session-open",
+      "min/median/max of observed runs; no percentiles, overall speedup claim or timing pass/fail threshold"
+    ],
+    "cases": [
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 5.612,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 2.403,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 4.106,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 1.757,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 1
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 5.117,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 3.064,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 4.478,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 2.84,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 1
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 4.935,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 27.522,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 9.151,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 15.873,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 2
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 5.512,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 10.071,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 5.554,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 2.242,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 2
+      }
+    ],
+    "summary": [
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "cold_connect",
+        "samples": 2,
+        "elapsed_ms_min": 4.935,
+        "elapsed_ms_median": 5.274,
+        "elapsed_ms_max": 5.612,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1764,
+        "total_bytes": 5890,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "idle",
+        "samples": 2,
+        "elapsed_ms_min": 1.757,
+        "elapsed_ms_median": 8.815,
+        "elapsed_ms_max": 15.873,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 941,
+        "total_bytes": 941,
+        "payload_bytes": 0,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "reconnect",
+        "samples": 2,
+        "elapsed_ms_min": 4.106,
+        "elapsed_ms_median": 6.628,
+        "elapsed_ms_max": 9.151,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1820,
+        "total_bytes": 5946,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "short_session",
+        "samples": 2,
+        "elapsed_ms_min": 12.121,
+        "elapsed_ms_median": 26.864,
+        "elapsed_ms_max": 41.608,
+        "exchanges": 19,
+        "protocol_exchanges": 17,
+        "host_auth_exchanges": 2,
+        "protocol_bytes": 5158,
+        "total_bytes": 17536,
+        "payload_bytes": 12378,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "warm_catch_up",
+        "samples": 2,
+        "elapsed_ms_min": 2.403,
+        "elapsed_ms_median": 14.962,
+        "elapsed_ms_max": 27.522,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 1574,
+        "total_bytes": 5700,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "cold_connect",
+        "samples": 2,
+        "elapsed_ms_min": 5.117,
+        "elapsed_ms_median": 5.314,
+        "elapsed_ms_max": 5.512,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1764,
+        "total_bytes": 5890,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "idle",
+        "samples": 2,
+        "elapsed_ms_min": 2.242,
+        "elapsed_ms_median": 2.541,
+        "elapsed_ms_max": 2.84,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 941,
+        "total_bytes": 941,
+        "payload_bytes": 0,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "reconnect",
+        "samples": 2,
+        "elapsed_ms_min": 4.478,
+        "elapsed_ms_median": 5.016,
+        "elapsed_ms_max": 5.554,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1820,
+        "total_bytes": 5946,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "short_session",
+        "samples": 2,
+        "elapsed_ms_min": 12.659,
+        "elapsed_ms_median": 16.898,
+        "elapsed_ms_max": 21.137,
+        "exchanges": 19,
+        "protocol_exchanges": 17,
+        "host_auth_exchanges": 2,
+        "protocol_bytes": 5158,
+        "total_bytes": 17536,
+        "payload_bytes": 12378,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "warm_catch_up",
+        "samples": 2,
+        "elapsed_ms_min": 3.064,
+        "elapsed_ms_median": 6.567,
+        "elapsed_ms_max": 10.071,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 1574,
+        "total_bytes": 5700,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      }
+    ]
+  },
+  "matched_transport_after": {
+    "modes": [
+      "session-caps"
+    ],
+    "source_sha256": {
+      "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+      "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+      "examples/loopback_sync.rs": "3e85a86bc928f17fa47197c35f69d5dae831cf32fabd5a34f1e7cccd3753e91e",
+      "examples/session_records.rs": "155ddd14265f40ef3f30781dce6b0c4ead596c6f4c773c68232f7e8f02d8b120",
+      "scripts/verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b",
+      "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+      "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+      "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+      "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+      "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+      "src/replication/catalogue/application.rs": "e754186b28291748e967d5bb4168a0efdc7d6dbd7385e46f0b468e55d849d7cc",
+      "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+      "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+      "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+      "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+      "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+      "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+      "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+      "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+      "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+      "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+      "src/replication/infrastructure/loopback.rs": "79cc84ada22b61ec1548cf83e715c8f71a87be24c121af1615d20726bf83c70e",
+      "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+      "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+      "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+      "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+      "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+      "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+      "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+      "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+      "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+      "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+      "src/replication/infrastructure/sqlite/catalogue.rs": "a83cf990e8475fb985005e8d61475a20563588307df815b9a04ebbea79e89798",
+      "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+      "src/replication/infrastructure/sqlite/mod.rs": "c47089a2dd2cf7b2bd716273faf468919c99be1e11705293327bd24f566907ed",
+      "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+      "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+      "src/replication/infrastructure/sqlite/source/publication.rs": "2ff4b8d80d49691b91b31cdfc49a0839ac56a87a53e94078014338f6fbe782ef",
+      "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+      "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+    },
+    "base_commit": "401ce50c924850270072d4d7b1950c2add09e682",
+    "scope": "matched record-session subset including explicit version1 capability operations; full epic incomplete",
+    "completion_ready": false,
+    "coverage_gaps": [
+      "production authenticated/encrypted direct and relay channel qualification",
+      "catalogue and matching 620-entry bootstrap workload",
+      "tail, older history and artifact session adapters",
+      "multiple scopes per session and multi-stream resume",
+      "wire cancellation versus commit and bounded credit/urgent-under-bulk scheduling",
+      "uniform status metadata, piggyback heads and capability negotiation",
+      "controlled multi-second outage and packet-loss performance profiles"
+    ],
+    "contract_tests_passed": 26,
+    "environment": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "command": "python3 scripts/verify-session-e2e.py --repetitions 2 --modes session-caps",
+    "conditions": [
+      "real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",
+      "direct path includes a zero/delayed fixture frame shaper; relay adds an opaque raw TCP forwarding hop",
+      "loopback-only plaintext token fixture: session bytes/exchanges include its separate cold/reconnect preamble+ACK",
+      "legacy sync includes one-shot subscribe; session supports explicit catch-up only, not hints/follow yet",
+      "timer includes cold TCP/auth/session setup and durable catch-up with post-pass head recheck; excludes producer appends, verification reopen and inter-phase close/interruption cleanup",
+      "application-frame half-RTT delay per direction and 256-byte throttling; no IP/TCP/TLS overhead, packet loss, mobile power or shared duplex contention model",
+      "one Open request produces two reply frames; application-frame delay is charged per frame, not per logical exchange",
+      "short_session sums each run cold/warm/reconnect timed intervals, excluding idle and inter-phase append/verification; not wall-clock session lifetime",
+      "session-page captures target with first page and retains both pre-read authorization checks; idle therefore adds one authorize versus session-open",
+      "min/median/max of observed runs; no percentiles, overall speedup claim or timing pass/fail threshold"
+    ],
+    "cases": [
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 5.374,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 2.382,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 3.576,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 1.891,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 1
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 4.821,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 3.159,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 5.368,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 2.318,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 1
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 6.65,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 3.752,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 4.032,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 1.611,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 2
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "connections": 2,
+        "observed_requests": {
+          "host_auth": 2,
+          "NSC1:6": 2,
+          "NSR1:1": 12,
+          "NSR1:6": 4,
+          "NSR1:5": 4
+        },
+        "phases": [
+          {
+            "phase": "cold_connect",
+            "elapsed_ms": 16.367,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1764,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5890,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 7,
+            "records": 7,
+            "ordered_complete": true
+          },
+          {
+            "phase": "warm_catch_up",
+            "elapsed_ms": 3.716,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 1574,
+            "host_auth_bytes": 0,
+            "payload_bytes": 4126,
+            "total_bytes": 5700,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 14,
+            "records": 14,
+            "ordered_complete": true
+          },
+          {
+            "phase": "reconnect",
+            "elapsed_ms": 6.298,
+            "exchanges": 7,
+            "protocol_exchanges": 6,
+            "host_auth_exchanges": 1,
+            "protocol_bytes": 1820,
+            "host_auth_bytes": 17,
+            "payload_bytes": 4126,
+            "total_bytes": 5946,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          },
+          {
+            "phase": "idle",
+            "elapsed_ms": 2.428,
+            "exchanges": 5,
+            "protocol_exchanges": 5,
+            "host_auth_exchanges": 0,
+            "protocol_bytes": 941,
+            "host_auth_bytes": 0,
+            "payload_bytes": 0,
+            "total_bytes": 941,
+            "duplicate_bytes": 0,
+            "head_checks": 2,
+            "checkpoint": 21,
+            "records": 21,
+            "ordered_complete": true
+          }
+        ],
+        "fresh_process_cache_inspection": true,
+        "repetition": 2
+      }
+    ],
+    "summary": [
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "cold_connect",
+        "samples": 2,
+        "elapsed_ms_min": 5.374,
+        "elapsed_ms_median": 6.012,
+        "elapsed_ms_max": 6.65,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1764,
+        "total_bytes": 5890,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "idle",
+        "samples": 2,
+        "elapsed_ms_min": 1.611,
+        "elapsed_ms_median": 1.751,
+        "elapsed_ms_max": 1.891,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 941,
+        "total_bytes": 941,
+        "payload_bytes": 0,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "reconnect",
+        "samples": 2,
+        "elapsed_ms_min": 3.576,
+        "elapsed_ms_median": 3.804,
+        "elapsed_ms_max": 4.032,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1820,
+        "total_bytes": 5946,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "short_session",
+        "samples": 2,
+        "elapsed_ms_min": 11.332,
+        "elapsed_ms_median": 12.883,
+        "elapsed_ms_max": 14.434,
+        "exchanges": 19,
+        "protocol_exchanges": 17,
+        "host_auth_exchanges": 2,
+        "protocol_bytes": 5158,
+        "total_bytes": 17536,
+        "payload_bytes": 12378,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "direct",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "warm_catch_up",
+        "samples": 2,
+        "elapsed_ms_min": 2.382,
+        "elapsed_ms_median": 3.067,
+        "elapsed_ms_max": 3.752,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 1574,
+        "total_bytes": 5700,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "cold_connect",
+        "samples": 2,
+        "elapsed_ms_min": 4.821,
+        "elapsed_ms_median": 10.594,
+        "elapsed_ms_max": 16.367,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1764,
+        "total_bytes": 5890,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "idle",
+        "samples": 2,
+        "elapsed_ms_min": 2.318,
+        "elapsed_ms_median": 2.373,
+        "elapsed_ms_max": 2.428,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 941,
+        "total_bytes": 941,
+        "payload_bytes": 0,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "reconnect",
+        "samples": 2,
+        "elapsed_ms_min": 5.368,
+        "elapsed_ms_median": 5.833,
+        "elapsed_ms_max": 6.298,
+        "exchanges": 7,
+        "protocol_exchanges": 6,
+        "host_auth_exchanges": 1,
+        "protocol_bytes": 1820,
+        "total_bytes": 5946,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "short_session",
+        "samples": 2,
+        "elapsed_ms_min": 13.348,
+        "elapsed_ms_median": 19.864,
+        "elapsed_ms_max": 26.381,
+        "exchanges": 19,
+        "protocol_exchanges": 17,
+        "host_auth_exchanges": 2,
+        "protocol_bytes": 5158,
+        "total_bytes": 17536,
+        "payload_bytes": 12378,
+        "duplicate_bytes": 0
+      },
+      {
+        "transport": "session-caps",
+        "path": "relay",
+        "kbit_per_second": 0,
+        "rtt_seconds": 0,
+        "phase": "warm_catch_up",
+        "samples": 2,
+        "elapsed_ms_min": 3.159,
+        "elapsed_ms_median": 3.438,
+        "elapsed_ms_max": 3.716,
+        "exchanges": 5,
+        "protocol_exchanges": 5,
+        "host_auth_exchanges": 0,
+        "protocol_bytes": 1574,
+        "total_bytes": 5700,
+        "payload_bytes": 4126,
+        "duplicate_bytes": 0
+      }
+    ]
+  },
+  "matched_native_append": {
+    "scope": "seven immutable facts, same existing append API and payload, owned native SQLite files",
+    "conditions": [
+      "debug builds, unshaped local filesystem; timings are evidence without threshold",
+      "elapsed includes process start, source open/schema transaction and seven separate WAL/FULL append commits",
+      "cold_file uses a new file; existing_file pre-seeds7 facts outside timer then appends7 more in a fresh process",
+      "actual before/after file versions are1/2; no future feature bits are published",
+      "ordered payload identity is established by the session/native correctness labs; this benchmark checks committed counts/head/byte totals",
+      "no power-loss, production rolling upgrade, weak-link append or throughput claim"
+    ],
+    "command": "python3 scripts/measure-source-publication.py --before-root /workspace/scratch/1e92cc46a545/issue-47-durable-baseline --repetitions 5",
+    "commits": {
+      "before": "641c6940c251b0b3f757276b7eb1f92b42d2fcce",
+      "after": "401ce50c924850270072d4d7b1950c2add09e682"
+    },
+    "source_sha256": {
+      "before": {
+        "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+        "Cargo.toml": "6a81d5f08a890b7d10811d81383727d0eea530b2149950e9d3ac504a2822f636",
+        "examples/session_records.rs": "155ddd14265f40ef3f30781dce6b0c4ead596c6f4c773c68232f7e8f02d8b120",
+        "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+        "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+        "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+        "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+        "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+        "src/replication/catalogue/application.rs": "e754186b28291748e967d5bb4168a0efdc7d6dbd7385e46f0b468e55d849d7cc",
+        "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+        "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+        "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+        "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+        "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+        "src/replication/domain/source_head.rs": "e3187d1fcf4f93a72264933b85ecd801ef2767f164caa7c82a00d2527ae04500",
+        "src/replication/history/application.rs": "8981be8aa7b65dc629394116c0b16b9e0c90e41fc14470839ae19469874b72e6",
+        "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+        "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+        "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+        "src/replication/infrastructure/loopback.rs": "bb0732f4eeb7f0cbe0e8c15eee31ef9f3ef46a322f06cb790c40a959fc68d379",
+        "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+        "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+        "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+        "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+        "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+        "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+        "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+        "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+        "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+        "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+        "src/replication/infrastructure/sqlite/catalogue.rs": "a83cf990e8475fb985005e8d61475a20563588307df815b9a04ebbea79e89798",
+        "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+        "src/replication/infrastructure/sqlite/mod.rs": "b511aa2488ac401afe2f6787b55ad0638dd1761480418ddbd7a78a77ab2c725c",
+        "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+        "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+        "src/replication/infrastructure/sqlite/source.rs": "744c3853789f8391d113d751e74c001e71c84c414aa7fbd13a91b0c8605c0bcd",
+        "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+      },
+      "after": {
+        "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+        "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+        "examples/session_records.rs": "155ddd14265f40ef3f30781dce6b0c4ead596c6f4c773c68232f7e8f02d8b120",
+        "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+        "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+        "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+        "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+        "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+        "src/replication/catalogue/application.rs": "e754186b28291748e967d5bb4168a0efdc7d6dbd7385e46f0b468e55d849d7cc",
+        "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+        "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+        "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+        "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+        "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+        "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+        "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+        "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+        "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+        "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+        "src/replication/infrastructure/loopback.rs": "79cc84ada22b61ec1548cf83e715c8f71a87be24c121af1615d20726bf83c70e",
+        "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+        "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+        "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+        "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+        "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+        "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+        "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+        "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+        "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+        "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+        "src/replication/infrastructure/sqlite/catalogue.rs": "a83cf990e8475fb985005e8d61475a20563588307df815b9a04ebbea79e89798",
+        "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+        "src/replication/infrastructure/sqlite/mod.rs": "c47089a2dd2cf7b2bd716273faf468919c99be1e11705293327bd24f566907ed",
+        "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+        "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+        "src/replication/infrastructure/sqlite/source/publication.rs": "2ff4b8d80d49691b91b31cdfc49a0839ac56a87a53e94078014338f6fbe782ef",
+        "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+        "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+      }
+    },
+    "cases": [
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "repetition": 1,
+        "elapsed_ms": 5.203,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "repetition": 1,
+        "elapsed_ms": 4.951,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 2
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "repetition": 2,
+        "elapsed_ms": 3.986,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 2
+      },
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "repetition": 2,
+        "elapsed_ms": 3.62,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 1
+      },
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "repetition": 3,
+        "elapsed_ms": 3.37,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "repetition": 3,
+        "elapsed_ms": 4.723,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 2
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "repetition": 4,
+        "elapsed_ms": 3.974,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 2
+      },
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "repetition": 4,
+        "elapsed_ms": 3.408,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 1
+      },
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "repetition": 5,
+        "elapsed_ms": 3.446,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "repetition": 5,
+        "elapsed_ms": 6.492,
+        "head": 7,
+        "records": 7,
+        "payload_bytes": 4126,
+        "file_version": 2
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "repetition": 1,
+        "elapsed_ms": 2.749,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "repetition": 1,
+        "elapsed_ms": 3.476,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 2
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "repetition": 2,
+        "elapsed_ms": 3.623,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 2
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "repetition": 2,
+        "elapsed_ms": 2.68,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 1
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "repetition": 3,
+        "elapsed_ms": 2.522,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "repetition": 3,
+        "elapsed_ms": 3.537,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 2
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "repetition": 4,
+        "elapsed_ms": 2.867,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 2
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "repetition": 4,
+        "elapsed_ms": 2.773,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 1
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "repetition": 5,
+        "elapsed_ms": 2.742,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 1
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "repetition": 5,
+        "elapsed_ms": 2.903,
+        "head": 14,
+        "records": 14,
+        "payload_bytes": 8252,
+        "file_version": 2
+      }
+    ],
+    "summary": [
+      {
+        "variant": "before",
+        "phase": "cold_file",
+        "n": 5,
+        "elapsed_ms_min": 3.37,
+        "elapsed_ms_median": 3.446,
+        "elapsed_ms_max": 5.203
+      },
+      {
+        "variant": "after",
+        "phase": "cold_file",
+        "n": 5,
+        "elapsed_ms_min": 3.974,
+        "elapsed_ms_median": 4.723,
+        "elapsed_ms_max": 6.492
+      },
+      {
+        "variant": "before",
+        "phase": "existing_file",
+        "n": 5,
+        "elapsed_ms_min": 2.522,
+        "elapsed_ms_median": 2.742,
+        "elapsed_ms_max": 2.773
+      },
+      {
+        "variant": "after",
+        "phase": "existing_file",
+        "n": 5,
+        "elapsed_ms_min": 2.867,
+        "elapsed_ms_median": 3.476,
+        "elapsed_ms_max": 3.623
+      }
+    ]
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.103,
+      "log": "qualification-00.log",
+      "log_sha256": "d1aaab86fa02d87997171aeb3220b40f5e28046ec4d1674848f9ec5f589f297c"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.364,
+      "log": "qualification-01.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 0.246,
+      "log": "qualification-02.log",
+      "log_sha256": "57022bcb52a3b5574dc7a2df540c8077a504735fe0aaf1cedaa5817bcc39f09e"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.241,
+      "log": "qualification-03.log",
+      "log_sha256": "11850d8807b2aa810f3575d5a722b7bd5cddedc3870750d0834633cbc9813136"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.128,
+      "log": "qualification-04.log",
+      "log_sha256": "5a3f4fd60e9af2e066ab26c0e97679dc3c96b2d7bf7c3c14530ee9b57cd81c22"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.599,
+      "log": "qualification-05.log",
+      "log_sha256": "46cdd051b72a523c7a46fb1dbe1790a69690253a7d0ffaf0c748c91a5ce6e7df"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 10.64,
+      "log": "qualification-06.log",
+      "log_sha256": "f49f400464ad7bec71c7e7640ce10883c736ccb63a7c4bc6ee41044102099fc6"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.508,
+      "log": "qualification-07.log",
+      "log_sha256": "a44cb1d2601e43eeffdda77e97c34d26f7e2be2dfb22dcf0921c4aecb5d80203"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.038,
+      "log": "qualification-08.log",
+      "log_sha256": "096617b51c17f09a3fba7109ce7e2154d934d4817bf69c8c106b2d3acfbad0d7"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.118,
+      "log": "qualification-09.log",
+      "log_sha256": "ea45dc730013de71113432dba36c7a306b80949c684bd1b7aa42aa4630ca9f63"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.7,
+      "log": "qualification-10.log",
+      "log_sha256": "8465c0750273bc7aa19d2895c8136a633f30315078916e952c2a4e0a3ae842dd"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.597,
+      "log": "qualification-11.log",
+      "log_sha256": "a230d85d0baf85dea817c0bdd2f4e886eff6f3624f3e811923a2a73b9ca45a5d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.538,
+      "log": "qualification-12.log",
+      "log_sha256": "6f7bec16f6fbf8b391236f55d242599544aa8dd52b3bf2381faef115444ff524"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.5,
+      "log": "qualification-13.log",
+      "log_sha256": "f185f1beb800cec0e10392c0f32cfffc60658f4b0c60846adafbd2c011f6daed"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 3.533,
+      "log": "qualification-14.log",
+      "log_sha256": "705dae8e15370a7bd4009ec3ecd3920118fa064e7b747298d7a55b91f5a7cee2"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.162,
+      "log": "qualification-15.log",
+      "log_sha256": "f7e3d9beed351c48cf6036152e668a9b61ea6f3aa84e4e8ff326fdae0eacba73"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.032,
+      "log": "qualification-16.log",
+      "log_sha256": "fd6a3a86af61624c0399d38c38e1747963046d505b59844366f704a1186c22b8"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.521,
+      "log": "qualification-17.log",
+      "log_sha256": "65665974315bade7bbc2af98de75ff634e7d5a29077155bdedbecb4dd4e1f773"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.095,
+      "log": "qualification-18.log",
+      "log_sha256": "9a68fdd8a779945c79d64d02954d6685031758179d5cc760e4830d97a67734a4"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.063,
+      "log": "qualification-19.log",
+      "log_sha256": "91c47262de352c57ea4553c0f231b893534a587c0af4bf2910c76ae407637aa0"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.065,
+      "log": "qualification-20.log",
+      "log_sha256": "9d5f26b19ea63f37c8a42dc3d2668e6f85d081769a947b6469212b7761e5723e"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.106,
+      "log": "qualification-21.log",
+      "log_sha256": "24e8ee65c756c272334c96c462fb89a9302645e74ece70476eb40a66929eb2e5"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.14,
+      "log": "qualification-22.log",
+      "log_sha256": "4714ca999982c3c577bddd2a52e8eb2470a5f0cafa5444859cff8fad164c8e63"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 25.111,
+      "log": "qualification-23.log",
+      "log_sha256": "4325391c4e1c0226d543daa4344dd082775116364d4e6b224459cddf701b5e89"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-head.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.173,
+      "log": "qualification-24.log",
+      "log_sha256": "82a93497f0135f038efddbabc1e1a5dc4cf6e1bf118b02553414422c3c89258d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.093,
+      "log": "qualification-25.log",
+      "log_sha256": "2d0b8034d70c95ba585dc15ea139d0b5ff6cd53e0ac2cf16453c4ffcfdcbfdb8"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 0.83,
+      "log": "qualification-26.log",
+      "log_sha256": "d6d7f4d5d6e597685980003a4c183a625a3db5273a0fd2d26a1fd3467ccf57d1"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.095,
+      "log": "qualification-27.log",
+      "log_sha256": "e5813d8daaa740962327fc678c4b4e70e0c9364e7621caf70dded648223b8275"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.046,
+      "log": "qualification-28.log",
+      "log_sha256": "d8e9ad23923eb803c86b93f46ccdf511e37d1b1a112cbde88de05e02fcb94f6c"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.121,
+      "log": "qualification-29.log",
+      "log_sha256": "c0827ea24c5afb7fb3b12b6a524707a0c13147224f5bba0b88e145b2c11196f9"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.184,
+      "log": "qualification-30.log",
+      "log_sha256": "56836df478d11a35b2fbebf37237fbbc8b5963623114b1f1f9614c02d6184e15"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.035,
+      "log": "qualification-31.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "all_features_tests_passed": 255,
+  "doctests_passed": 6,
+  "reversions": [
+    {
+      "guard": "cas-fields",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "atomic_compare_append_is_restartable_idempotent_and_source_owned"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-cas-fields.log",
+      "failure_excerpt": "failures:\n\n---- atomic_compare_append_is_restartable_idempotent_and_source_owned stdout ----\n\nthread 'atomic_compare_append_is_restartable_idempotent_and_source_owned' (599) panicked at tests/source_publication.rs:196:9:\nassertion `left == right` failed\n  left: Ok(1)\n right: Err(Stale)",
+      "log_sha256": "a5b2346097a8a058dee1afd64b21029e1e95cc49b3d474500b67a5083ba15606"
+    },
+    {
+      "guard": "fresh-writer-before-dedup",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "fresh_requirements_guard_all_payload_routes_and_existing_writer_handles"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-fresh-writer-before-dedup.log",
+      "failure_excerpt": "failures:\n\n---- fresh_requirements_guard_all_payload_routes_and_existing_writer_handles stdout ----\n\nthread 'fresh_requirements_guard_all_payload_routes_and_existing_writer_handles' (933) panicked at tests/source_publication.rs:361:9:\nassertion `left == right` failed\n  left: Ok(1)\n right: Err(Failed)",
+      "log_sha256": "7230b6a046231d60c1ceac1d910464f73ea524b84be37ce0339e1b7deeabad33"
+    },
+    {
+      "guard": "fresh-prune-writer",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "fresh_requirements_guard_all_payload_routes_and_existing_writer_handles"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-fresh-prune-writer.log",
+      "failure_excerpt": "failures:\n\n---- fresh_requirements_guard_all_payload_routes_and_existing_writer_handles stdout ----\n\nthread 'fresh_requirements_guard_all_payload_routes_and_existing_writer_handles' (1267) panicked at tests/source_publication.rs:363:9:\nassertion `left == right` failed\n  left: Ok(())\n right: Err(Failed)",
+      "log_sha256": "81cfdcb32f268f7a57ce4bb81df65b73ac24af6d3306949f5c14c6b0d60db504"
+    },
+    {
+      "guard": "page-reader-admission",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "fresh_requirements_guard_all_payload_routes_and_existing_writer_handles"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-page-reader-admission.log",
+      "failure_excerpt": "failures:\n\n---- fresh_requirements_guard_all_payload_routes_and_existing_writer_handles stdout ----\n\nthread 'fresh_requirements_guard_all_payload_routes_and_existing_writer_handles' (1601) panicked at tests/source_publication.rs:388:13:\nassertion `left == right` failed\n  left: Ok(Page { request: PageRequest { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, after: 0, target: 2, max_records: 10, max_payload_bytes: 100, max_record_bytes: 100 }, records: [Record { position: 1, id: Id(\"one\"), scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, payload: [97] }, Record { position: 2, id: Id(\"two\"), scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, payload: [98] }] })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "d590d41888e70b757ce20b101ad99fff3f6615da8c565d0399ee48a23f273f00"
+    },
+    {
+      "guard": "history-reader-admission",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "fresh_requirements_guard_all_payload_routes_and_existing_writer_handles"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-history-reader-admission.log",
+      "failure_excerpt": "failures:\n\n---- fresh_requirements_guard_all_payload_routes_and_existing_writer_handles stdout ----\n\nthread 'fresh_requirements_guard_all_payload_routes_and_existing_writer_handles' (1935) panicked at tests/source_publication.rs:392:13:\nassertion `left == right` failed\n  left: Ok(TailSnapshot { request: TailRequest { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, generation: 1, max_records: 10, max_payload_bytes: 100, max_record_bytes: 100 }, watermark: 2, first: 1, oldest_available: 1, records: [Record { position: 1, id: Id(\"one\"), scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, payload: [97] }, Record { position: 2, id: Id(\"two\"), scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, payload: [98] }] })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "311257ade874f1fa9ce2e3735521da47dbd0d87811088cc07deacf72d1190036"
+    },
+    {
+      "guard": "append-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "transaction_faults_rollback_metadata_and_record_and_lost_reply_reloads"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-append-atomicity.log",
+      "failure_excerpt": "failures:\n\n---- transaction_faults_rollback_metadata_and_record_and_lost_reply_reloads stdout ----\n\nthread 'transaction_faults_rollback_metadata_and_record_and_lost_reply_reloads' (2269) panicked at tests/source_publication.rs:308:9:\nassertion `left == right` failed\n  left: SourceHead { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }\n right: SourceHead { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"stream\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, version: 1, position: 0, reader_required: 0, writer_required: 0 }",
+      "log_sha256": "28cc5ba985be40607f2dd080bbe15d043aeae5b507f749c02111a2cc03b4e63f"
+    },
+    {
+      "guard": "migration-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "wrong_identity_and_failed_migration_do_not_change_old_file"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-migration-atomicity.log",
+      "failure_excerpt": "failures:\n\n---- wrong_identity_and_failed_migration_do_not_change_old_file stdout ----\n\nthread 'wrong_identity_and_failed_migration_do_not_change_old_file' (2603) panicked at tests/source_publication.rs:168:5:\nassertion `left == right` failed\n  left: 9\n right: 6",
+      "log_sha256": "3882c699664f918883a80449a8445220940d947e5124e82dc3336d3c62998f97"
+    },
+    {
+      "guard": "migration-identity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "wrong_identity_and_failed_migration_do_not_change_old_file"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-migration-identity.log",
+      "failure_excerpt": "failures:\n\n---- wrong_identity_and_failed_migration_do_not_change_old_file stdout ----\n\nthread 'wrong_identity_and_failed_migration_do_not_change_old_file' (2937) panicked at tests/source_publication.rs:137:5:\nassertion failed: matches!(SqliteReferenceSource::open(&p, id(\"origin\"), id(\"stream\"),\n    id(\"new-incarnation\"), id(\"schema\")),\n    Err(SqliteOpenError::SourceIdentityMismatch))",
+      "log_sha256": "4fabfb0d4d4bd7d93d98c6000afafebeda87744f2374ced060a227f6b79e74d0"
+    },
+    {
+      "guard": "publication-identity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "atomic_compare_append_is_restartable_idempotent_and_source_owned"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-publication-identity.log",
+      "failure_excerpt": "failures:\n\n---- atomic_compare_append_is_restartable_idempotent_and_source_owned stdout ----\n\nthread 'atomic_compare_append_is_restartable_idempotent_and_source_owned' (3271) panicked at tests/source_publication.rs:241:5:\nassertion `left == right` failed\n  left: Ok(3)\n right: Err(IdentityChanged)",
+      "log_sha256": "9ae9a5d03133d921d775bcf1afb3a01ce0478ddc522633f2261fe96ff4a0b96f"
+    },
+    {
+      "guard": "implemented-encoder-only",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "source_publication",
+        "atomic_compare_append_is_restartable_idempotent_and_source_owned"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-implemented-encoder-only.log",
+      "failure_excerpt": "failures:\n\n---- atomic_compare_append_is_restartable_idempotent_and_source_owned stdout ----\n\nthread 'atomic_compare_append_is_restartable_idempotent_and_source_owned' (3605) panicked at tests/source_publication.rs:250:9:\nassertion `left == right` failed\n  left: Ok(3)\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "1b2cea47ce9511c7b23d12c88e686221828382d6f792d8e64dc00ba876178c12"
+    }
+  ],
+  "reversion_restoration": {
+    "focused_tests_passed": 9,
+    "tracked_tree_clean": true
+  },
+  "independent_review": {
+    "reviewer": "authority_gate_review",
+    "head": "401ce50c924850270072d4d7b1950c2add09e682",
+    "round": 1,
+    "substantive_findings": 0,
+    "reviewer_reran_checks": false
+  },
+  "limits": [
+    "known feature masks remain0; public API cannot assign future bits",
+    "catalogue publication and other transport families remain separate",
+    "already-open old binaries are not fenced; host must stop them before upgrade/future nonzero rollout",
+    "discarded successful reply/restart tested; not every SQLite commit I/O error/power loss",
+    "native append times include process/open and seven WAL/FULL commits through existing append API; compare_append overhead not separately measured",
+    "transport timings exclude producer appends; unshaped repeated debug evidence, weak-link timing unmeasured for this storage slice"
+  ]
+}
