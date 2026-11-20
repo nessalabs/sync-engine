@@ -18,10 +18,12 @@
 //! and atomic requirements/current-value revision writes. It does not share
 //! transcript history tables. `source_metadata` shares only stateless row decoding.
 //! `artifact` keeps current source bytes and a separate receiver staging cache.
+//! `origin_authority` is an opt-in local writer-claim ledger outside the source.
 
 mod artifact;
 mod catalogue;
 mod connection;
+mod origin_authority;
 mod record_rows;
 mod replica;
 mod source;
@@ -35,6 +37,7 @@ use connection::{
     ARTIFACT_SOURCE_APPLICATION_ID, CATALOGUE_REPLICA_APPLICATION_ID,
     CATALOGUE_SOURCE_APPLICATION_ID, REPLICA_APPLICATION_ID, SOURCE_APPLICATION_ID,
 };
+pub use origin_authority::{OriginClaimError, OriginProvisionError, SqliteOriginAuthority};
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::SqliteReplicaStore;
 pub use source::{SourcePublicationError, SqliteReferenceSource};
