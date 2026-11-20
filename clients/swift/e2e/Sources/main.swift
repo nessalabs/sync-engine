@@ -38,9 +38,16 @@ private struct FixtureStdio: RecordHeadChannel {
 
 private func read() throws {
     let arguments = CommandLine.arguments
-    guard arguments.count == 8 || arguments.count == 9 else { throw RecordSessionOpenError.invalidOffer }
+    guard (8...10).contains(arguments.count) else { throw RecordSessionOpenError.invalidOffer }
     let scope = Array(arguments[1..<7])
     let mode = arguments[7]
+    if mode == "follow" {
+        guard arguments.count == 10, let release = Int32(arguments[8])
+        else { throw RecordSessionOpenError.invalidOffer }
+        try followFixture(scope, release: release, path: URL(fileURLWithPath: arguments[9]))
+        return
+    }
+    guard arguments.count <= 9 else { throw RecordSessionOpenError.invalidOffer }
     if mode == "deny-open" {
         try verifyDeniedOpen(scope: scope)
         return
@@ -113,6 +120,33 @@ private func overlap(_ client: BoundRecordClient<FixtureStdio>, release: Int32) 
         correctPositions, correctContent
     else { throw RecordHeadReadError.malformedReply }
     print("overlap:7", to: &report)
+}
+
+private func followFixture(_ scope: [String], release: Int32, path: URL) throws {
+    let client = try RecordFollowClient.open(channel: FixtureStdio(), scopeFields: scope)
+    defer { client.close() }
+    var report = Report()
+    print("bound", to: &report)
+    let hint = try client.waitForHint()
+    guard hint == 1 else { throw RecordHeadReadError.malformedReply }
+    print("hint:1", to: &report)
+    let gate = FileHandle(fileDescriptor: release, closeOnDealloc: true)
+    guard try gate.read(upToCount: 1) == Data([1]) else { throw CocoaError(.fileReadUnknown) }
+
+    let head = try client.readHead()
+    guard head.position == 1 else { throw RecordHeadReadError.malformedReply }
+    let request = RecordPageRequest(after: 0, target: head.position, maxRecords: 1,
+        maxPayloadBytes: 8192, maxRecordBytes: 8192)
+    let page = try client.readPage(request)
+    guard page.scope == client.boundScope, page.nextPosition == 1, page.records.count == 1,
+        let row = page.records.first, row.position == 1, row.idBytes == Array("fact-1".utf8),
+        row.payload == Array("alpha".utf8)
+    else { throw RecordHeadReadError.malformedReply }
+
+    let saved = StoredRecord(position: row.position, id: "fact-1", payload: Data(row.payload))
+    let updated = StoredPageState(scope: Data(page.scope.canonicalBytes), rows: [saved])
+    try JSONEncoder().encode(updated).write(to: path, options: .atomic)
+    print("follow:1:5", to: &report)
 }
 
 private struct StoredRecord: Codable {

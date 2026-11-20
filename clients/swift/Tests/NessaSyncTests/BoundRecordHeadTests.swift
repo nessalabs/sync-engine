@@ -397,3 +397,91 @@ struct RecordSessionOpenTests {
         }
     }
 }
+
+private func recordHint(_ head: UInt64, session: UInt64 = 1, request: UInt64 = 1,
+    status: UInt8 = 0, handle: UInt32 = 1, generation: UInt64 = 1
+) -> [UInt8] {
+    let payload = status == 0 ? be(head) : []
+    var frame: [UInt8] = [78, 83, 82, 49, 0, 1, 64, status]
+    frame.append(contentsOf: be(session))
+    frame.append(contentsOf: be(request))
+    frame.append(contentsOf: be(handle))
+    frame.append(contentsOf: be(generation))
+    frame.append(contentsOf: be(UInt32(payload.count)))
+    frame.append(contentsOf: be(UInt32(0)))
+    frame.append(contentsOf: payload)
+    return be(UInt32(frame.count)) + frame
+}
+
+struct RecordFollowTests {
+    @Test func serializedOpenStillRefusesFollowSignals() throws {
+        let channel = FixtureChannel()
+        channel.input = welcome() + bound() + recordHint(3)
+        let owner = try BoundRecordClient.open(channel: channel, scopeFields: fixtureScope)
+        #expect(channel.output.first?[10] == 6)
+        #expect(throws: RecordHeadReadError.malformedReply) { try owner.readHead() }
+        #expect(channel.closed == 1)
+    }
+
+
+    @Test func followUsesOneOwnerAndCoalescesHintsBetweenPageFragments() throws {
+        let channel = FixtureChannel()
+        let payload = [UInt8](repeating: 112, count: 4096)
+        let data = pageBody(ids: ["bulk"], payload: payload)
+        channel.input = welcome() + bound()
+        channel.input.append(contentsOf: pageFrame(data.prefix(2004), total: data.count, offset: 0))
+        channel.input.append(contentsOf: recordHint(24))
+        channel.input.append(contentsOf: recordHint(23))
+        channel.input.append(contentsOf: pageFrame(data[2004..<4008], total: data.count, offset: 2004))
+        channel.input.append(contentsOf: pageFrame(data[4008...], total: data.count, offset: 4008))
+        let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+        #expect(channel.output.first?[10] == 7)
+        let page = try owner.readPage(pageRequest)
+        #expect(page.nextPosition == 21)
+        #expect(page.records.first?.payload == payload)
+        let readsBefore = channel.reads.count
+        #expect(try owner.waitForHint() == 24)
+        #expect(channel.reads.count == readsBefore)
+        #expect(channel.output.count == 2)
+    }
+
+    @Test func malformedOrWrongBoundHintsAndPartialReadAreTerminal() throws {
+        let frames = [recordHint(1, session: 2), recordHint(1, request: 2),
+                      recordHint(1, handle: 2), recordHint(1, generation: 2),
+                      recordHint(0, status: 8)]
+        for frame in frames {
+            let channel = FixtureChannel()
+            channel.input = welcome() + bound() + frame
+            let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+            #expect(throws: RecordHeadReadError.malformedReply) { try owner.waitForHint() }
+            #expect(throws: RecordHeadReadError.unavailableChannel) { try owner.readHead() }
+            #expect(channel.closed == 1)
+        }
+        let truncated = FixtureChannel()
+        truncated.input = welcome() + bound() + Array(recordHint(3).dropLast())
+        let owner = try RecordFollowClient.open(channel: truncated, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.unavailableChannel) { try owner.waitForHint() }
+        #expect(throws: RecordHeadReadError.unavailableChannel) { try owner.readHead() }
+        #expect(truncated.closed == 1)
+    }
+
+    @Test func terminalHintWinsBeforeIncompletePageAndPreBindingHintRejectsOpen() throws {
+        let channel = FixtureChannel()
+        let data = pageBody(ids: ["bulk"], payload: [UInt8](repeating: 112, count: 4096))
+        channel.input = welcome() + bound()
+        channel.input.append(contentsOf: pageFrame(data.prefix(2004), total: data.count, offset: 0))
+        channel.input.append(contentsOf: recordHint(0, status: 1))
+        let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.source(.denied)) { try owner.readPage(pageRequest) }
+        #expect(throws: RecordHeadReadError.source(.denied)) { try owner.waitForHint() }
+        #expect(channel.closed == 1)
+
+        let setup = FixtureChannel()
+        setup.input = welcome() + recordHint(1) + bound()
+        #expect(throws: RecordSessionOpenError.incompatibleControl) {
+            try RecordFollowClient.open(channel: setup, scopeFields: fixtureScope)
+        }
+        #expect(setup.closed == 1)
+        #expect(setup.output.count == 1)
+    }
+}

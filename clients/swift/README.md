@@ -80,6 +80,33 @@ enrollment, device Keychain behavior, client-certificate timing, an actual LAN
 or relay, or outage recovery. The public Swift package still takes an
 authenticated host channel instead of supplying a default transport.
 
+## Demand-driven Follow (independent client)
+
+`RecordFollowClient.open` opts into the existing one-scope capability
+[FollowOpen contract](../../docs/design/capability-follow.md) on an already
+authenticated host channel. It uses the same serial frame reader for
+`waitForHint`, `readHead`, and `readPage`. Calls cannot overlap; there is
+no background task, additional reader or queued wake stream. One maximum
+advisory head is coalesced while a Head/Page is active.
+
+The host owns a single absolute deadline across each Open, hint wait or RPC,
+including all read/write fragments; a hint never resets it. The existing
+injected byte port cannot prove that zero bytes were consumed on an I/O error,
+so even an idle wait timeout terminates this owner. The caller may explicitly
+open a fresh connection and revalidate its saved cursor; there is no automatic
+timeout retry, lease, fallback to ordinary Open, or background wake promise.
+
+| Follow contract | Current automated evidence |
+| --- | --- |
+| Ordered exact setup | NSC1 v1 kind-7 FollowOpen reaches real Rust `serve-cap`. Welcome and Bound use the existing exact binding path; pre-Bound hints fail. |
+| Advisory handoff | Only a bound request-1 hint with exact session/handle/generation can be consumed. Invalid, partial, foreign or terminal refusal frames retire the owner. Terminal refusal is retained rather than overwritten by a later empty read. |
+| One bounded pump | Swift tests interleave two hints between actual-sized Page fragments, coalesce to the maximum, and still complete exactly one page. A terminal hint after the first fragment produces no receipt. |
+| Headless Rust interop | The standard runner adds one real Follow TCP connection. After Swift reports Bound, the existing test producer commits one record and emits a hint. A fixture barrier verifies its checkpoint bytes unchanged after the hint; then one checked Head and one complete Page install one exact record (5 payload bytes). The optional serial/overlap workload does not multiply the Follow case. |
+
+The fixture's loopback auth roles are not production credentials. TLS Follow,
+asynchronous notification, idle timeout reuse, Tail/Older, multi-scope
+dispatch and product cache integration remain open.
+
 ## Remaining client acceptance
 
 No unchecked row is covered by the Head/Page fixture. Each future slice should
