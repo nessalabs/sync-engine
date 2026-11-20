@@ -25,11 +25,20 @@ private func reply(
     status: UInt8 = 0, position: UInt64 = 7, supplied: [UInt8]? = nil
 ) -> [UInt8] {
     let identity = scope.flatMap { [UInt8($0.utf8.count)] + Array($0.utf8) }
-    let metadata = be(UInt16(1)) + be(position) + be(UInt64(0)) + be(UInt64.max)
+    var metadata: [UInt8] = be(UInt16(1))
+    metadata.append(contentsOf: be(position))
+    metadata.append(contentsOf: be(UInt64(0)))
+    metadata.append(contentsOf: be(UInt64.max))
     let payload = supplied ?? (identity + metadata)
+
     var body: [UInt8] = [78, 83, 82, 49, 0, 1, 0x85, status]
-    body += be(session) + be(request) + be(UInt32(1)) + be(UInt64(1))
-    body += be(UInt32(payload.count)) + be(UInt32(0)) + payload
+    body.append(contentsOf: be(session))
+    body.append(contentsOf: be(request))
+    body.append(contentsOf: be(UInt32(1)))
+    body.append(contentsOf: be(UInt64(1)))
+    body.append(contentsOf: be(UInt32(payload.count)))
+    body.append(contentsOf: be(UInt32(0)))
+    body.append(contentsOf: payload)
     return be(UInt32(body.count)) + body
 }
 private func client(

@@ -92,9 +92,18 @@ public final class BoundRecordHeadClient<Channel: RecordHeadChannel> {
         guard let next = request else { throw .unavailableChannel }
         request = next == .max ? nil : next + 1
 
-        let echo = bytes(session) + bytes(next) + bytes(handle) + bytes(generation)
+        var echo: [UInt8] = bytes(session)
+        echo.append(contentsOf: bytes(next))
+        echo.append(contentsOf: bytes(handle))
+        echo.append(contentsOf: bytes(generation))
+
         let prefix = RecordCapabilityV1.requestPrefix
-        let body = Self.preamble + [5, 0] + echo + bytes(UInt32(prefix.count)) + bytes(UInt32(0)) + prefix
+        var body: [UInt8] = Self.preamble
+        body.append(contentsOf: [5, 0])
+        body.append(contentsOf: echo)
+        body.append(contentsOf: bytes(UInt32(prefix.count)))
+        body.append(contentsOf: bytes(UInt32(0)))
+        body.append(contentsOf: prefix)
         let lengthBytes: [UInt8]
         do {
             try owned.writeAll(bytes(UInt32(body.count)) + body)
