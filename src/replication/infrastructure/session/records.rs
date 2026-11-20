@@ -958,10 +958,23 @@ fn respond<S: Write, A: ScopeAuthorizer>(
     policy: &mut A,
     limit: usize,
 ) -> Result<(), RecordSessionError> {
+    respond_checked(stream, request, status, body, limit, || {
+        access_code(policy.authorize(scope), scope)
+    })
+}
+
+fn respond_checked<S: Write>(
+    stream: &mut S,
+    request: &Packet,
+    status: u8,
+    body: &[u8],
+    limit: usize,
+    mut current_access: impl FnMut() -> u8,
+) -> Result<(), RecordSessionError> {
     let cap = limit - HEADER;
     let mut offset = 0;
     loop {
-        let current = access_code(policy.authorize(scope), scope);
+        let current = current_access();
         let status = if current == 0 { status } else { current };
         if status != 0 {
             write_packet(
@@ -1094,7 +1107,7 @@ where
 }
 fn data_operation(kind: u8) -> bool {
     #[cfg(feature = "tls")]
-    if kind == artifact::MANIFEST {
+    if artifact::operation(kind) {
         return true;
     }
     matches!(kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE) || capability_operation(kind)
@@ -1123,7 +1136,7 @@ type BoundHook<'a> =
 struct BoundHooks<'a> {
     follow: BoundHook<'a>,
     #[cfg(feature = "tls")]
-    artifact: Option<artifact::ServerRead<'a>>,
+    artifact: Option<&'a mut dyn artifact::ServerRead>,
 }
 fn serve_bound<S, A, F, R>(
     stream: &mut S,
@@ -1294,10 +1307,10 @@ where
         }
         last = request.meta.request;
         #[cfg(feature = "tls")]
-        if request.kind == artifact::MANIFEST {
+        if artifact::operation(request.kind) {
             let route = hooks
                 .artifact
-                .as_mut()
+                .as_deref_mut()
                 .ok_or(RecordSessionError::Protocol)?;
             artifact::respond(route, stream, &request, scope, policy, limit)?;
             continue;

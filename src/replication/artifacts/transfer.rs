@@ -39,12 +39,7 @@ pub enum ChunkValidationError {
     WrongLength,
 }
 
-/// Validates an exact chunk; the source must separately check current grants
-/// and ensure the requested version still equals its current version.
-pub fn validate_chunk(
-    request: &ChunkRequest,
-    reply: &ChunkReply,
-) -> Result<(), ChunkValidationError> {
+pub(crate) fn chunk_length(request: &ChunkRequest) -> Result<usize, ChunkValidationError> {
     let ArtifactState::Live(content) = request.manifest.state else {
         return Err(ChunkValidationError::InvalidRequest);
     };
@@ -55,10 +50,19 @@ pub fn validate_chunk(
     {
         return Err(ChunkValidationError::InvalidRequest);
     }
+    Ok((content.length - request.offset).min(request.max_bytes as u64) as usize)
+}
+
+/// Validates an exact chunk; the source must separately check current grants
+/// and ensure the requested version still equals its current version.
+pub fn validate_chunk(
+    request: &ChunkRequest,
+    reply: &ChunkReply,
+) -> Result<(), ChunkValidationError> {
+    let expected = chunk_length(request)?;
     if reply.request != *request {
         return Err(ChunkValidationError::WrongRequest);
     }
-    let expected = (content.length - request.offset).min(request.max_bytes as u64) as usize;
     if reply.bytes.len() != expected {
         return Err(ChunkValidationError::WrongLength);
     }
