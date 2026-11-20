@@ -41,21 +41,17 @@ private func read() throws {
     guard arguments.count == 8 || arguments.count == 9 else { throw RecordSessionOpenError.invalidOffer }
     let scope = Array(arguments[1..<7])
     let mode = arguments[7]
-    var report = Report()
-    let client: BoundRecordClient<FixtureStdio>
-    do {
-        client = try BoundRecordClient.open(
-            channel: FixtureStdio(failAfterFirstFrame: mode == "interrupt"), scopeFields: scope
-        )
-    } catch RecordSessionOpenError.refused(.denied) where mode == "deny-open" {
-        print("open-denied", to: &report)
+    if mode == "deny-open" {
+        try verifyDeniedOpen(scope: scope)
         return
     }
+    let client = try openFixture(scope: scope, interrupt: mode == "interrupt")
     if arguments.count == 9 {
         try page(client, mode: mode, path: URL(fileURLWithPath: arguments[8]))
         return
     }
     guard mode == "head" else { throw RecordSessionOpenError.malformedControl }
+    var report = Report()
     for _ in 0..<2 {
         do {
             let value = try client.readHead()
@@ -67,6 +63,26 @@ private func read() throws {
         }
     }
 }
+// Keep typed Open at a small boundary. Older Swift compilers can fail while
+// lowering an outer do/catch that also conditionally initializes the owner.
+private func openFixture(scope: [String], interrupt: Bool) throws -> BoundRecordClient<FixtureStdio> {
+    try BoundRecordClient.open(
+        channel: FixtureStdio(failAfterFirstFrame: interrupt), scopeFields: scope
+    )
+}
+
+private func verifyDeniedOpen(scope: [String]) throws {
+    do {
+        _ = try openFixture(scope: scope, interrupt: false)
+    } catch let error as RecordSessionOpenError {
+        guard error == .refused(.denied) else { throw error }
+        var report = Report()
+        print("open-denied", to: &report)
+        return
+    }
+    throw RecordSessionOpenError.malformedControl
+}
+
 private struct StoredRecord: Codable {
     let position: UInt64
     let id: String
