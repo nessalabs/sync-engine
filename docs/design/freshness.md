@@ -47,3 +47,33 @@ deterministic owned fixture. Catalogue, history, artifact and transport-specific
 wake wiring remain explicit host handoffs. Existing transport/follow adapters do
 not silently acquire this policy. No network latency or production scheduling
 claim follows from a fake-clock measurement.
+
+## Reproduction and measured boundary
+
+Run `python3 scripts/verify-freshness.py` for deterministic policy contracts and
+SQLite result-loss/reopen correctness; use `--repetitions 5` for repeated timings.
+CI runs the same command. The [receipts](../verification/freshness.json) include
+exact commands, source/harness SHA256 fingerprints and ten isolated regression
+sensitivity checks with the final tree restored.
+
+Matching debug-build native SQLite workload: cold seed seven ordered records in
+four bounded pages, then 100 useful local reads of the unchanged seven rows.
+Every path uses two cold head checks, including the mandatory post-pass recheck.
+The fake clock advances 1 ms per read; Within expires only above 10 ms. The table
+excludes cold setup and reports real `Instant` elapsed read/drive work over five
+runs in fixed policy order. It does not simulate network latency.
+
+| Read policy | Useful reads | Additional head checks | Additional pages | Elapsed ms median (min–max) |
+| --- | ---: | ---: | ---: | ---: |
+| Existing explicit every-read follower baseline | 100 | 100 | 0 | 21.861 (20.463–23.857) |
+| Always owner | 100 | 100 | 0 | 21.352 (20.451–21.934) |
+| Within 10 ms owner | 100 | 9 | 0 | 18.873 (16.231–19.935) |
+| Never owner | 100 | 0 | 0 | 16.637 (16.621–21.998) |
+
+All paths reopen with the exact seven ordered records/checkpoint and unknown
+restart timestamps. Within removes 91 of 100 redundant stable-read checks in this
+schedule; this count is deterministic, while local timings are noisy. The separate
+real SQLite lost-result fixture commits two rows, loses the result, refuses replay,
+reauthorizes/reloads after reopen, and finishes at seven rows in four total pages.
+No wire format changes here; network exchanges, bytes and slow-link timings are
+unmeasured for freshness policy wiring and are not inferred from native call counts.
