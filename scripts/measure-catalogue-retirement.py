@@ -29,19 +29,31 @@ ALTER TABLE catalogue_source_meta ADD COLUMN writer_required BLOB NOT NULL DEFAU
 def snapshot(path):
     with sqlite3.connect(path) as db:
         rows=db.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY creation,entry_id').fetchall()
+        version=db.execute('PRAGMA user_version').fetchone()[0]
+        assert version in (1,2,3,4,5)
         tables=[x[0] for x in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
-        assert tables==['catalogue_source_entries','catalogue_source_meta']
+        expected=['catalogue_source_entries','catalogue_source_meta']
+        if version==5:
+            expected.insert(0,'catalogue_retention_pins')
+        assert tables==expected,(version,tables)
+        if version==5:
+            columns=[column[1] for column in db.execute("PRAGMA table_info(catalogue_retention_pins)")]
+            assert columns==['holder','receiver','access_epoch','revision','completed','expires_at_ms']
+            assert db.execute('SELECT count(*) FROM catalogue_retention_pins').fetchone()==(0,)
+            assert db.execute('SELECT retention_now_ms FROM catalogue_source_meta').fetchone()==(0,)
+        if version>=4:
+            assert db.execute('SELECT horizon FROM catalogue_source_meta').fetchone()==(0,)
         count=db.execute('SELECT count(*) FROM catalogue_source_entries').fetchone()[0]
         assert count==620
         head=db.execute('SELECT head FROM catalogue_source_meta').fetchone()[0];assert head==780
         index_sql=db.execute("SELECT sql FROM sqlite_master WHERE name='catalogue_source_page'").fetchone()[0]
-        result={'file_version':db.execute('PRAGMA user_version').fetchone()[0],'page_size':db.execute('PRAGMA page_size').fetchone()[0],'page_count':db.execute('PRAGMA page_count').fetchone()[0],'freelist_pages':db.execute('PRAGMA freelist_count').fetchone()[0],'entries':count,'retired_ids':sum(r[3] for r in rows),'head':head,'index_sql':index_sql}
+        result={'file_version':version,'page_size':db.execute('PRAGMA page_size').fetchone()[0],'page_count':db.execute('PRAGMA page_count').fetchone()[0],'freelist_pages':db.execute('PRAGMA freelist_count').fetchone()[0],'entries':count,'retired_ids':sum(r[3] for r in rows),'head':head,'index_sql':index_sql}
         result['database_allocated_bytes']=result['page_size']*result['page_count']
         # dbstat is optional in SQLite builds: record absence instead of inventing a size.
         try:
             result['serving_index_pages'],result['serving_index_bytes'],result['serving_index_cells']=db.execute("SELECT count(*),sum(pgsize),sum(ncell) FROM dbstat WHERE name='catalogue_source_page'").fetchone()
         except sqlite3.OperationalError:result['serving_index_pages']=result['serving_index_bytes']=result['serving_index_cells']=None
-        visible='manifest_visible=1' if result['file_version']==3 else '1'
+        visible='manifest_visible=1' if version>=3 else '1'
         assert db.execute(f'SELECT count(*) FROM catalogue_source_entries WHERE {visible}').fetchone()[0]==620
         result['manifest_members']=620
         return rows,result
@@ -61,7 +73,8 @@ def main():
                     start=time.perf_counter();r=subprocess.run([str(root/'target/debug/examples/catalogue_apps'),'transcript',str(path),str(Path(folder)/'unused.db'),'seed','0'],text=True,capture_output=True,check=True,timeout=30);elapsed=(time.perf_counter()-start)*1000
                     assert json.loads(r.stdout)=={'seeded':0}
                     actual,after=snapshot(path);assert actual==rows
-                    assert after['file_version'] in (2,3,4)
+                    assert after['file_version'] in (2,3,4,5)
+                    if phase=='reopen':assert after['file_version']==prior['file_version']
                     cases.append({'input_version':version,'repetition':n+1,'phase':phase,'elapsed_ms':round(elapsed,6),'before':prior,'after':after,'exact_identity_revision_deletion_payload_preserved':True})
                     prior=after
         for n in range(a.repetitions):

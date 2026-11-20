@@ -79,3 +79,35 @@ The phone can read incrementally from 2 after the first decision. After the
 second decision and reopening, its old position gets the existing typed gap.
 Repeating the exact first append still returns its old position, confirming
 the read-floor change did not physically remove its deduplication identity.
+
+## Catalogue deletion coverage
+
+The SQLite catalogue source uses the same pure cutoff policy, but its floor
+is a catalogue horizon, not a record prune-through position. The trusted
+host validates the holder/current grant and acknowledges actual durable
+`CatalogueProgress.completed`. A partial pass boundary or cursor cannot
+raise that acknowledged revision. A refreshed lease requires its exact
+holder, grant and durable pin receipt; lost results are reloaded rather than
+blindly retried. A receipt is not authorization.
+
+Registration, refresh, host clock checks, and collection all serialize inside
+the existing catalogue source writer. Collection compares the expected full
+v2 publication, reads the durable active pins and selects a cutoff in that
+transaction. The same native collector then advances the monotone horizon
+and hides only retired serving markers with revision strictly below it.
+Equality remains usable for incremental readers. Hard pressure can override
+live pins, so a lagging C gets the existing typed horizon expiry/reset path,
+not progress or permission to skip validation. This does not delete identity
+rows, reclaim physical space, implement a byte cap, schedule collection, or
+change the receiver, wire or access policy.
+
+Source v5 migrates existing v4 coverage without resetting it. Stop all
+already-open older writers before migration; mixed-version writers are not
+fenced. Once the source has a registered holder, use `collect_with_retention`
+even after the last lease expires: the bare collection API cannot bypass
+the ledger. Treat host time as independently trusted and monotone. An
+uncertain commit requires reloading the source publication or pin receipt.
+
+```sh
+cargo test --locked --features sqlite --test catalogue_retention --test catalogue_collection --test catalogue_publication
+```
