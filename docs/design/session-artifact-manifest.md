@@ -4,7 +4,9 @@ Issue #54: one opt-in, read-only manifest operation. The
 [artifact contract](artifact-contract.md) continues to own current revisions,
 content identities, deletion and local availability; the
 [transfer contract](artifact-transfer.md) continues to own durable staging
-and publication. This route implements neither content transfer nor cache apply.
+and publication. This route implements neither content transfer nor cache apply. The separate
+[secure transfer endpoint](session-artifact-transfer.md) requires its own
+explicit content grant.
 
 The client explicitly obtains a manifest port from an existing
 `RecordSession<TlsSessionIo>`. The server explicitly enables it on

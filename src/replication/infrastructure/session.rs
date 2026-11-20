@@ -468,5 +468,7 @@ pub use records::epoch::{
 
 #[cfg(feature = "tls")]
 pub use records::artifact::{
-    serve_tls_artifact_manifest_session, ArtifactManifestAccess, ArtifactManifestSessionSource,
+    serve_tls_artifact_manifest_session, serve_tls_artifact_transfer_session,
+    ArtifactManifestAccess, ArtifactManifestSessionSource, ArtifactSessionAccess,
+    ArtifactSessionOperation, ArtifactTransferSessionSource,
 };
