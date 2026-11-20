@@ -64,6 +64,11 @@ private struct StoredRecord: Codable {
     let payload: Data
 }
 
+private struct StoredPageState: Codable {
+    let scope: Data?
+    let rows: [StoredRecord]
+}
+
 private func page(_ args: [String], _ session: UInt64, _ handle: UInt32, _ generation: UInt64, _ limit: Int) throws {
     guard let recordLimit = Int(args[13]) else { throw RecordHeadReadError.invalidBinding }
     let mode = args[11]
@@ -72,8 +77,11 @@ private func page(_ args: [String], _ session: UInt64, _ handle: UInt32, _ gener
     let client = try BoundRecordClient(channel: channel, session: session, handle: handle,
         generation: generation, lastRequest: 1, frameBodyLimit: limit, scopeFields: Array(args[5..<11]),
         recordByteLimit: recordLimit)
-    let previous = try JSONDecoder().decode([StoredRecord].self, from: Data(contentsOf: path))
-    let after = previous.last?.position ?? 0
+    let previous = try JSONDecoder().decode(StoredPageState.self, from: Data(contentsOf: path))
+    let established = Data(client.boundScope.canonicalBytes)
+    guard previous.scope == established || (previous.scope == nil && previous.rows.isEmpty)
+    else { throw RecordHeadReadError.invalidPageRequest }
+    let after = previous.rows.last?.position ?? 0
     var report = Report()
     let request = RecordPageRequest(after: mode == "refuse" ? 6 : after, target: 7,
         maxRecords: mode == "first" ? 2 : 64, maxPayloadBytes: 8192,
@@ -81,8 +89,10 @@ private func page(_ args: [String], _ session: UInt64, _ handle: UInt32, _ gener
     do {
         let receipt = try client.readPage(request)
         guard mode == "first" || mode == "resume" else { throw RecordHeadReadError.malformedReply }
-        var next = previous
-        var ids = Set(previous.map { Array($0.id.utf8) })
+        guard Data(receipt.scope.canonicalBytes) == established, receipt.request.after == after
+        else { throw RecordHeadReadError.malformedReply }
+        var next = previous.rows
+        var ids = Set(previous.rows.map { Array($0.id.utf8) })
         for record in receipt.records {
             guard ids.insert(record.idBytes).inserted,
                 let id = String(validating: record.idBytes, as: UTF8.self)
@@ -92,7 +102,7 @@ private func page(_ args: [String], _ session: UInt64, _ handle: UInt32, _ gener
         guard next.last?.position == receipt.nextPosition else { throw RecordHeadReadError.malformedReply }
         // This is single-owner fixture storage, not a power-loss durability claim.
         // Position and all received records are replaced as one JSON file.
-        try JSONEncoder().encode(next).write(to: path, options: .atomic)
+        try JSONEncoder().encode(StoredPageState(scope: established, rows: next)).write(to: path, options: .atomic)
         print("page:\(receipt.nextPosition):\(receipt.records.count)", to: &report)
     } catch RecordHeadReadError.unavailableChannel where mode == "interrupt" {
         print("interrupted", to: &report)

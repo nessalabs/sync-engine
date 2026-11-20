@@ -141,20 +141,22 @@ private let pageRequest = RecordPageRequest(after: 20, target: 23, maxRecords: 3
     maxPayloadBytes: 5000, maxRecordBytes: 4096)
 private let pageScopeBytes = fixtureScope.flatMap { [UInt8($0.utf8.count)] + Array($0.utf8) }
 
-private func pageBody(ids: [String], payload: [UInt8], target: UInt64 = 23) -> [UInt8] {
+private func pageBody(
+    ids: [String], payload: [UInt8], target: UInt64 = 23, scope: [UInt8] = pageScopeBytes
+) -> [UInt8] {
     var data = be(UInt16(1))
     data.append(contentsOf: be(UInt64(23)))
     data.append(contentsOf: be(UInt64(0)))
     data.append(contentsOf: be(UInt64(0)))
     data.append(0)
-    data.append(contentsOf: pageScopeBytes)
+    data.append(contentsOf: scope)
     for field in [UInt64(20), target, 3, 5000, 4096] { data.append(contentsOf: be(field)) }
     data.append(UInt8(ids.count))
     for (idx, id) in ids.enumerated() {
         data.append(contentsOf: be(UInt64(21 + idx)))
         data.append(UInt8(id.utf8.count))
         data.append(contentsOf: id.utf8)
-        data.append(contentsOf: pageScopeBytes)
+        data.append(contentsOf: scope)
         let record = idx == 0 ? payload : []
         data.append(contentsOf: be(UInt32(record.count)))
         data.append(contentsOf: record)
@@ -183,12 +185,34 @@ private func pageFrames(_ bytes: [UInt8]) -> [UInt8] {
     return result
 }
 
-private func pageClient(_ channel: FixtureChannel) throws -> BoundRecordClient<FixtureChannel> {
+private func pageClient(
+    _ channel: FixtureChannel, fields: [String] = fixtureScope
+) throws -> BoundRecordClient<FixtureChannel> {
     try .init(channel: channel, session: 1, handle: 1, generation: 1, lastRequest: 1,
-        frameBodyLimit: 2048, scopeFields: fixtureScope, recordByteLimit: 524_288)
+        frameBodyLimit: 2048, scopeFields: fields, recordByteLimit: 524_288)
 }
 
 struct BoundRecordPageTests {
+    @Test func sameCursorCannotConfuseDistinctLogicalScopes() throws {
+        let a = FixtureChannel()
+        let b = FixtureChannel()
+        let left = try pageClient(a, fields: Array(fixtureScope.dropLast()) + ["e\u{301}"])
+        let right = try pageClient(b, fields: Array(fixtureScope.dropLast()) + ["é"])
+        let leftBytes = left.boundScope.canonicalBytes
+        let rightBytes = right.boundScope.canonicalBytes
+        a.input = pageFrames(pageBody(ids: ["id"], payload: [], scope: leftBytes))
+        b.input = pageFrames(pageBody(ids: ["id"], payload: [], scope: rightBytes))
+        let receiptA = try left.readPage(pageRequest)
+        let receiptB = try right.readPage(pageRequest)
+        let sameLeftScope = try pageClient(FixtureChannel(), fields: Array(fixtureScope.dropLast()) + ["e\u{301}"])
+        let owningScope = sameLeftScope.boundScope
+        let checkpoint = pageRequest.after
+        #expect(receiptA.request == receiptB.request)
+        #expect(receiptA.nextPosition == receiptB.nextPosition)
+        #expect(receiptA.scope == owningScope && receiptA.request.after == checkpoint)
+        #expect(!(receiptB.scope == owningScope && receiptB.request.after == checkpoint))
+    }
+
     @Test func reconstructsFragmentedPageAndRetainsExactIDs() throws {
         let channel = FixtureChannel()
         let bulk = [UInt8](repeating: 112, count: 4096)

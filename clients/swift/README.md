@@ -21,8 +21,9 @@ Its caller selects the explicit endpoint and owns authentication, Open/Bound
 validation, absolute I/O deadlines and exclusive channel transfer. The client
 does not retry or probe alternate endpoints. A successful Head is advisory
 metadata. A complete Page is a validated receipt, not a grant or committed
-checkpoint. The caller owns exact-scope storage and atomic compare-and-apply,
-including duplicate IDs from earlier pages. The client rejects duplicate IDs
+checkpoint. The receipt carries its byte-exact logical scope, excluding
+transient channel numbers. The caller must atomically compare the receipt's
+scope and previous cursor in its store, and reject IDs from earlier pages. The client rejects duplicate IDs
 within its page; it does not own persisted records.
 No deployed Nessa gateway, Nessa iOS or phone participates in these tests.
 

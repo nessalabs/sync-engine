@@ -27,6 +27,29 @@ public enum RecordHeadReadError: Error, Equatable, Sendable {
     case incompatible(RecordCapabilityError)
 }
 
+/// Logical identity of a Rust record scope, independent of the socket session,
+/// request number, handle and generation.
+public struct RecordScopeIdentity: Hashable, Sendable {
+    /// Exact length-prefixed UTF-8 fields in receiver, origin, stream,
+    /// incarnation, schema, access-epoch order. Suitable for equality and
+    /// persistence as an opaque key; do not normalize or reorder the bytes.
+    public let canonicalBytes: [UInt8]
+
+    init(validatingFields fields: [String]) throws(RecordHeadReadError) {
+        guard fields.count == 6 else { throw .invalidBinding }
+        var encoded: [UInt8] = []
+        for field in fields {
+            let utf8 = field.utf8
+            guard utf8.count <= 128, !field.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }) else {
+                throw .invalidBinding
+            }
+            encoded.append(UInt8(utf8.count))
+            encoded.append(contentsOf: utf8)
+        }
+        canonicalBytes = encoded
+    }
+}
+
 /// Owns request numbering on one serialized, already-bound NSR1 v1 channel.
 /// The host must verify the explicit peer dialect, authentication, Open/Bound
 /// exchange and exact scope before transferring exclusive channel ownership.
@@ -42,7 +65,8 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     private let handle: UInt32
     private let generation: UInt64
     private let limit: Int
-    let scope: [UInt8]
+    public let boundScope: RecordScopeIdentity
+    var scope: [UInt8] { boundScope.canonicalBytes }
     let recordByteLimit: Int?
 
     public init(
@@ -51,20 +75,10 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     ) throws(RecordHeadReadError) {
         guard session != 0, handle != 0, generation != 0, lastRequest != 0,
             lastRequest != UInt64.max, (2_048...8_192).contains(frameBodyLimit),
-            scopeFields.count == 6,
             recordByteLimit.map({ (1...524_288).contains($0) }) ?? true
         else { throw .invalidBinding }
 
-        var encoded: [UInt8] = []
-        for field in scopeFields {
-            let utf8 = field.utf8
-            guard utf8.count <= 128, !field.unicodeScalars.allSatisfy({ $0.properties.isWhitespace }) else {
-                throw .invalidBinding
-            }
-            encoded.append(UInt8(utf8.count))
-            encoded.append(contentsOf: utf8)
-        }
-        self.scope = encoded
+        self.boundScope = try RecordScopeIdentity(validatingFields: scopeFields)
         self.channel = channel
         self.session = session
         self.handle = handle

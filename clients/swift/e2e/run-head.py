@@ -122,7 +122,7 @@ def run_pages(rust, swift, repetitions):
         state = root / "records.json"
         with server_fixture(rust, root, 0, 0) as port:
             for _ in range(repetitions):
-                state.write_text("[]")
+                state.write_text('{"rows":[]}')
                 for mode, expected in (("first", "page:2:2"), ("interrupt", "interrupted"),
                                         ("refuse", "oversized"), ("resume", "page:7:5")):
                     before = state.read_bytes()
@@ -130,7 +130,9 @@ def run_pages(rust, swift, repetitions):
                     require(output == [expected], output)
                     if mode in ("interrupt", "refuse"):
                         require(state.read_bytes() == before, "refusal advanced fixture storage")
-                rows = json.loads(state.read_bytes())
+                saved = json.loads(state.read_bytes())
+                require(base64.b64decode(saved["scope"]) == SCOPE_BYTES, "saved exact scope")
+                rows = saved["rows"]
                 require([r["position"] for r in rows] == list(range(1, 8)), "positions")
                 ids = [f"fact-{i}" for i in range(1, 7)] + ["bulk-fact"]
                 require([r["id"] for r in rows] == ids, "record identities")

@@ -24,10 +24,11 @@ public struct SyncRecord: Equatable, Sendable {
 }
 
 /// A fully validated read receipt, not a committed checkpoint or access grant.
-/// The host must bind storage to the same scope, then atomically compare the
-/// previous durable checkpoint and apply the complete receipt. Duplicate IDs
+/// The host must atomically compare this receipt's exact logical scope and
+/// previous durable checkpoint before applying the complete receipt. Duplicate IDs
 /// from earlier committed pages must also be rejected by that store.
 public struct RecordPageReceipt: Equatable, Sendable {
+    public let scope: RecordScopeIdentity
     public let request: RecordPageRequest
     public let records: [SyncRecord]
     public let nextPosition: UInt64
@@ -85,7 +86,7 @@ extension BoundRecordClient {
                 records.append(SyncRecord(position: position, idBytes: id, payload: payload))
             }
             guard cursor.remaining.isEmpty else { throw .malformedReply }
-            return RecordPageReceipt(request: page, records: records, nextPosition: previous)
+            return RecordPageReceipt(scope: boundScope, request: page, records: records, nextPosition: previous)
         } catch {
             if error == .malformedReply { close() }
             throw error
