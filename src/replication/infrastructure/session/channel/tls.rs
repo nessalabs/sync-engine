@@ -1,6 +1,7 @@
 //! Host-composed TLS 1.3 for the existing serialized channel. The trust
 //! store, exact peers and route are chosen by the host, not by wire metadata.
 use super::*;
+use crate::replication::artifacts::Sha256Digest;
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -149,6 +150,16 @@ impl ServerCertVerifier for PinnedServerVerifier {
 }
 
 impl TlsSessionIo {
+    // The policy principal comes from the admitted accept-side connection,
+    // never from request bytes or from a separately supplied peer identifier.
+    pub(in super::super) fn verified_client_leaf(&self) -> Option<Sha256Digest> {
+        let Stream::Server(stream) = &self.stream else {
+            return None;
+        };
+        let leaf = stream.conn.peer_certificates()?.first()?;
+        Some(Sha256Digest::of(leaf.as_ref()))
+    }
+
     /// Connect with standard server-chain and expected DNS/IP verification,
     /// the exact authorized server leaf, and a required local client identity.
     /// Existing socket read/write timeouts must be finite. An absolute handshake

@@ -40,6 +40,8 @@ enum Opening {
     ScopePair,
     ScopePairBatch,
 }
+#[cfg(feature = "tls")]
+pub(super) mod artifact;
 pub(super) mod capabilities;
 #[cfg(all(feature = "tls", feature = "sqlite"))]
 pub(super) mod epoch;
@@ -1091,6 +1093,10 @@ where
     )
 }
 fn data_operation(kind: u8) -> bool {
+    #[cfg(feature = "tls")]
+    if kind == artifact::MANIFEST {
+        return true;
+    }
     matches!(kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE) || capability_operation(kind)
 }
 fn capability_operation(kind: u8) -> bool {
@@ -1114,13 +1120,47 @@ impl<R> CapabilityRoutes<R> {
 }
 type BoundHook<'a> =
     Option<&'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>>;
+struct BoundHooks<'a> {
+    follow: BoundHook<'a>,
+    #[cfg(feature = "tls")]
+    artifact: Option<artifact::ServerRead<'a>>,
+}
 fn serve_bound<S, A, F, R>(
     stream: &mut S,
     session: u64,
     supported: SessionLimits,
     policy: &mut A,
+    open_source: F,
+    hook: BoundHook<'_>,
+    routes: CapabilityRoutes<R>,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordSource,
+{
+    serve_bound_with_hooks(
+        stream,
+        session,
+        supported,
+        policy,
+        open_source,
+        BoundHooks {
+            follow: hook,
+            #[cfg(feature = "tls")]
+            artifact: None,
+        },
+        routes,
+    )
+}
+fn serve_bound_with_hooks<S, A, F, R>(
+    stream: &mut S,
+    session: u64,
+    supported: SessionLimits,
+    policy: &mut A,
     mut open_source: F,
-    mut hook: BoundHook<'_>,
+    mut hooks: BoundHooks<'_>,
     routes: CapabilityRoutes<R>,
 ) -> Result<(), RecordSessionError>
 where
@@ -1157,7 +1197,7 @@ where
                 limits,
                 request,
                 scope,
-            } if hook.is_some() => (limits, Some((request, scope)), true),
+            } if hooks.follow.is_some() => (limits, Some((request, scope)), true),
             _ => return Err(RecordSessionError::Protocol),
         };
     let selected = SessionLimits {
@@ -1199,7 +1239,11 @@ where
         return Ok(());
     }
     if following {
-        hook.as_mut().ok_or(RecordSessionError::Protocol)?(correlation, scope.clone(), limit)?;
+        hooks.follow.as_mut().ok_or(RecordSessionError::Protocol)?(
+            correlation,
+            scope.clone(),
+            limit,
+        )?;
     }
     let secondary = if routes.scope_pair {
         scope_pair::bind_secondary(stream, correlation, &scope, policy, &mut open_source, limit)?
@@ -1249,6 +1293,15 @@ where
             return Err(RecordSessionError::Protocol);
         }
         last = request.meta.request;
+        #[cfg(feature = "tls")]
+        if request.kind == artifact::MANIFEST {
+            let route = hooks
+                .artifact
+                .as_mut()
+                .ok_or(RecordSessionError::Protocol)?;
+            artifact::respond(route, stream, &request, scope, policy, limit)?;
+            continue;
+        }
         let current = access_code(policy.authorize(scope), scope);
         if capability_operation(request.kind) {
             let result = if current != 0 {

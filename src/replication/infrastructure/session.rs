@@ -465,3 +465,8 @@ pub use records::epoch::{
     serve_epoch_record_session, EpochRecordSession, EpochSessionAdmission, EpochSessionBinding,
     EpochSessionError, VerifiedEpochHead, VerifiedEpochPage,
 };
+
+#[cfg(feature = "tls")]
+pub use records::artifact::{
+    serve_tls_artifact_manifest_session, ArtifactManifestAccess, ArtifactManifestSessionSource,
+};
