@@ -86,3 +86,38 @@ the loopback server checks the development credential and exact scope before
 each manifest and chunk read. A production adapter needs authenticated policy
 and transport at that boundary. This is a cache, not an independently
 restorable backup.
+
+## Optional weak-link measurement
+
+Run `python3 scripts/verify-artifact-transfer.py --weak-link` for a matched
+unshaped and 32 kbit/s / 0.8 s RTT comparison. Both runs use the same source
+and receiver binaries, disposable fixture databases and a real IPv4 loopback
+connection through an application-frame proxy. An 8 KiB lab request budget
+splits the 16,401-byte patterned fixture into three committed ranges. This is a
+measurement configuration, not a change to the adapter's maximum.
+
+The first range commits. The proxy forwards half the second response's payload
+and closes the connection. A new process checks that the cache still holds
+offset 8,192 without visible bytes. The receiver requests the same offset after
+restart. One quarter into that resumed range, the proxy signals the harness to
+issue an urgent record-head request on a separate connection. The matched
+measurement does not pause bulk forwarding. It reports whether the actual head
+request and reply crossed before the last bulk byte; an unshaped range can
+finish before the head arrives. The head-only control uses the same route
+without a bulk transfer. A final short range completes the file; a fresh
+process confirms the visible byte count and SHA-256. The proxy checks all four
+wire response offsets and lengths, including the repeated offset, and reports
+forwarded application bytes independently of the committed payload counter.
+
+The default CI lab runs a separate shaped correctness mode. It waits for head
+ingress at the trigger, and withholds the last bulk block until the head reply
+has forwarded. This proves the head can progress with a stalled bulk response,
+without depending on elapsed timings. It does not prove natural scheduling
+or priority. Run `--weak-link` for the ungated timings only.
+
+The shaper buffers a bounded application frame from the source, adds half the
+configured RTT in each direction, and shares the modeled downlink between the
+two connections in 256-byte quanta. It does not simulate TCP congestion
+control, packet loss, TLS, radio, billing or a deployed relay. Times include
+local process startup and scheduling; they are observations, not CI speed
+thresholds, single-connection head-of-line evidence, or a production guarantee.
