@@ -32,9 +32,10 @@ is unchanged. The producer cannot be used as the bare `RecordHeadSource`
 trait and does not return its owned ordinary source handle.
 
 This document qualifies the producer's head results. See the separate
-[forward page contract](origin-epoch-native-forward.md). Neither contract
-protects an ordinary source file or gates other handles, appends, tail snapshots,
-catalogue responses or transport. Independent ledgers, arbitrary mappings,
+[forward page contract](origin-epoch-native-forward.md) and
+[tail snapshot contract](origin-epoch-native-tail.md). These do not protect
+an ordinary source file or gate other handles, appends, older pages, catalogue
+responses or transport. Independent ledgers, arbitrary mappings,
 remote filesystems, and authority restored with source data are not covered.
 The lab does not inject an uncertain commit or demonstrate physical crash
 durability or Nessa/Swift adoption.

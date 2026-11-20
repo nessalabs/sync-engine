@@ -1,11 +1,16 @@
-//! Claim-qualified local head and forward-page capture. Source writer and wire are unchanged.
+//! Claim-qualified local head, forward-page and tail capture. Source writer and wire are unchanged.
 
 use super::super::origin_authority::{OriginClaimError, SqliteOriginAuthority};
 use super::{
     RecordHeadSource, RecordSource, Scope, SourceError, SourceHead, SqliteReferenceSource,
 };
 use crate::replication::domain::{
-    validate_page, Checkpoint, CommitPlan, Limits, Page, PageRequest, ValidationError,
+    validate_page, CapabilitySupport, Checkpoint, CommitPlan, Limits, Page, PageRequest,
+    ValidationError,
+};
+use crate::replication::history::{
+    validate_tail, validate_tail_request, CapabilityHistorySource, HistorySourceError,
+    HistoryValidationError, TailPlan, TailRequest, TailSnapshot,
 };
 use crate::replication::origin_epoch::{OriginAuthorityKey, OriginEpoch};
 
@@ -83,6 +88,54 @@ impl ClaimedNativePlan {
     }
 }
 
+/// One opaque native tail snapshot and metadata captured under a confirmed claim.
+pub struct ClaimedNativeTail {
+    stamp: Stamp,
+    metadata: SourceHead,
+    snapshot: TailSnapshot,
+}
+
+impl ClaimedNativeTail {
+    /// Validate the exact request, snapshot bounds and metadata from the same
+    /// capture. This does not independently authenticate requester access or
+    /// advance the receiver's observed epoch.
+    pub fn validate(
+        self,
+        request: &TailRequest,
+        limits: Limits,
+    ) -> Result<ClaimedNativeTailPlan, HistoryValidationError> {
+        if self.metadata.scope() != &request.scope {
+            return Err(HistoryValidationError::WrongRequest);
+        }
+        if self.metadata.position() != self.snapshot.watermark {
+            return Err(HistoryValidationError::InvalidBoundary);
+        }
+        let plan = validate_tail(request, self.snapshot, limits)?;
+        Ok(ClaimedNativeTailPlan {
+            stamp: self.stamp,
+            plan,
+        })
+    }
+}
+
+/// One exact validated tail operation, retaining its original writer claim.
+pub struct ClaimedNativeTailPlan {
+    stamp: Stamp,
+    plan: TailPlan,
+}
+
+impl ClaimedNativeTailPlan {
+    /// Borrow the validated exact request for trusted host admission.
+    pub fn request(&self) -> &TailRequest {
+        &self.plan.snapshot().request
+    }
+
+    /// Extract the immutable claim and exact tail plan for the trusted host.
+    pub fn into_parts(self) -> (OriginAuthorityKey, OriginEpoch, TailPlan) {
+        (self.stamp.key, self.stamp.epoch, self.plan)
+    }
+}
+
 /// Refusal from a claim-qualified native source capture.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EpochSourceError {
@@ -90,17 +143,21 @@ pub enum EpochSourceError {
     Authority(OriginClaimError),
     /// The ordinary source declined the exact request or its local read.
     Source(SourceError),
+    /// The ordinary native tail route refused scope, compatibility or storage.
+    History(HistorySourceError),
+    /// The requested tail generation or bounds are not admissible.
+    TailRequest(HistoryValidationError),
 }
 
 /// Compatibility name for head capture refusals.
 pub type EpochHeadError = EpochSourceError;
 
-/// Local claim-qualified head and forward-page producer over an ordinary source.
+/// Local claim-qualified head, forward-page and tail producer over an ordinary source.
 ///
 /// The caller gives this mode an existing source handle and trusted shared
 /// authority ledger. It does not expose the owned handle or implement legacy
 /// `RecordHeadSource`. This is a protected **result producer**, not a protected
-/// source file mode: ordinary handles, appends and snapshots remain unchanged
+/// source file mode: ordinary handles, appends and older pages remain unchanged
 /// and produce no claim-qualified result.
 ///
 /// A producer cannot be substituted for a legacy bare-head reader:
@@ -152,7 +209,8 @@ impl SqliteEpochRecordSource {
     /// with later claim changes. The lock is released before returning, so an
     /// already captured value can still be delayed beyond a later handoff.
     pub fn capture_head(&mut self, scope: &Scope) -> Result<ClaimedNativeHead, EpochHeadError> {
-        let head = self.capture(|source| source.source_head(scope))?;
+        let head =
+            self.capture(|source| source.source_head(scope).map_err(EpochSourceError::Source))?;
         Ok(ClaimedNativeHead {
             stamp: self.stamp.clone(),
             head,
@@ -168,21 +226,43 @@ impl SqliteEpochRecordSource {
         &mut self,
         request: &PageRequest,
     ) -> Result<ClaimedNativePage, EpochSourceError> {
-        let page = self.capture(|source| source.page(request))?;
+        let page = self.capture(|source| source.page(request).map_err(EpochSourceError::Source))?;
         Ok(ClaimedNativePage {
             stamp: self.stamp.clone(),
             page,
         })
     }
 
+    /// Capture one bounded native tail and its coherent metadata under the claim.
+    ///
+    /// Validate the requested operation before acquiring the claim guard. The
+    /// native source checks fresh reader compatibility in the tail snapshot;
+    /// the guard is released before returning any opaque value.
+    pub fn capture_tail(
+        &mut self,
+        request: &TailRequest,
+        limits: Limits,
+    ) -> Result<ClaimedNativeTail, EpochSourceError> {
+        validate_tail_request(request, limits).map_err(EpochSourceError::TailRequest)?;
+        let (metadata, snapshot) = self.capture(|source| {
+            source
+                .tail_with_capabilities(request, CapabilitySupport::current())
+                .map_err(EpochSourceError::History)
+        })?;
+        Ok(ClaimedNativeTail {
+            stamp: self.stamp.clone(),
+            metadata,
+            snapshot,
+        })
+    }
+
     fn capture<T>(
         &mut self,
-        read: impl FnOnce(&mut SqliteReferenceSource) -> Result<T, SourceError>,
+        read: impl FnOnce(&mut SqliteReferenceSource) -> Result<T, EpochSourceError>,
     ) -> Result<T, EpochSourceError> {
         let source = &mut self.source;
         self.authority
             .with_current_claim(&self.stamp.key, self.stamp.epoch, || read(source))
             .map_err(EpochSourceError::Authority)?
-            .map_err(EpochSourceError::Source)
     }
 }
