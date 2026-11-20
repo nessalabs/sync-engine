@@ -90,6 +90,36 @@ Tail and Older apply through the same owner and reopen with coverage
 Head does not authorize its installation.
 
 No raw or generic protected transport constructor, legacy fallback,
-catalogue/artifact traffic, secure relay
-qualification for this mode, source writes, separate-host restore, Nessa
-or Swift integration is introduced.
+catalogue/artifact traffic, deployed relay registration, source writes,
+separate-host restore, Nessa or Swift integration is introduced.
+
+### Standalone process and relay qualification
+
+```sh
+cargo test --locked --features tls,sqlite --test session_tls protected_epoch_handoff_across_processes -- --nocapture
+```
+
+Two separate writer processes independently open separate, compatible
+source database files and claim through one host-controlled SQLite ledger
+outside both source directories. The controller binds each confirmed
+epoch to a distinct expected TLS leaf. The predecessor is still alive with
+a parked Head when the replacement CAS succeeds. Its guarded Head is
+refused, and already-verified predecessor Head, Page, Tail and Older all
+return typed `Fenced` after observing the replacement Head. Neither active
+cursor, retained generation and coverage, nor row contents change. Fresh
+receiver processes open the same durable file and verify the persisted
+epoch-2 floor and selected retained window before apply and verify the
+selected generation-2 coverage, checkpoint and payload afterward. The
+driver deliberately retains opaque predecessor results in memory and
+reopens its store for the stale checks; the test does not persist or
+reconstruct admitted results across processes.
+
+The replacement uses the existing opaque byte-forwarding relay fixture
+for all four operations: operational TLS endpoints still independently
+authenticate exact preconfigured leaves, while the relay only copies
+encrypted bytes. No relay registration, credential issuance, physical
+restore, or cross-host claim deployment is simulated. This one-host
+fixture qualifies the conditional engine guarantee for stood-up writers
+sharing an independent trusted authority. Provisioning identities, shared
+authority, and real restored gateways in deployment belongs to
+[Nessa adoption #1378](https://github.com/nessalabs/nessa-agent/issues/1378).
