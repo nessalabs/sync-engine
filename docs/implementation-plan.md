@@ -44,7 +44,9 @@ production transport work still tracked by #54.
 
 [Capability follow prerequisite](design/capability-follow.md) now composes the
 existing capability read codec and freshness owner on the sole follow connection;
-policy-triggered live-read qualification remains pending.
+[Live-policy qualification](design/live-freshness.md) now retains one scope owner
+across replaceable channels and compares Never/Always/Within cached reads, with
+actual interruption, retry, grouped hints and durable uncertainty contracts.
 
 [Record freshness #52](design/freshness.md) now has an opt-in per-scope owner with
 an injected clock, local-only Within reads, finite-pass coordination and one
