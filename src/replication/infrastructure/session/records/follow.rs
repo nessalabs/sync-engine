@@ -13,6 +13,8 @@ use std::sync::Condvar;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+const MIN_FRAME_BODY: usize = 7; // NSC1 magic, version and kind.
+
 /// Terminal follow failure. It never supplies authority or resets cached state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FollowError {
@@ -174,6 +176,9 @@ impl Shared {
                 offset: 0,
             }
         };
+        if !bytes.is_empty() {
+            return Err(FollowError::Protocol);
+        }
         s.rpc = Some(Rpc {
             expected,
             deadline: Instant::now() + timeout,
@@ -341,7 +346,7 @@ pub struct FollowIo<W: Write> {
     shared: Arc<Shared>,
     current: Cursor<Vec<u8>>,
     deadline: Duration,
-    tx_remaining: usize,
+    deferred_write_error: Option<io::Error>,
 }
 impl<W: Write> Read for FollowIo<W> {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
@@ -391,47 +396,64 @@ impl<W: Write> Read for FollowIo<W> {
 }
 impl<W: Write> Write for FollowIo<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        if let Some(error) = self.deferred_write_error.take() {
+            return Err(error);
+        }
         if self.shared.error().is_some() {
             return Err(io::ErrorKind::NotConnected.into());
         }
-        if self.tx_remaining == 0 {
-            if self.current.position() as usize != self.current.get_ref().len() {
-                let _ = self.shared.fail(FollowError::Protocol);
-                return Err(io::ErrorKind::InvalidData.into());
-            }
-            if let Err(e) = self.shared.admit(bytes, self.deadline) {
-                let _ = self.shared.fail(e);
-                return Err(io::ErrorKind::InvalidData.into());
-            }
-            self.tx_remaining = bytes.len();
-        } else if bytes.len() != self.tx_remaining {
+        if self.current.position() as usize != self.current.get_ref().len() {
             let _ = self.shared.fail(FollowError::Protocol);
             return Err(io::ErrorKind::InvalidData.into());
         }
-        let n = match self.writer.write(bytes) {
-            Ok(0) => {
-                let _ = self.shared.fail(FollowError::Unavailable);
-                return Err(io::ErrorKind::WriteZero.into());
-            }
-            Ok(n) => n,
-            Err(e) => {
-                if e.kind() != io::ErrorKind::Interrupted {
-                    let _ = self.shared.fail(FollowError::Unavailable);
-                }
-                return Err(e);
-            }
-        };
-        self.tx_remaining -= n;
-        if let Ok(mut s) = self.shared.state.lock() {
-            s.tx += n as u64;
+        // Both Wire encoders supply a single complete buffer to write_all.
+        // Its first Write::write is the whole frame; short physical writes
+        // are completed here, rather than handing the frame back to Wire.
+        if let Err(error) = self.shared.admit(bytes, self.deadline) {
+            let _ = self.shared.fail(error);
+            return Err(io::ErrorKind::InvalidData.into());
         }
-        Ok(n)
+
+        let mut accepted = 0;
+        let result = (|| {
+            while accepted < bytes.len() {
+                match self.writer.write(&bytes[accepted..]) {
+                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                    Ok(written) => accepted += written,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+            self.writer.flush()
+        })();
+        if let Ok(mut state) = self.shared.state.lock() {
+            state.tx += accepted as u64;
+        }
+        if let Err(error) = result {
+            // Do not publish a reply or admit another frame after an
+            // ambiguous write/flush. Write::write must first report any real
+            // accepted prefix; Wire gets the original error on retry/flush.
+            let _ = self.shared.fail(FollowError::Unavailable);
+            if accepted == 0 {
+                return Err(error);
+            }
+            self.deferred_write_error = Some(error);
+        }
+        Ok(accepted)
     }
+
     fn flush(&mut self) -> io::Result<()> {
+        if let Some(error) = self.deferred_write_error.take() {
+            return Err(error);
+        }
         if self.shared.error().is_some() {
             return Err(io::ErrorKind::NotConnected.into());
         }
-        self.writer.flush()
+        // A complete write transaction already flushed the physical writer.
+        Ok(())
     }
 }
 impl<W: Write> InterruptibleSessionIo for FollowIo<W> {
@@ -497,7 +519,7 @@ fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: imp
                 .map_err(|_| FollowError::Unavailable)?;
             let len = u32::from_be_bytes(prefix) as usize;
             let limit = shared.state.lock().map_err(|_| FollowError::Closed)?.limit;
-            if len < 7 || len > limit {
+            if len < MIN_FRAME_BODY || len > limit {
                 return Err(FollowError::Protocol);
             }
             let mut frame = Vec::with_capacity(len + 4);
@@ -889,7 +911,7 @@ pub fn connect_follow<D: DuplexSessionIo>(
         shared: shared.clone(),
         current: Cursor::new(Vec::new()),
         deadline: reply_deadline,
-        tx_remaining: 0,
+        deferred_write_error: None,
     };
     let interrupt = facade.interrupt_handle();
     let inner =
@@ -1067,8 +1089,41 @@ impl<R: Read, W> Read for ServerIo<R, W> {
         self.reader.read(b)
     }
 }
+// Called under the existing complete-frame writer lock. A failed data or
+// hint send must fence the other producer before relinquishing that lock.
+fn fence_failed_frame<T, E>(
+    stop: &AtomicBool,
+    send: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let result = send();
+    if result.is_err() {
+        stop.store(true, Ordering::Release);
+    }
+    result
+}
+
 impl<R, W: Write> Write for ServerIo<R, W> {
-    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        // This facade is only fed by the complete-frame codecs, not a byte
+        // stream. Reject a partial-write API call before emitting anything.
+        Err(io::ErrorKind::InvalidInput.into())
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let prefix: [u8; 4] = bytes
+            .get(..4)
+            .and_then(|prefix| prefix.try_into().ok())
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        let length = u32::from_be_bytes(prefix) as usize;
+        if !(MIN_FRAME_BODY..=MAX_CONTROL_BYTES).contains(&length) || bytes.len() != 4 + length {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
         let mut w = self
             .writer
             .lock()
@@ -1076,26 +1131,18 @@ impl<R, W: Write> Write for ServerIo<R, W> {
         if self.stop.load(Ordering::Acquire) {
             return Err(io::ErrorKind::NotConnected.into());
         }
-        (self.admit)(&mut *w)?;
-        w.write(b)
+        fence_failed_frame(&self.stop, || {
+            (self.admit)(&mut *w)?;
+            w.write_all(bytes)?;
+            w.flush()
+        })
     }
-    fn write_all(&mut self, b: &[u8]) -> io::Result<()> {
-        let mut w = self
-            .writer
-            .lock()
-            .map_err(|_| io::ErrorKind::NotConnected)?;
-        if self.stop.load(Ordering::Acquire) {
-            return Err(io::ErrorKind::NotConnected.into());
-        }
-        (self.admit)(&mut *w)?;
-        w.write_all(b)?;
-        w.flush()
-    }
+
     fn flush(&mut self) -> io::Result<()> {
-        self.writer
-            .lock()
-            .map_err(|_| io::ErrorKind::NotConnected)?
-            .flush()
+        // write_all already flushed its frame. An independent later hint
+        // failure cannot change that completed write's receipt. The next
+        // read or write still checks the shared terminal fence.
+        Ok(())
     }
 }
 fn emit<A, F, R, W>(
@@ -1141,19 +1188,22 @@ where
         }
         Err(code) => (code, Vec::new()),
     };
-    write_packet(
-        &mut *w,
-        &Packet {
-            kind: HINT,
-            status,
-            meta,
-            total: payload.len(),
-            offset: 0,
-            payload: payload.clone(),
-        },
-        limit,
-    )?;
-    w.flush()?;
+    fence_failed_frame(stop, || -> Result<(), RecordSessionError> {
+        write_packet(
+            &mut *w,
+            &Packet {
+                kind: HINT,
+                status,
+                meta,
+                total: payload.len(),
+                offset: 0,
+                payload: payload.clone(),
+            },
+            limit,
+        )?;
+        w.flush()?;
+        Ok(())
+    })?;
     if status != 0 {
         stop.store(true, Ordering::Release);
         return Err(RecordSessionError::Source(decode_source_error(status)));
@@ -1371,13 +1421,17 @@ where
 }
 
 #[cfg(test)]
+#[path = "follow/egress_tests.rs"]
+mod egress_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::replication::domain::Id;
     use crate::replication::infrastructure::session::{SessionLifecycle, TcpSessionIo};
     use std::net::{Ipv4Addr, TcpListener, TcpStream};
 
-    fn identity() -> ScopeIdentity {
+    pub(super) fn identity() -> ScopeIdentity {
         let id = || Id::new("owned-fixture").unwrap();
         let scope = Scope::new(id(), id(), id(), id(), id(), id());
         let limits = SessionLimits {
@@ -1412,7 +1466,7 @@ mod tests {
             )
             .unwrap()
     }
-    fn fixture() -> (Arc<Shared>, TcpStream, JoinHandle<()>) {
+    pub(super) fn fixture() -> (Arc<Shared>, TcpStream, JoinHandle<()>) {
         fixture_with_interrupt(None)
     }
     fn fixture_with_interrupt(
@@ -1455,7 +1509,7 @@ mod tests {
         let task = thread::spawn(move || reader_frames(reader_io, held, before_publish));
         (shared, peer, task)
     }
-    fn packet(kind: u8, payload: Vec<u8>, total: usize, offset: usize) -> Packet {
+    pub(super) fn packet(kind: u8, payload: Vec<u8>, total: usize, offset: usize) -> Packet {
         Packet {
             kind,
             status: 0,
@@ -1465,12 +1519,12 @@ mod tests {
             payload,
         }
     }
-    fn bytes(p: &Packet) -> Vec<u8> {
+    pub(super) fn bytes(p: &Packet) -> Vec<u8> {
         let mut b = Vec::new();
         write_packet(&mut b, p, 2048).unwrap();
         b
     }
-    fn hint() -> Packet {
+    pub(super) fn hint() -> Packet {
         Packet {
             meta: Meta::for_scope(&identity(), FIRST_REQUEST),
             ..packet(HINT, 9_u64.to_be_bytes().to_vec(), 8, 0)
@@ -1528,7 +1582,7 @@ mod tests {
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_secs(1),
-            tx_remaining: 0,
+            deferred_write_error: None,
         };
         let mut received = vec![0; first.len() + last.len()];
         facade.read_exact(&mut received).unwrap();
@@ -1551,7 +1605,7 @@ mod tests {
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_millis(100),
-            tx_remaining: 0,
+            deferred_write_error: None,
         };
         facade
             .write_all(&bytes(&packet(HEAD, vec![1], 1, 0)))
@@ -1650,7 +1704,7 @@ mod tests {
             let (entered, queued) = std::sync::mpsc::channel();
             let task = thread::spawn(move || {
                 entered.send(()).unwrap();
-                io.write_all(b"staged record bytes")
+                io.write_all(&bytes(&packet(PAGE | REPLY, vec![1], 1, 0)))
             });
             queued.recv_timeout(Duration::from_secs(1)).unwrap();
             policy.store(mode, Ordering::SeqCst);
@@ -1734,7 +1788,7 @@ mod tests {
             shared: shared.clone(),
             current: Cursor::new(Vec::new()),
             deadline: Duration::from_secs(1),
-            tx_remaining: 0,
+            deferred_write_error: None,
         };
         let interrupt = facade.interrupt_handle();
         let gate = OwnerGate {
@@ -1980,7 +2034,7 @@ mod tests {
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(1),
-                tx_remaining: 0,
+                deferred_write_error: None,
             };
             write_control(
                 &mut facade,
@@ -2084,7 +2138,7 @@ mod tests {
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_millis(100),
-                tx_remaining: 0,
+                deferred_write_error: None,
             };
             write_control(
                 &mut facade,
@@ -2127,7 +2181,7 @@ mod tests {
                 shared: owned,
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(1),
-                tx_remaining: 0,
+                deferred_write_error: None,
             };
             started.send(()).unwrap();
             io.read(&mut [0; 1])
@@ -2258,7 +2312,7 @@ mod tests {
                 shared: shared.clone(),
                 current: Cursor::new(Vec::new()),
                 deadline: Duration::from_secs(2),
-                tx_remaining: 0,
+                deferred_write_error: None,
             };
             facade
                 .write_all(&bytes(&packet(capabilities::HEAD_CAP, vec![1], 1, 0)))
