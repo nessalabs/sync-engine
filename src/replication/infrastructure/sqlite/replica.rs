@@ -16,6 +16,9 @@ use super::{
     MAX_STORED_ID_BYTES, REPLICA_APPLICATION_ID,
 };
 
+mod epoch;
+pub use epoch::{EpochBinding, EpochReplicaError, EpochReplicaOpenError, SqliteEpochReplicaStore};
+
 pub(super) const REPLICA_RECORD_METADATA_SQL: &str = "SELECT position, octet_length(record_id) <= ?7, length(payload) FROM replica_records WHERE receiver = ?1 AND origin = ?2 AND stream = ?3 AND position > ?4 AND position <= ?5 ORDER BY position LIMIT ?6";
 
 const MAX_READ_RECORDS: usize = 256;
@@ -224,57 +227,64 @@ impl ReplicaStore for SqliteReplicaStore {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| StoreError::Failed)?;
-        let scope = plan.expected().scope();
-        let saved = saved_checkpoint(&tx, scope)?;
-        let current = saved.unwrap_or_else(|| Checkpoint::new(scope.clone(), 0));
-        if current.scope() != scope {
-            return Err(StoreError::ScopeMismatch {
-                saved: Box::new(current.scope().clone()),
-                requested: Box::new(scope.clone()),
-            });
+        if stage_plan(&tx, &plan)? {
+            tx.commit().map_err(|_| StoreError::Uncertain)?;
         }
-        if current.position() >= plan.next().position() {
-            if exact_saved_slice(&tx, &plan)? {
-                return Ok(());
-            }
-            if has_conflicting_id(&tx, &plan)? {
-                return Err(StoreError::ConflictingRecord);
-            }
-            return Err(StoreError::Stale);
+        Ok(())
+    }
+}
+
+fn stage_plan(tx: &rusqlite::Transaction<'_>, plan: &CommitPlan) -> Result<bool, StoreError> {
+    let scope = plan.expected().scope();
+    let saved = saved_checkpoint(tx, scope)?;
+    let current = saved.unwrap_or_else(|| Checkpoint::new(scope.clone(), 0));
+    if current.scope() != scope {
+        return Err(StoreError::ScopeMismatch {
+            saved: Box::new(current.scope().clone()),
+            requested: Box::new(scope.clone()),
+        });
+    }
+    if current.position() >= plan.next().position() {
+        if exact_saved_slice(tx, plan)? {
+            return Ok(false);
         }
-        if current != *plan.expected() {
-            return Err(StoreError::Stale);
-        }
-        if has_conflicting_id(&tx, &plan)? {
+        if has_conflicting_id(tx, plan)? {
             return Err(StoreError::ConflictingRecord);
         }
-        let next = i64::try_from(plan.next().position()).map_err(|_| StoreError::Failed)?;
-        if current.position() == 0 {
-            tx.execute(
-                "INSERT OR IGNORE INTO replica_streams (receiver, origin, stream, incarnation, schema_id, access_epoch, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
-                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str()],
-            )
-            .map_err(|_| StoreError::Failed)?;
-        }
-        for record in plan.records() {
-            let position = i64::try_from(record.position).map_err(|_| StoreError::Failed)?;
-            tx.execute(
-                "INSERT INTO replica_records (receiver, origin, stream, position, record_id, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), position, record.id.as_str(), record.payload],
-            )
-            .map_err(|_| StoreError::Failed)?;
-        }
-        let updated = tx
-            .execute(
-                "UPDATE replica_streams SET position = ?1 WHERE receiver = ?2 AND origin = ?3 AND stream = ?4 AND incarnation = ?5 AND schema_id = ?6 AND access_epoch = ?7 AND position = ?8",
-                params![next, scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), i64::try_from(plan.expected().position()).map_err(|_| StoreError::Failed)?],
-            )
-            .map_err(|_| StoreError::Failed)?;
-        if updated != 1 {
-            return Err(StoreError::Stale);
-        }
-        tx.commit().map_err(|_| StoreError::Uncertain)
+        return Err(StoreError::Stale);
     }
+    if current != *plan.expected() {
+        return Err(StoreError::Stale);
+    }
+    if has_conflicting_id(tx, plan)? {
+        return Err(StoreError::ConflictingRecord);
+    }
+    let next = i64::try_from(plan.next().position()).map_err(|_| StoreError::Failed)?;
+    if current.position() == 0 {
+        tx.execute(
+            "INSERT OR IGNORE INTO replica_streams (receiver, origin, stream, incarnation, schema_id, access_epoch, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str()],
+        )
+        .map_err(|_| StoreError::Failed)?;
+    }
+    for record in plan.records() {
+        let position = i64::try_from(record.position).map_err(|_| StoreError::Failed)?;
+        tx.execute(
+            "INSERT INTO replica_records (receiver, origin, stream, position, record_id, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), position, record.id.as_str(), record.payload],
+        )
+        .map_err(|_| StoreError::Failed)?;
+    }
+    let updated = tx
+        .execute(
+            "UPDATE replica_streams SET position = ?1 WHERE receiver = ?2 AND origin = ?3 AND stream = ?4 AND incarnation = ?5 AND schema_id = ?6 AND access_epoch = ?7 AND position = ?8",
+            params![next, scope.receiver().as_str(), scope.origin().as_str(), scope.stream().as_str(), scope.incarnation().as_str(), scope.schema().as_str(), scope.access_epoch().as_str(), i64::try_from(plan.expected().position()).map_err(|_| StoreError::Failed)?],
+        )
+        .map_err(|_| StoreError::Failed)?;
+    if updated != 1 {
+        return Err(StoreError::Stale);
+    }
+    Ok(true)
 }
 
 fn saved_checkpoint(conn: &Connection, scope: &Scope) -> Result<Option<Checkpoint>, StoreError> {
