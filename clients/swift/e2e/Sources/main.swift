@@ -46,6 +46,10 @@ private func read() throws {
         return
     }
     let client = try openFixture(scope: scope, interrupt: mode == "interrupt")
+    if mode == "overlap", arguments.count == 9, let release = Int32(arguments[8]) {
+        try overlap(client, release: release)
+        return
+    }
     if arguments.count == 9 {
         try page(client, mode: mode, path: URL(fileURLWithPath: arguments[8]))
         return
@@ -81,6 +85,34 @@ private func verifyDeniedOpen(scope: [String]) throws {
         return
     }
     throw RecordSessionOpenError.malformedControl
+}
+
+private func overlap(_ client: BoundRecordClient<FixtureStdio>, release: Int32) throws {
+    let gate = FileHandle(fileDescriptor: release, closeOnDealloc: true)
+    var report = Report()
+    print("bound", to: &report)
+    guard try gate.read(upToCount: 1) == Data([1])
+    else { throw CocoaError(.fileReadUnknown) }
+    let metadata = try client.readHead()
+    guard metadata.position == 7, metadata.writerRequirements == 0
+    else { throw RecordHeadReadError.malformedReply }
+    let first = try client.readPage(RecordPageRequest(after: 0, target: metadata.position,
+        maxRecords: 2, maxPayloadBytes: 8192, maxRecordBytes: 8192))
+    let last = try client.readPage(RecordPageRequest(after: first.nextPosition, target: metadata.position,
+        maxRecords: 64, maxPayloadBytes: 8192, maxRecordBytes: 8192))
+    let rows = first.records + last.records
+    let positions: [UInt64] = [1, 2, 3, 4, 5, 6, 7]
+    let ids = ["fact-1", "fact-2", "fact-3", "fact-4", "fact-5", "fact-6", "bulk-fact"]
+    var payloads = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"].map { Array($0.utf8) }
+    payloads.append([UInt8](repeating: 112, count: 4096))
+    let expectedIDs = ids.map { Array($0.utf8) }
+    let correctScopes = first.scope == client.boundScope && last.scope == client.boundScope
+    let correctPositions = rows.map(\.position) == positions
+    let correctContent = rows.map(\.idBytes) == expectedIDs && rows.map(\.payload) == payloads
+    guard correctScopes, first.nextPosition == 2, last.nextPosition == 7,
+        correctPositions, correctContent
+    else { throw RecordHeadReadError.malformedReply }
+    print("overlap:7", to: &report)
 }
 
 private struct StoredRecord: Codable {
