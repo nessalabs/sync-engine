@@ -122,7 +122,7 @@ fn populated_migration_preserves_current_values_creation_deletion_and_reopen() {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
 }
 #[test]
@@ -185,7 +185,7 @@ fn migration_identity_partial_future_and_rollback_never_default_requirements() {
     drop(source(&p));
     Connection::open(&p)
         .unwrap()
-        .pragma_update(None, "user_version", 3)
+        .pragma_update(None, "user_version", 4)
         .unwrap();
     assert!(matches!(
         SqliteCatalogueSource::open(
@@ -625,5 +625,228 @@ fn supported_newer_values_and_deletion_keep_captured_boundary_then_recheck() {
     assert_eq!(
         record.source_head(&selected).unwrap(),
         SourceHead::new(selected, 0, 0, 0)
+    );
+}
+
+// The future collected state is represented only by an owned storage fixture.
+// No public source operation can remove membership before horizon qualification.
+fn version_two(p: &Path) {
+    legacy(p);
+    Connection::open(p).unwrap().execute_batch("ALTER TABLE catalogue_source_meta ADD COLUMN metadata_version INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE catalogue_source_meta ADD COLUMN reader_required BLOB NOT NULL DEFAULT X'0000000000000000';
+        ALTER TABLE catalogue_source_meta ADD COLUMN writer_required BLOB NOT NULL DEFAULT X'0000000000000000';
+        PRAGMA user_version=2;").unwrap();
+}
+#[test]
+fn membership_migration_preserves_rows_publication_and_every_served_marker() {
+    let d = Folder::new();
+    for prior in [1, 2] {
+        let p = d.path(&format!("version-{prior}.db"));
+        if prior == 1 {
+            legacy(&p);
+        } else {
+            version_two(&p);
+        }
+        let db = Connection::open(&p).unwrap();
+        let rows = |db: &Connection| {
+            db.prepare("SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY entry_id").unwrap().query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,Vec<u8>>(4)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+        };
+        let before = rows(&db);
+        let mut s = source(&p);
+        assert_eq!(rows(&db), before);
+        assert_eq!(head(&mut s), SourceHead::new(scope(), 2, 0, 0));
+        let mut cache = SqliteCatalogueStore::open(d.path(&format!("cache-{prior}.db"))).unwrap();
+        let pass = begin(&mut s, &mut cache);
+        let page = s
+            .manifest(&ManifestRequest {
+                pass: pass.clone(),
+                max_entries: 10,
+            })
+            .unwrap();
+        assert_eq!(page.entries.len(), 2);
+        assert!(page.entries[1].deleted);
+        assert!(!page.has_more);
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM catalogue_source_entries WHERE manifest_visible=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            2
+        );
+        let plan: String = db.query_row("EXPLAIN QUERY PLAN SELECT entry_id FROM catalogue_source_entries WHERE manifest_visible=1 AND creation<=2 AND revision>0 ORDER BY creation,entry_id",[],|r|r.get(3)).unwrap();
+        assert!(plan.contains("catalogue_source_page"), "{plan}");
+        assert!(db
+            .execute(
+                "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE entry_id='a'",
+                []
+            )
+            .is_err());
+        assert!(db
+            .execute(
+                "UPDATE catalogue_source_entries SET manifest_visible=2 WHERE entry_id='b'",
+                []
+            )
+            .is_err());
+        drop(s);
+        assert_eq!(head(&mut source(&p)), SourceHead::new(scope(), 2, 0, 0));
+        assert_eq!(rows(&db), before);
+    }
+}
+#[test]
+fn retired_identity_and_latest_resolution_outlive_manifest_membership() {
+    let d = Folder::new();
+    let p = d.path("source.db");
+    let mut s = source(&p);
+    assert_eq!(s.upsert(&id("a"), b"live"), Ok(1));
+    let mut cache = SqliteCatalogueStore::open(d.path("cache.db")).unwrap();
+    let pass = begin(&mut s, &mut cache);
+    let page = s
+        .manifest(&ManifestRequest {
+            pass: pass.clone(),
+            max_entries: 10,
+        })
+        .unwrap();
+    assert_eq!(page.entries[0].revision, 1);
+    assert_eq!(s.delete(&id("a")), Ok(2));
+    // Future storage state: remove serving membership, never the identity row.
+    let db = Connection::open(&p).unwrap();
+    db.execute(
+        "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE entry_id='a'",
+        [],
+    )
+    .unwrap();
+    let saved:(i64,i64,i64,Vec<u8>)=db.query_row("SELECT creation,revision,deleted,payload FROM catalogue_source_entries WHERE entry_id='a'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+    assert_eq!(saved, (1, 2, 1, vec![]));
+    drop(s);
+    let mut s = source(&p);
+    let value = s.resolve(&pass, &id("a"), 100).unwrap();
+    assert!(value.manifest.deleted);
+    assert_eq!(value.manifest.revision, 2);
+    assert_eq!(value.manifest.key.creation, 1);
+    assert!(value.payload.is_empty());
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(CatalogueStoreError::Fenced)
+    );
+    let expected = head(&mut s);
+    assert_eq!(
+        s.compare_upsert(&expected, &id("a"), b"again", 0, 0),
+        Err(CataloguePublicationError::Store(
+            CatalogueStoreError::Fenced
+        ))
+    );
+    assert_eq!(s.delete(&id("a")), Err(CatalogueStoreError::Fenced));
+    assert_eq!(head(&mut s), expected);
+    assert!(s
+        .manifest(&ManifestRequest {
+            pass,
+            max_entries: 10
+        })
+        .unwrap()
+        .entries
+        .is_empty());
+    let kept:(i64,i64,i64,Vec<u8>)=db.query_row("SELECT creation,revision,deleted,payload FROM catalogue_source_entries WHERE entry_id='a'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+    assert_eq!(kept, saved);
+}
+#[test]
+fn membership_migration_failure_rolls_back_schema_version_index_and_values() {
+    let d = Folder::new();
+    let p = d.path("source.db");
+    version_two(&p);
+    let db = Connection::open(&p).unwrap();
+    // An ordinary incomplete old schema fails at index replacement, after ALTER.
+    db.execute_batch("DROP INDEX catalogue_source_page")
+        .unwrap();
+    assert!(SqliteCatalogueSource::open(
+        &p,
+        id("origin"),
+        id("catalogue"),
+        id("incarnation"),
+        id("schema")
+    )
+    .is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(db.query_row("SELECT count(*) FROM pragma_table_info('catalogue_source_entries') WHERE name='manifest_visible'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM catalogue_source_entries", [], |r| r
+            .get::<_, i64>(
+            0
+        ))
+        .unwrap(),
+        2
+    );
+    db.execute_batch(
+        "CREATE INDEX catalogue_source_page ON catalogue_source_entries(creation,entry_id)",
+    )
+    .unwrap();
+    drop(source(&p));
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    // A claimed v3 file missing its membership column is refused, not repaired.
+    let q = d.path("partial-v3.db");
+    version_two(&q);
+    Connection::open(&q)
+        .unwrap()
+        .pragma_update(None, "user_version", 3)
+        .unwrap();
+    assert!(matches!(
+        SqliteCatalogueSource::open(
+            &q,
+            id("origin"),
+            id("catalogue"),
+            id("incarnation"),
+            id("schema")
+        ),
+        Err(SqliteOpenError::UnexpectedDatabase)
+    ));
+}
+#[test]
+fn competing_openers_migrate_once_and_keep_one_identity_history() {
+    let d = Folder::new();
+    let p = d.path("source.db");
+    version_two(&p);
+    let gate = Arc::new(Barrier::new(2));
+    let handles = (0..2)
+        .map(|_| {
+            let p = p.clone();
+            let gate = gate.clone();
+            std::thread::spawn(move || {
+                gate.wait();
+                let mut s = source(&p);
+                assert_eq!(s.upsert(&id("a"), b"a"), Ok(1));
+                assert_eq!(
+                    s.upsert(&id("b"), b"again"),
+                    Err(CatalogueStoreError::Fenced)
+                );
+                head(&mut s)
+            })
+        })
+        .collect::<Vec<_>>();
+    for handle in handles {
+        assert_eq!(handle.join().unwrap(), SourceHead::new(scope(), 2, 0, 0));
+    }
+    let db = Connection::open(&p).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM catalogue_source_entries WHERE manifest_visible=1",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        2
     );
 }

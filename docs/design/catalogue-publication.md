@@ -10,8 +10,10 @@ requirement masks. Creation keys, latest values and retained deletions stay in t
 existing entries table. Receiver identity and access epoch do not own requirements.
 There is no metadata-only setter, second registry or in-place incarnation reset.
 
-Catalogue-source file version1 migrates to version2 in one immediate transaction,
-after exact identity and old-schema validation. Existing creation keys, revisions,
+The publication migration adds version2 fields to recognized version1 files.
+The current [retirement prerequisite](catalogue-retirement.md) upgrades recognized
+v1/v2 source files to v3 in the same immediate transaction, after exact identity
+and old-schema validation. Existing creation keys, revisions,
 values and permanent deletion markers survive. Eight-byte big-endian mask BLOBs
 retain all64 bits, with SQL type/length preflight before acquisition. A shared
 stateless row decoder also serves the record source; their tables, application IDs,
@@ -56,7 +58,8 @@ publication; requirements are format admission, not instantaneous authorization
 revocation. Nonzero encoder rollout still needs per-response/client compatibility
 and durable publication/apply ordering proof, including unchanged-only pages.
 
-Old binaries are refused on their next open of version2. Already-open old writers
+Binaries that do not recognize the current source-file version refuse its next
+open. Already-open old writers
 are not fenced by schema migration; hosts must stop/fence them before upgrade or
 future nonzero use. Tests cover process restart, SQL rollback and lost successful
 results, not all SQLite commit I/O errors, power loss, restore or cross-gateway races.

@@ -1,5 +1,10 @@
 # Implementation plan: verifiable vertical slices
 
+The #49 [source-retirement prerequisite](design/catalogue-retirement.md) separates
+permanent source identity from manifest membership in the native catalogue. All
+publicly reachable markers remain served; horizon, collection and compatible
+reset/resume admission are not enabled by this storage migration.
+
 **Status: seven reference slices are implemented.**
 The core, optional SQLite and loopback adapters, examples and seven verification
 labs run in independent CI. The [parent tracker #1](https://github.com/nessalabs/sync-engine/issues/1)

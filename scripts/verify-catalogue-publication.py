@@ -24,4 +24,4 @@ with tempfile.TemporaryDirectory(prefix='owned-catalogue-publication-') as folde
  for path,prior in [(partial,saved),(full,full_saved)]:
   result=run(source,path,'cap-pass','40');assert result=={'typed_incompatible':True,'manifest_reads':0,'resolve_reads':0,'payload_bytes':0};assert snapshot(path)==prior
  cold=Path(folder)/'cold.db';assert run(source,cold,'cap-pass','40')['typed_incompatible'];assert snapshot(cold)==([],[])
-print(json.dumps({'scope':'native catalogue durable publication; not a session catalogue adapter','entries':620,'first_page_records':40,'active_boundary':620,'writer_only_completed':620,'reopened_cache_and_cursor_unchanged':True,'typed_cold_and_resumed_reader_refusal':True,'integration_tests':9,'nonzero_publication_enabled':False},separators=(',',':')))
+print(json.dumps({'scope':'native catalogue durable publication; not a session catalogue adapter','entries':620,'first_page_records':40,'active_boundary':620,'writer_only_completed':620,'reopened_cache_and_cursor_unchanged':True,'typed_cold_and_resumed_reader_refusal':True,'integration_tests':13,'nonzero_publication_enabled':False},separators=(',',':')))
