@@ -19,6 +19,12 @@ extension BoundRecordClient {
     public static func open(
         channel: Channel, scopeFields: [String], frameBodyLimit: Int = 2048
     ) throws(RecordSessionOpenError) -> BoundRecordClient<Channel> {
+        try establish(channel: channel, scopeFields: scopeFields, frameBodyLimit: frameBodyLimit, following: false)
+    }
+
+    static func establish(
+        channel: Channel, scopeFields: [String], frameBodyLimit: Int, following: Bool
+    ) throws(RecordSessionOpenError) -> BoundRecordClient<Channel> {
         var owned = channel
         var transferred = false
         defer { if !transferred { owned.close() } }
@@ -29,7 +35,8 @@ extension BoundRecordClient {
         catch { throw .invalidOffer }
 
         var offer: [UInt8] = Control.preamble
-        offer.append(contentsOf: [6, 1]) // Open, explicit per-operation mode
+        let kind: UInt8 = following ? 7 : 6
+        offer.append(contentsOf: [kind, 1]) // explicit per-operation mode
         offer.append(contentsOf: Control.bytes(UInt32(frameBodyLimit)))
         offer.append(contentsOf: Control.bytes(UInt16(1))) // one scope
         offer.append(contentsOf: Control.bytes(UInt64(1))) // first request
@@ -63,7 +70,7 @@ extension BoundRecordClient {
             do {
                 client = try BoundRecordClient(channel: owned, session: session, handle: handle,
                     generation: generation, lastRequest: 1, frameBodyLimit: chosen, scope: scope,
-                    recordByteLimit: recordLimit)
+                    recordByteLimit: recordLimit, following: following)
             } catch { throw .malformedControl }
             transferred = true
             return client

@@ -39,10 +39,11 @@ def authenticate_fixture(sock):
     require(exact(sock, 1) == b"\0", "fixture authorization")
 
 
-def wait_port(server, log):
+def wait_port(server, log, label=b"fixture session"):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and server.poll() is None:
-        port = re.search(rb"fixture session listening on 127\.0\.0\.1:(\d+)", log.read_bytes())
+        pattern = re.escape(label) + rb" listening on 127\.0\.0\.1:(\d+)"
+        port = re.search(pattern, log.read_bytes())
         if port:
             return int(port[1])
         time.sleep(0.01)
@@ -121,18 +122,17 @@ def run_pages(rust, swift, repetitions):
                 require([base64.b64decode(r["payload"]) for r in rows] == payloads, "record bytes")
 
 
-def expect_bound(child, deadline):
-    marker = b"bound\n"
+def expect_marker(child, marker, deadline):
     observed = bytearray()
     fd = child.stderr.fileno()
     while len(observed) < len(marker):
         remaining = max(0, deadline - time.monotonic())
         ready, _, _ = select.select([fd], [], [], remaining)
-        require(ready, "timed out waiting for a bound Swift client")
+        require(ready, "timed out waiting for Swift fixture marker")
         part = os.read(fd, len(marker) - len(observed))
-        require(part, "Swift child closed before reporting Bound")
+        require(part, "Swift child closed before expected marker")
         observed.extend(part)
-    require(observed == marker, "expected bound signal")
+    require(observed == marker, "unexpected Swift fixture marker")
 
 
 def run_overlap(rust, swift, clients):
@@ -153,7 +153,7 @@ def run_overlap(rust, swift, clients):
                         children.append(child)
                 deadline = time.monotonic() + 5
                 for child in children:
-                    expect_bound(child, deadline)
+                    expect_marker(child, b"bound\n", deadline)
                 require(all(child.poll() is None for child in children), "client exited before release")
                 # All independent Swift owners are bound, not merely connected;
                 # each is blocked on this separate fixture pipe before data I/O.
@@ -176,25 +176,100 @@ def run_overlap(rust, swift, clients):
                         child.stderr.close()
 
 
+def run_follow(rust, swift):
+    with tempfile.TemporaryDirectory(prefix="swift-follow-e2e-") as temp:
+        root = Path(temp)
+        state = root / "records.json"
+        initial = b'{"rows":[]}'
+        state.write_bytes(initial)
+        log = root / "server.log"
+        with log.open("wb") as stream:
+            with subprocess.Popen(
+                [rust, "serve-cap", root / "source.sqlite", "0"],
+                stdout=subprocess.DEVNULL, stderr=stream,
+            ) as server:
+                try:
+                    port = wait_port(server, log, b"follow fixture")
+                    follow_once(port, swift, state, initial)
+                finally:
+                    if server.poll() is None:
+                        server.terminate()
+                    try:
+                        server.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        server.kill()
+                        server.wait()
+
+
+def follow_once(port, swift, state, initial):
+    release, send = os.pipe()
+    child = None
+    deadline = time.monotonic() + 8
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as data:
+            token = b"dev-read-secret"
+            data.sendall(bytes([len(token)]) + token)
+            require(exact(data, 1) == b"\0", "follow fixture test authentication")
+            data.setblocking(True)
+            child = subprocess.Popen(
+                [swift, *SCOPE, "follow", str(release), state], stdin=data, stdout=data,
+                stderr=subprocess.PIPE, pass_fds=(release,),
+            )
+        expect_marker(child, b"bound\n", deadline)
+        with socket.create_connection(("127.0.0.1", port), timeout=max(0, deadline - time.monotonic())) as producer:
+            token = b"dev-write-secret"
+            producer.sendall(bytes([len(token)]) + token)
+            require(exact(producer, 1) == b"\0", "fixture producer authentication")
+            producer.sendall(b"\1" + bytes(8) + b"\1\1")  # append one at exact head 0, notify once
+            result = exact(producer, 16)
+            require(int.from_bytes(result[:8], "big") == 1, "fixture commit head")
+        expect_marker(child, b"hint:1\n", deadline)
+        require(state.read_bytes() == initial, "advisory hint changed fixture progress")
+        require(os.write(send, b"\1") == 1, "short release")
+        _, report = child.communicate(timeout=max(0, deadline - time.monotonic()))
+        require(child.returncode == 0 and report == b"follow:1:5\n", report)
+        saved = json.loads(state.read_bytes())
+        require(base64.b64decode(saved["scope"]) == SCOPE_BYTES, "follow exact scope")
+        rows = saved["rows"]
+        require(len(rows) == 1 and rows[0]["id"] == "fact-1" and rows[0]["position"] == 1, "follow exact record")
+        require(base64.b64decode(rows[0]["payload"]) == b"alpha", "follow exact payload")
+    finally:
+        os.close(release)
+        os.close(send)
+        if child is not None:
+            if child.poll() is None:
+                child.kill()
+            try:
+                child.wait(timeout=2)
+            finally:
+                child.stderr.close()
+
+
+def build_rust_example(name):
+    build = subprocess.run(
+        ["cargo", "build", "--locked", "--features", "transport,sqlite",
+         "--example", name, "--message-format=json"],
+        check=True, stdout=subprocess.PIPE, timeout=240,
+    )
+    return next(
+        Path(value["executable"]) for line in build.stdout.splitlines()
+        if (value := json.loads(line)).get("executable") and value["target"]["name"] == name
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repetitions", type=int, default=5, choices=range(1, 101), metavar="1..100")
     parser.add_argument("--overlap-clients", type=int, default=4, choices=range(2, 17), metavar="2..16")
     parser.add_argument("--rust-bin", type=Path)
+    parser.add_argument("--rust-follow-bin", type=Path)
     parser.add_argument("--swift-bin", type=Path)
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.rust_bin is None:
-        build = subprocess.run(
-            ["cargo", "build", "--locked", "--features", "transport,sqlite",
-             "--example", "session_records", "--message-format=json"],
-            check=True, stdout=subprocess.PIPE, timeout=240,
-        )
-        args.rust_bin = next(
-            Path(value["executable"]) for line in build.stdout.splitlines()
-            if (value := json.loads(line)).get("executable") and
-            value["target"]["name"] == "session_records"
-        )
+        args.rust_bin = build_rust_example("session_records")
+    if args.rust_follow_bin is None:
+        args.rust_follow_bin = build_rust_example("session_follow")
     if args.swift_bin is None:
         subprocess.run(["swift", "build", "--product", "SwiftHeadFixture"], check=True, timeout=120)
         bin_path = subprocess.check_output(["swift", "build", "--show-bin-path"], text=True, timeout=30)
@@ -206,6 +281,7 @@ def main():
     run(rust, swift, 1, 0, args.repetitions, "missing-reader:1")
     run_pages(rust, swift, args.repetitions)
     run_overlap(rust, swift, args.overlap_clients)
+    run_follow(args.rust_follow_bin.resolve(), swift)
     print(json.dumps({
         "peer": "rust-session_records-capability-v1",
         "connections": 3 * args.repetitions,
@@ -219,6 +295,11 @@ def main():
         "overlap_head_operations": args.overlap_clients,
         "overlap_page_operations": 2 * args.overlap_clients,
         "overlap_exact_records": 7 * args.overlap_clients,
+        "follow_connections": 1,
+        "follow_hints": 1,
+        "follow_head_operations": 1,
+        "follow_page_operations": 1,
+        "follow_exact_records": 1,
         "elapsed_seconds": round(time.monotonic() - start, 3),
     }))
 

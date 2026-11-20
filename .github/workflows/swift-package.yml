@@ -8,6 +8,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'examples/session_follow.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'examples/session_follow.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   workflow_dispatch:

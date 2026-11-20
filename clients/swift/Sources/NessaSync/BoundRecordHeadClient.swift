@@ -1,6 +1,7 @@
 /// Blocking, host-owned byte channel for an authenticated
 /// experimental NSR1 record endpoint. Implementations must enforce an absolute
-/// I/O deadline, must not call back into the client, and must never consume
+/// I/O deadline for each complete Open, wait or RPC; the budget must not
+/// restart on fragments or hints. They must not call back into the client or consume
 /// more than the requested count in readExactly.
 public protocol RecordHeadChannel {
     /// Write and flush the full request before returning.
@@ -55,7 +56,7 @@ public struct RecordScopeIdentity: Hashable, Sendable {
 /// The host selects the explicit peer dialect and authenticates the channel.
 /// Use open to negotiate the binding, or provide an externally validated one.
 /// Head and page receipts are never authorization grants or local checkpoints.
-/// This owner does not dispatch hints, perform retries, or restore a session.
+/// This owner performs no retries or automatic reconnect.
 public final class BoundRecordClient<Channel: RecordHeadChannel> {
     private static var headerBytes: Int { 44 }
     private static var preamble: [UInt8] { [78, 83, 82, 49, 0, 1] } // NSR1 v1
@@ -66,6 +67,9 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     private let handle: UInt32
     private let generation: UInt64
     private let limit: Int
+    private let following: Bool
+    private var pendingHint: UInt64?
+    private var terminalHint: RecordHeadRefusal?
     public let boundScope: RecordScopeIdentity
     var scope: [UInt8] { boundScope.canonicalBytes }
     let recordByteLimit: Int?
@@ -81,7 +85,7 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
 
     init(
         channel: Channel, session: UInt64, handle: UInt32, generation: UInt64,
-        lastRequest: UInt64, frameBodyLimit: Int, scope: RecordScopeIdentity, recordByteLimit: Int?
+        lastRequest: UInt64, frameBodyLimit: Int, scope: RecordScopeIdentity, recordByteLimit: Int?, following: Bool = false
     ) throws(RecordHeadReadError) {
         guard session != 0, handle != 0, generation != 0, lastRequest != 0,
             lastRequest != UInt64.max, (2_048...8_192).contains(frameBodyLimit),
@@ -96,6 +100,7 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
         self.limit = frameBodyLimit
         self.request = lastRequest + 1
         self.recordByteLimit = recordByteLimit
+        self.following = following
     }
 
     deinit { channel?.close() }
@@ -104,6 +109,7 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     public func close() {
         var owned = channel
         channel = nil
+        pendingHint = nil
         owned?.close()
     }
 
@@ -126,19 +132,17 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
     }
 
     func exchange(kind: UInt8, payload: [UInt8], maximumReply: Int) throws(RecordHeadReadError) -> [UInt8] {
+        if let terminalHint { throw .source(terminalHint) }
         guard var owned = channel else { throw .unavailableChannel }
         channel = nil
         var retain = false
         defer {
-            if retain { channel = owned } else { owned.close() }
+            if retain { channel = owned } else { pendingHint = nil; owned.close() }
         }
         guard let next = request else { throw .unavailableChannel }
         request = next == .max ? nil : next + 1
 
-        var echo: [UInt8] = bytes(session)
-        echo.append(contentsOf: bytes(next))
-        echo.append(contentsOf: bytes(handle))
-        echo.append(contentsOf: bytes(generation))
+        let echo = correlation(request: next)
 
         var body: [UInt8] = Self.preamble
         body.append(contentsOf: [kind, 0])
@@ -152,12 +156,13 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
         var complete: [UInt8] = []
         var expectedTotal: Int?
         while true {
-            let length = Int(wireWord(try read(&owned, 4)[...]))
-            let ceiling = Self.headerBytes + max(maximumReply, 9)
-            guard (Self.headerBytes...min(limit, ceiling)).contains(length) else { throw .malformedReply }
-            let reply = try read(&owned, length)
-            guard reply[0..<6].elementsEqual(Self.preamble), reply[6] == (kind | 0x80),
-                reply[8..<36].elementsEqual(echo)
+            let reply = try readFrame(&owned, maximumPayload: max(maximumReply, 9))
+            if reply[6] == 64 {
+                let head = try interpretHint(reply)
+                pendingHint = max(pendingHint ?? head, head)
+                continue
+            }
+            guard reply[6] == (kind | 0x80), reply[8..<36].elementsEqual(echo)
             else { throw .malformedReply }
 
             let total = Int(wireWord(reply[36..<40]))
@@ -171,7 +176,7 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
                 if expectedTotal == nil { complete.reserveCapacity(total); expectedTotal = total }
                 complete.append(contentsOf: fragment)
                 if complete.count == total { retain = true; return complete }
-                guard length == limit else { throw .malformedReply }
+                guard reply.count == limit else { throw .malformedReply }
             case 8:
                 guard complete.isEmpty, offset == 0, total == fragment.count else { throw .malformedReply }
                 let refusal: RecordCapabilityError
@@ -187,6 +192,63 @@ public final class BoundRecordClient<Channel: RecordHeadChannel> {
                 throw .source(refusal)
             }
         }
+    }
+
+    // Called only through the Follow facade. The same pump owns this read and
+    // active RPC fragments. An injected read error cannot prove zero consumed
+    // frame bytes, so even a host idle timeout permanently retires this owner.
+    func takeOrReadHint() throws(RecordHeadReadError) -> UInt64 {
+        if let terminalHint { throw .source(terminalHint) }
+        guard var owned = channel else { throw .unavailableChannel }
+        if let head = pendingHint {
+            pendingHint = nil
+            return head
+        }
+        channel = nil
+        var retain = false
+        defer {
+            if retain { channel = owned } else { owned.close() }
+        }
+        let frame = try readFrame(&owned, maximumPayload: 8)
+        let head = try interpretHint(frame)
+        retain = true
+        return head
+    }
+
+    private func interpretHint(_ frame: [UInt8]) throws(RecordHeadReadError) -> UInt64 {
+        guard following, frame[6] == 64, frame[8..<36].elementsEqual(correlation(request: 1)),
+            wireWord(frame[40..<44]) == 0
+        else { throw .malformedReply }
+        let total = wireWord(frame[36..<40])
+        let payload = frame[Self.headerBytes...]
+        if frame[7] == 0 {
+            guard total == 8, payload.count == 8 else { throw .malformedReply }
+            return wireWord(payload)
+        }
+        guard total == 0, payload.isEmpty, let refusal = RecordHeadRefusal(rawValue: frame[7])
+        else { throw .malformedReply }
+        terminalHint = refusal
+        throw .source(refusal)
+    }
+
+    private func readFrame(_ channel: inout Channel, maximumPayload: Int)
+        throws(RecordHeadReadError) -> [UInt8]
+    {
+        let prefix = try read(&channel, 4)
+        let length = Int(wireWord(prefix[...]))
+        let ceiling = min(limit, Self.headerBytes + maximumPayload)
+        guard (Self.headerBytes...ceiling).contains(length) else { throw .malformedReply }
+        let frame = try read(&channel, length)
+        guard frame.prefix(6).elementsEqual(Self.preamble) else { throw .malformedReply }
+        return frame
+    }
+
+    private func correlation(request: UInt64) -> [UInt8] {
+        var echo: [UInt8] = bytes(session)
+        echo.append(contentsOf: bytes(request))
+        echo.append(contentsOf: bytes(handle))
+        echo.append(contentsOf: bytes(generation))
+        return echo
     }
 
     private func read(_ channel: inout Channel, _ count: Int) throws(RecordHeadReadError) -> [UInt8] {
