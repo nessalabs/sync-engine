@@ -41,7 +41,11 @@ requirement publication or capability-bearing transport metadata. Both #47 and #
 remain open. The opt-in [version1 record capability endpoint](design/source-head-wire.md)
 now checks metadata before optimized first-page and fixed-page payload access,
 with a coherent read-view contract and typed incompatibility. Legacy endpoints
-remain separate; follow/catalogue/history and durable publication are still pending.
+remain separate. The [durable record-source owner](design/source-publication.md)
+now stores requirements in the existing append transaction with source-specific
+migration, writer compatibility checks and compare-and-append. Known masks remain
+zero; nonzero rollout, catalogue publication and the remaining transport routes
+still require their own qualification.
 
 ## Outcome we are building toward
 

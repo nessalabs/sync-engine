@@ -2,7 +2,7 @@
 //! the host; fetching and installation can be separated to test delayed replies.
 
 use crate::replication::application::{Access, ScopeAuthorizer};
-use crate::replication::domain::{Limits, Scope};
+use crate::replication::domain::{CapabilityError, Limits, Scope};
 
 use super::{
     validate_older, validate_tail, HistoryProgress, HistoryValidationError, OlderPage, OlderPlan,
@@ -12,6 +12,8 @@ use super::{
 /// Reference source outcome for bounded history reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistorySourceError {
+    /// Source version or reader format requirements are unsupported.
+    Incompatible(CapabilityError),
     /// Authentication or receiver policy refused this request.
     Denied,
     /// Source cannot currently answer.

@@ -4,7 +4,8 @@
 //! backup consistency, or authenticated remote delivery.
 //!
 //! `source` implements bounded committed reads, recent tails, older pages and
-//! append for the example. `replica` implements atomic live apply/checkpoint,
+//! append for the example; its `publication` module owns the version2 record-source
+//! migration and requirements/head/fact transaction. `replica` implements atomic live apply/checkpoint,
 //! tail installation, older coverage and deletion fences, plus cached reads.
 //! `connection` owns file identity, opening policy, and schema setup. Each
 //! adapter owns its connection and closes it on drop; the domain and application
@@ -33,7 +34,7 @@ use connection::{
 };
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::SqliteReplicaStore;
-pub use source::SqliteReferenceSource;
+pub use source::{SourcePublicationError, SqliteReferenceSource};
 
 #[cfg(test)]
 #[path = "../../../../tests/replication/infrastructure/id_preflight.rs"]
