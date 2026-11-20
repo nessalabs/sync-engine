@@ -164,8 +164,8 @@ private func pageBody(
     return data
 }
 
-private func pageFrame(_ payload: ArraySlice<UInt8>, total: Int, offset: Int, status: UInt8 = 0) -> [UInt8] {
-    var body: [UInt8] = [78, 83, 82, 49, 0, 1, 0x87, status]
+private func pageFrame(_ payload: ArraySlice<UInt8>, total: Int, offset: Int, status: UInt8 = 0, kind: UInt8 = 0x87) -> [UInt8] {
+    var body: [UInt8] = [78, 83, 82, 49, 0, 1, kind, status]
     body.append(contentsOf: be(UInt64(1)))
     body.append(contentsOf: be(UInt64(2)))
     body.append(contentsOf: be(UInt32(1)))
@@ -483,5 +483,122 @@ struct RecordFollowTests {
         }
         #expect(setup.closed == 1)
         #expect(setup.output.count == 1)
+    }
+}
+
+private func tailBody(head: UInt64 = 4, first: UInt64 = 3, floor: UInt64 = 1,
+    generation: UInt64 = 9, ids: [String] = ["a", "b"], rowBytes: Int = 1500,
+    echoScope: [UInt8] = pageScopeBytes, rowScope: [UInt8] = pageScopeBytes
+) -> [UInt8] {
+    var data = echoScope
+    for field in [generation, 2, 3000, 1500] { data.append(contentsOf: be(field)) }
+    data.append(contentsOf: be(UInt16(1)))
+    for field in [head, 0, 0, first, floor] { data.append(contentsOf: be(field)) }
+    data.append(UInt8(ids.count))
+    for (offset, id) in ids.enumerated() {
+        data.append(contentsOf: be(first + UInt64(offset)))
+        data.append(UInt8(id.utf8.count))
+        data.append(contentsOf: id.utf8)
+        data.append(contentsOf: rowScope)
+        data.append(contentsOf: be(UInt32(rowBytes)))
+        data.append(contentsOf: [UInt8](repeating: UInt8(offset), count: rowBytes))
+    }
+    return data
+}
+
+private func tailFrames(_ payload: [UInt8]) -> [UInt8] {
+    var result: [UInt8] = []
+    for offset in stride(from: 0, to: payload.count, by: 2004) {
+        let fragment = payload[offset..<min(offset + 2004, payload.count)]
+        result.append(contentsOf: pageFrame(fragment, total: payload.count, offset: offset, kind: 0x88))
+    }
+    return result
+}
+
+private func tailRequest(_ scope: RecordScopeIdentity, generation: UInt64 = 9, count: Int = 2,
+    payload: Int = 3000, record: Int = 1500
+) -> RecordTailRequest {
+    .init(scope: scope, historyGeneration: generation, maxRecords: count,
+        maxPayloadBytes: payload, maxRecordBytes: record)
+}
+
+struct RecordTailTests {
+    @Test func tailAndEmptyCoverageUseOnlyTheirExactGenerationAndSuffix() throws {
+        for payload in [tailBody(), tailBody(head: 0, first: 1, ids: [])] {
+            let channel = FixtureChannel()
+            channel.input = welcome() + bound() + tailFrames(payload)
+            let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+            let request = tailRequest(owner.boundScope)
+            let receipt = try owner.readTail(request)
+            #expect(receipt.request == request)
+            #expect(receipt.oldestAvailable == 1)
+            if receipt.records.isEmpty {
+                #expect(receipt.metadata.position == 0)
+                #expect(receipt.firstPosition == 1)
+            } else {
+                #expect(receipt.metadata.position == 4)
+                #expect(receipt.firstPosition == 3)
+                #expect(receipt.records.map(\.position) == [3, 4])
+                #expect(receipt.records.map(\.idBytes) == [[97], [98]])
+            }
+            let frame = try #require(channel.output.last)
+            #expect(frame[10] == 8)
+            let fields = Array(frame[58...])
+            var expected: [UInt8] = []
+            for value in [UInt64(9), 2, 3000, 1500] { expected.append(contentsOf: be(value)) }
+            #expect(fields == expected)
+        }
+    }
+
+    @Test func badLocalScopeGenerationAndLimitsSendNothing() throws {
+        let channel = FixtureChannel()
+        channel.input = welcome() + bound()
+        let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+        let scope = owner.boundScope
+        let other = try pageClient(FixtureChannel(), fields: Array(fixtureScope.dropLast()) + ["other"]).boundScope
+        let invalid = [
+            tailRequest(other), tailRequest(scope, generation: 0), tailRequest(scope, count: 0),
+            tailRequest(scope, count: 65), tailRequest(scope, payload: 524_289),
+            tailRequest(scope, payload: 0), tailRequest(scope, record: 0), tailRequest(scope, record: 524_289),
+        ]
+        for request in invalid {
+            #expect(throws: RecordHeadReadError.invalidTailRequest) { try owner.readTail(request) }
+        }
+        #expect(channel.output.count == 1)
+        #expect(channel.closed == 0)
+    }
+
+    @Test func malformedAndIncompleteCoverageNeverBecomeReceipts() throws {
+        var other = pageScopeBytes
+        other[1] ^= 1
+        let wrong = [
+            tailBody(generation: 8), tailBody(head: 5), tailBody(first: 0), tailBody(floor: 4),
+            tailBody(ids: ["a", "a"]), tailBody(rowBytes: 1501), tailBody(echoScope: other),
+            tailBody(rowScope: other), tailBody(head: 0, ids: []), tailBody() + [0],
+        ]
+        for payload in wrong {
+            let channel = FixtureChannel()
+            channel.input = welcome() + bound() + tailFrames(payload)
+            let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+            #expect(throws: RecordHeadReadError.malformedReply) { try owner.readTail(tailRequest(owner.boundScope)) }
+            #expect(channel.closed == 1)
+        }
+
+        let payload = tailBody()
+        let part = pageFrame(payload.prefix(2004), total: payload.count, offset: 0, kind: 0x88)
+        let refused = FixtureChannel()
+        let denial = pageFrame([], total: 0, offset: 0, status: 1, kind: 0x88)
+        refused.input = welcome() + bound() + part + denial
+        let refusedOwner = try RecordFollowClient.open(channel: refused, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.source(.denied)) {
+            try refusedOwner.readTail(tailRequest(refusedOwner.boundScope))
+        }
+        let interrupted = FixtureChannel()
+        interrupted.input = welcome() + bound() + part
+        let interruptedOwner = try RecordFollowClient.open(channel: interrupted, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.unavailableChannel) {
+            try interruptedOwner.readTail(tailRequest(interruptedOwner.boundScope))
+        }
+        #expect(interrupted.closed == 1)
     }
 }

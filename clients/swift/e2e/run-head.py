@@ -42,7 +42,7 @@ def authenticate_fixture(sock):
 def wait_port(server, log, label=b"fixture session"):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and server.poll() is None:
-        pattern = re.escape(label) + rb" listening on 127\.0\.0\.1:(\d+)"
+        pattern = (re.escape(label) + b" " if label else b"") + rb"listening on 127\.0\.0\.1:(\d+)"
         port = re.search(pattern, log.read_bytes())
         if port:
             return int(port[1])
@@ -245,6 +245,58 @@ def follow_once(port, swift, state, initial):
                 child.stderr.close()
 
 
+def run_tail(rust, swift, episodes):
+    fields = ["device-a", "example-origin", "transcript", "first", "text-v1", "local-epoch-1"]
+    scope = b"".join(bytes([len(f)]) + f.encode() for f in fields)
+    with tempfile.TemporaryDirectory(prefix="swift-tail-e2e-") as temp:
+        root = Path(temp)
+        database = root / "source.sqlite"
+        subprocess.run([rust, "seed", database], check=True, timeout=8)
+        cases = ("tail-interrupt", "tail") * episodes
+        for episode, mode in enumerate(cases):
+            state = root / f"{episode}.json"
+            state.write_bytes(b"uninstalled")
+            log = root / f"{episode}.log"
+            with log.open("wb") as output:
+                with subprocess.Popen(
+                    [rust, "serve", database], stdout=subprocess.DEVNULL, stderr=output,
+                ) as server:
+                    try:
+                        port = wait_port(server, log, b"")
+                        with socket.create_connection(("127.0.0.1", port), timeout=3) as data:
+                            token = b"history-test"
+                            data.sendall(bytes([len(token)]) + token)
+                            require(exact(data, 1) == b"\0", "history fixture authentication")
+                            data.setblocking(True)
+                            child = subprocess.run(
+                                [swift, *fields, mode, state], stdin=data, stdout=data,
+                                stderr=subprocess.PIPE, timeout=8,
+                            )
+                    finally:
+                        if server.poll() is None:
+                            server.terminate()
+                        try:
+                            server.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            server.kill()
+                            server.wait()
+            require(child.returncode == 0, child.stderr)
+            if mode == "tail-interrupt":
+                require(child.stderr == b"tail-interrupted\n", child.stderr)
+                require(state.read_bytes() == b"uninstalled", "partial Tail produced receipt")
+                continue
+            require(child.stderr == b"tail:4:3:1:3000\n", child.stderr)
+            saved = json.loads(state.read_bytes())
+            require(base64.b64decode(saved["scope"]) == scope, "tail exact scope")
+            coverage = (saved["historyGeneration"], saved["watermark"], saved["first"], saved["floor"])
+            require(coverage == (1, 4, 3, 1), "tail exact installed coverage")
+            rows = saved["rows"]
+            require(len(rows) == 2, "tail exact row count")
+            for index, row in enumerate(rows, start=3):
+                require(row["position"] == index and row["id"] == f"event-{index}", "tail exact row")
+                require(base64.b64decode(row["payload"]) == bytes([index]) * 1500, "tail exact payload")
+
+
 def build_rust_example(name):
     build = subprocess.run(
         ["cargo", "build", "--locked", "--features", "transport,sqlite",
@@ -263,6 +315,8 @@ def main():
     parser.add_argument("--overlap-clients", type=int, default=4, choices=range(2, 17), metavar="2..16")
     parser.add_argument("--rust-bin", type=Path)
     parser.add_argument("--rust-follow-bin", type=Path)
+    parser.add_argument("--rust-history-bin", type=Path)
+    parser.add_argument("--tail-episodes", type=int, default=1, choices=range(1, 33), metavar="1..32")
     parser.add_argument("--swift-bin", type=Path)
     args = parser.parse_args()
     os.chdir(ROOT)
@@ -270,6 +324,8 @@ def main():
         args.rust_bin = build_rust_example("session_records")
     if args.rust_follow_bin is None:
         args.rust_follow_bin = build_rust_example("session_follow")
+    if args.rust_history_bin is None:
+        args.rust_history_bin = build_rust_example("session_history")
     if args.swift_bin is None:
         subprocess.run(["swift", "build", "--product", "SwiftHeadFixture"], check=True, timeout=120)
         bin_path = subprocess.check_output(["swift", "build", "--show-bin-path"], text=True, timeout=30)
@@ -282,6 +338,7 @@ def main():
     run_pages(rust, swift, args.repetitions)
     run_overlap(rust, swift, args.overlap_clients)
     run_follow(args.rust_follow_bin.resolve(), swift)
+    run_tail(args.rust_history_bin.resolve(), swift, args.tail_episodes)
     print(json.dumps({
         "peer": "rust-session_records-capability-v1",
         "connections": 3 * args.repetitions,
@@ -300,6 +357,10 @@ def main():
         "follow_head_operations": 1,
         "follow_page_operations": 1,
         "follow_exact_records": 1,
+        "tail_successes": args.tail_episodes,
+        "tail_interruptions": args.tail_episodes,
+        "tail_exact_records": 2 * args.tail_episodes,
+        "tail_exact_payload_bytes": 3000 * args.tail_episodes,
         "elapsed_seconds": round(time.monotonic() - start, 3),
     }))
 

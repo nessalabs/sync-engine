@@ -4,7 +4,7 @@
 /// The host supplies an absolute deadline per complete Open, wait and RPC;
 /// a timeout retires the channel because this port cannot prove zero bytes read.
 public final class RecordFollowClient<Channel: RecordHeadChannel> {
-    private let bound: BoundRecordClient<Channel>
+    let bound: BoundRecordClient<Channel>
 
     private init(_ bound: BoundRecordClient<Channel>) { self.bound = bound }
 

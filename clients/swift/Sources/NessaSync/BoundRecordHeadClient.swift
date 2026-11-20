@@ -25,6 +25,7 @@ public enum RecordHeadReadError: Error, Equatable, Sendable {
     case unavailableChannel
     case malformedReply
     case invalidPageRequest
+    case invalidTailRequest
     case source(RecordHeadRefusal)
     case incompatible(RecordCapabilityError)
 }
