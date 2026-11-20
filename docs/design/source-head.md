@@ -1,6 +1,7 @@
 # Versioned SourceHead initial admission (#47 foundation)
 
-**Status: native core initial admission only. #47 and #54 remain open.**
+**Status: initial-admission contract, now complemented by the durable and wire
+implementations in the [acceptance map](source-head-acceptance.md).**
 This slice adds shared passive metadata and explicitly opt-in application starts
 for record and catalogue sources. It does not add capability-bearing network
 messages, enable a new record format, or establish mid-pass compatibility fencing.
@@ -83,16 +84,12 @@ post-pass/resume rechecks, wrong scope/version and untouched progress on refusal
 Pure tests cover monotonic extension/removal, epoch/receiver changes, incarnation
 replacement, schema changes and head regression.
 
-This initial check is **not complete #47 safety**. Catalogue resolution can return
-a newer current value than the captured boundary; requirements can also change
-after admission. Passing a legacy Pass to step/apply is not a capability proof.
-Nonzero reader feature rollout requires a verified per-response/read compatibility
-contract, authoritative durable publication, and versioned transport metadata
-(including combined open/first-page, catalogue, history and remaining routes).
-The combined first-page path cannot discover incompatibility after payload fetch
-and claim early refusal. It is not upgraded or silently used as a downgrade here.
-The source-head feature must not be enabled as full production fencing until those
-remaining checks are implemented. Do not close #47 from this admission milestone.
+Initial admission alone is not a per-read snapshot guarantee. The later durable
+record/catalogue publication owners and explicit capability wire paths supply
+that complementary contract; see the [acceptance map](source-head-acceptance.md).
+Legacy Pass and bare-head APIs remain separate and are not a capability proof.
+Nonzero format deployment must add an actual encoder/decoder and qualify every
+route carrying that format, including routes still tracked by #54.
 
 The PR includes matched baseline/current real TCP phase measurements proving
 unchanged legacy wire exchanges/bytes, separately from native admission call

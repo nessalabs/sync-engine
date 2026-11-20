@@ -33,23 +33,19 @@ compares push with explicit polling and verifies lost-hint fallback, coalescing
 and reopened-cache correctness. This one-scope slice does not close the remaining
 secure-channel, route, multiplexing or outage qualification gaps.
 
-[SourceHead #47 initial admission](design/source-head.md) now supplies versioned
-passive reader/writer requirements and opt-in native record/catalogue starts.
-Unknown reader features stop before payload admission; writer-only requirements
-do not block read-only starts. This does not yet provide mid-pass fencing, durable
-requirement publication or capability-bearing transport metadata. Both #47 and #54
-remain open. The opt-in [version1 record capability endpoint](design/source-head-wire.md)
-now checks metadata before optimized first-page and fixed-page payload access,
-with a coherent read-view contract and typed incompatibility. Legacy endpoints
-remain separate. The [durable record-source owner](design/source-publication.md)
-now stores requirements in the existing append transaction with source-specific
-migration, writer compatibility checks and compare-and-append. Known masks remain
-zero. The [native catalogue owner](design/catalogue-publication.md) now commits
-requirements with current values/revisions and checks manifest/resolution snapshots.
-The [explicit catalogue capability route](design/catalogue-capability-wire.md) now
-pairs metadata and data in source snapshots and provides typed early wire refusal.
-Nonzero rollout, session catalogue and remaining routes still require independent
-qualification.
+[SourceHead capability acceptance](design/source-head-acceptance.md) maps the
+implemented #47 contract to native admission, durable record/catalogue publication,
+and explicit version1 record/catalogue wire paths. Unknown reader requirements
+stop before payload admission; writer-only requirements permit read-only clients.
+Known optional masks remain zero. Legacy bare-head entry points remain separate;
+hosts must explicitly select capability-aware APIs and fence old writers during
+schema upgrades. The acceptance map records these boundaries and the independent
+production transport work still tracked by #54.
+
+[Record freshness #52](design/freshness.md) now has an opt-in per-scope owner with
+an injected clock, local-only Within reads, finite-pass coordination and one
+jittered backoff deadline. Hosts explicitly connect wake scheduling; existing
+transport loops and other resource families remain separate integration work.
 
 ## Outcome we are building toward
 
@@ -257,7 +253,8 @@ scripts/           end-to-end verification runners
 Module maps explain arrow direction and ownership. Test modules follow the same
 feature/layer vocabulary. The default library dependency graph excludes product
 models, Nessa, provider SDKs, UI frameworks and optional databases/transports.
-The host owns clocks, credentials, policy, transport lifecycle and retry scheduling.
+The host supplies clocks, credentials, policy and transport lifecycle. The opt-in
+freshness owner supplies its single retry deadline; the host owns waking it.
 Use typed errors and immutable value objects. Do not introduce empty abstraction
 layers or a global service locator.
 

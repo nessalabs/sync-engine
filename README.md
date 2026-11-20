@@ -192,3 +192,8 @@ The [session I/O ownership prerequisite](docs/design/session-io.md) adds explici
 interruptible constructors and native split channel owners for the future hint
 reader. Compare `--modes session-page session-io` with the same E2E runner. Persistent
 hints/follow and notification-to-applied measurements remain pending.
+
+The opt-in [record freshness owner](docs/design/freshness.md) keeps cache reads
+local under `Within` and exposes independent head/apply times. Run its deterministic
+contracts and native SQLite read comparison with `python3 scripts/verify-freshness.py`;
+use `--repetitions 5` for timing evidence. It creates no background worker.

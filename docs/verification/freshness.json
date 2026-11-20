@@ -1,0 +1,1023 @@
+{
+  "issue": 52,
+  "base": "f154acc056c96db4b8ef62bdc44db93e31246797",
+  "tested_source_commit": "496ab300a5aa948e7aaccd7a9156aff156753ea0",
+  "docs_commit": "0b642f9",
+  "environment": {
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "toolchain": "stable 1.100.0; MSRV 1.85.0",
+    "build": "debug; bundled SQLite; owned temporary files; fixed policy order per run",
+    "timing_limit": "Five local runs, no network, no statistical latency guarantee. Injected clock controls TTL only; timings use Instant real elapsed work."
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.191,
+      "log": "qualification-00.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.487,
+      "log": "qualification-01.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 0.201,
+      "log": "qualification-02.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.881,
+      "log": "qualification-03.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 2.992,
+      "log": "qualification-04.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 4.164,
+      "log": "qualification-05.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 13.801,
+      "log": "qualification-06.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.386,
+      "log": "qualification-07.log"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.993,
+      "log": "qualification-08.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.669,
+      "log": "qualification-09.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.975,
+      "log": "qualification-10.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.967,
+      "log": "qualification-11.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.624,
+      "log": "qualification-12.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.63,
+      "log": "qualification-13.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 3.077,
+      "log": "qualification-14.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.287,
+      "log": "qualification-15.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.14,
+      "log": "qualification-16.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.595,
+      "log": "qualification-17.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.147,
+      "log": "qualification-18.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.172,
+      "log": "qualification-19.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.198,
+      "log": "qualification-20.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.199,
+      "log": "qualification-21.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.518,
+      "log": "qualification-22.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 25.86,
+      "log": "qualification-23.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-head.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.55,
+      "log": "qualification-24.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.861,
+      "log": "qualification-25.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 0.767,
+      "log": "qualification-26.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 2.533,
+      "log": "qualification-27.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.873,
+      "log": "qualification-28.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 11.316,
+      "log": "qualification-29.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.586,
+      "log": "qualification-30.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.313,
+      "log": "qualification-31.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 5.115,
+      "log": "qualification-32.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 9.014,
+      "log": "qualification-33.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--client-dialect",
+        "capabilities",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 5.136,
+      "log": "qualification-34.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-freshness.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.239,
+      "log": "qualification-35.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.005,
+      "log": "qualification-36.log"
+    }
+  ],
+  "test_counts": {
+    "no_default_all_targets": 71,
+    "sqlite_all_targets": 141,
+    "transport_all_targets": 150,
+    "all_features_all_targets": 284,
+    "doctests": 6,
+    "new_default_freshness_contracts": 8,
+    "new_sqlite_uncertain_reopen_contracts": 1
+  },
+  "measurement_command": "python3 scripts/verify-freshness.py --repetitions 5",
+  "measurements": {
+    "repetitions": 5,
+    "deterministic_contracts_passed": true,
+    "conditions": "injected 1ms steps; strictly greater than 10ms TTL",
+    "transport": "native SQLite; no network",
+    "uncertain_commit_reopen_correct": true,
+    "rows": [
+      {
+        "policy": "manual-every-read",
+        "useful_reads": 100,
+        "cold_head_checks": 2,
+        "cold_pages": 4,
+        "read_head_checks": 100,
+        "read_pages": 0,
+        "elapsed_ms": {
+          "min": 20.463372,
+          "median": 21.860814,
+          "max": 23.857024
+        },
+        "reopened_rows": 7,
+        "restart_times_unknown": true
+      },
+      {
+        "policy": "always",
+        "useful_reads": 100,
+        "cold_head_checks": 2,
+        "cold_pages": 4,
+        "read_head_checks": 100,
+        "read_pages": 0,
+        "elapsed_ms": {
+          "min": 20.450801,
+          "median": 21.352473,
+          "max": 21.934268
+        },
+        "reopened_rows": 7,
+        "restart_times_unknown": true
+      },
+      {
+        "policy": "within-10ms",
+        "useful_reads": 100,
+        "cold_head_checks": 2,
+        "cold_pages": 4,
+        "read_head_checks": 9,
+        "read_pages": 0,
+        "elapsed_ms": {
+          "min": 16.230969,
+          "median": 18.873252,
+          "max": 19.935169
+        },
+        "reopened_rows": 7,
+        "restart_times_unknown": true
+      },
+      {
+        "policy": "never",
+        "useful_reads": 100,
+        "cold_head_checks": 2,
+        "cold_pages": 4,
+        "read_head_checks": 0,
+        "read_pages": 0,
+        "elapsed_ms": {
+          "min": 16.621292,
+          "median": 16.637326,
+          "max": 21.997502
+        },
+        "reopened_rows": 7,
+        "restart_times_unknown": true
+      }
+    ],
+    "runs": [
+      {
+        "transport": "native SQLite; no network",
+        "clock": "injected 1ms steps; strictly greater than 10ms TTL",
+        "workload": "seven records; 100 stable useful reads",
+        "uncertain_commit_reopen_correct": true,
+        "rows": [
+          {
+            "policy": "manual-every-read",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 23.857024,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "always",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 20.837626,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "within-10ms",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 9,
+            "read_pages": 0,
+            "elapsed_ms": 16.230969,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "never",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 0,
+            "read_pages": 0,
+            "elapsed_ms": 16.63072,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          }
+        ]
+      },
+      {
+        "transport": "native SQLite; no network",
+        "clock": "injected 1ms steps; strictly greater than 10ms TTL",
+        "workload": "seven records; 100 stable useful reads",
+        "uncertain_commit_reopen_correct": true,
+        "rows": [
+          {
+            "policy": "manual-every-read",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 20.463372,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "always",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 20.450801,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "within-10ms",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 9,
+            "read_pages": 0,
+            "elapsed_ms": 18.873252,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "never",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 0,
+            "read_pages": 0,
+            "elapsed_ms": 21.997502,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          }
+        ]
+      },
+      {
+        "transport": "native SQLite; no network",
+        "clock": "injected 1ms steps; strictly greater than 10ms TTL",
+        "workload": "seven records; 100 stable useful reads",
+        "uncertain_commit_reopen_correct": true,
+        "rows": [
+          {
+            "policy": "manual-every-read",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 21.860814,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "always",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 21.352473,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "within-10ms",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 9,
+            "read_pages": 0,
+            "elapsed_ms": 19.935169,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "never",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 0,
+            "read_pages": 0,
+            "elapsed_ms": 19.354884,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          }
+        ]
+      },
+      {
+        "transport": "native SQLite; no network",
+        "clock": "injected 1ms steps; strictly greater than 10ms TTL",
+        "workload": "seven records; 100 stable useful reads",
+        "uncertain_commit_reopen_correct": true,
+        "rows": [
+          {
+            "policy": "manual-every-read",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 23.361973,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "always",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 21.767039,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "within-10ms",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 9,
+            "read_pages": 0,
+            "elapsed_ms": 19.487107,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "never",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 0,
+            "read_pages": 0,
+            "elapsed_ms": 16.637326,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          }
+        ]
+      },
+      {
+        "transport": "native SQLite; no network",
+        "clock": "injected 1ms steps; strictly greater than 10ms TTL",
+        "workload": "seven records; 100 stable useful reads",
+        "uncertain_commit_reopen_correct": true,
+        "rows": [
+          {
+            "policy": "manual-every-read",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 21.061352,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "always",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 100,
+            "read_pages": 0,
+            "elapsed_ms": 21.934268,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "within-10ms",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 9,
+            "read_pages": 0,
+            "elapsed_ms": 16.926072,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          },
+          {
+            "policy": "never",
+            "useful_reads": 100,
+            "cold_head_checks": 2,
+            "cold_pages": 4,
+            "read_head_checks": 0,
+            "read_pages": 0,
+            "elapsed_ms": 16.621292,
+            "reopened_rows": 7,
+            "restart_times_unknown": true
+          }
+        ]
+      }
+    ]
+  },
+  "regression_sensitivity": {
+    "candidate": "496ab300a5aa948e7aaccd7a9156aff156753ea0",
+    "guards": [
+      {
+        "guard": "never-passive",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "never_is_passive"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 2.777,
+        "log": "guard-never-passive.log"
+      },
+      {
+        "guard": "ttl-boundary",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "within_never_calls_ports"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.374,
+        "log": "guard-ttl-boundary.log"
+      },
+      {
+        "guard": "always-before-read",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "always_checks_before_fresh"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.375,
+        "log": "guard-always-before-read.log"
+      },
+      {
+        "guard": "head-is-not-apply",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "never_is_passive"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.356,
+        "log": "guard-head-is-not-apply.log"
+      },
+      {
+        "guard": "confirmed-apply-time",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "safe_apply_failure"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.391,
+        "log": "guard-confirmed-apply-time.log"
+      },
+      {
+        "guard": "mandatory-recheck",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "never_is_passive"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.484,
+        "log": "guard-mandatory-recheck.log"
+      },
+      {
+        "guard": "retry-deadline",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "within_never_calls_ports"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.364,
+        "log": "guard-retry-deadline.log"
+      },
+      {
+        "guard": "uncertain-explicit-reload",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "safe_apply_failure"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.358,
+        "log": "guard-uncertain-explicit-reload.log"
+      },
+      {
+        "guard": "scope-reset-clears-times",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "scope_restart_and_clock"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.344,
+        "log": "guard-scope-reset-clears-times.log"
+      },
+      {
+        "guard": "clock-regression-clears-times",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--no-default-features",
+          "--test",
+          "freshness",
+          "scope_restart_and_clock"
+        ],
+        "exit_code": 101,
+        "expected_failure": true,
+        "seconds": 0.405,
+        "log": "guard-clock-regression-clears-times.log"
+      }
+    ],
+    "restored": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "freshness"
+      ],
+      "exit_code": 0
+    }
+  },
+  "fingerprints_sha256": {
+    ".github/workflows/ci.yml": "50f85971425813ad913df3cb5b62396b8f33a1094a64f1b49b758face3980b05",
+    "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+    "Cargo.toml": "9768acc7615bbad3032d0311a1d7234265634b3cf3ddae04f144d4cc3e06c6ac",
+    "examples/freshness.rs": "51ffe223237f9213237a687bd2f51d6b956819f76e0e500f7081cff6d36f3005",
+    "scripts/verify-freshness.py": "bb14c7218d56ec54cdfdb90c52a153f3e1d3bf47b7393a196a164dc7a08ff4ec",
+    "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+    "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+    "src/replication/application/freshness.rs": "1f789d9f724a40e3f990edaf90dff15a13d28c1dd0329705df5f598da056e19d",
+    "src/replication/application/mod.rs": "9b57a7b8e5f96a4a15f16e23716e947bc74a3854de4e19f54386b27102a9988d",
+    "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+    "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+    "src/replication/catalogue/application.rs": "13889d847cd8c60fc4e965b24df1c934131d5f99aa264bae9146c246c6f0bebb",
+    "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+    "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+    "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+    "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+    "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+    "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+    "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+    "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+    "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+    "src/replication/infrastructure/loopback/catalogue_capabilities.rs": "c759f1a3e737f7c8335184bc8c49d71c57f709dbf7f4b127ca66984884babbec",
+    "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+    "src/replication/infrastructure/loopback.rs": "d73bb1e4d200420edf703315cdf8d40f7a7e8530607b764263037e2df22e6cee",
+    "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+    "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+    "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+    "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+    "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+    "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+    "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+    "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+    "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+    "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+    "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+    "src/replication/infrastructure/sqlite/catalogue.rs": "eea0e2275463a5597bed26872e844ce412b6302cdb2f2efe8e14fcc21be7fb0e",
+    "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+    "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+    "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+    "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+    "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+    "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+    "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+    "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7",
+    "tests/artifact_contract.rs": "356d852f650a3a06f0be02c5c9ad08cb4d54be9a35a8111af08d330b6037a7d2",
+    "tests/artifact_transfer.rs": "40bfad885db7a1831e9c1da674c7c07205cd8eff84cda5c1e81fe4d6c25061b8",
+    "tests/catalogue_entry_validation.rs": "993cf8fae9a8aa04a5a49ee4bfeee87b3a766f3fcca437553c79a297ad3a8d79",
+    "tests/catalogue_plan_validation.rs": "5a45a201467a136219f8326b00f983867447f11bf6ed44ea4e5e3a21de78bf72",
+    "tests/catalogue_progress.rs": "d9ede64641227acc8e89bd75fe29615e14238cb331a2fd026b1b26788d3502c2",
+    "tests/catalogue_publication.rs": "7bbf550bd94813b0631c67d099f3f7376a6eac0c59fac671f2f8639d872d3c66",
+    "tests/catalogue_replication.rs": "ecae55cce1989354573705d6e1215cc8db1c9582578ebb6d7119eaf96ae33de4",
+    "tests/catalogue_request_validation.rs": "9408f670a974bf9f10df5d1ca1fa03b7377725205d42bb6149a8222224735a9f",
+    "tests/freshness.rs": "bf7ddcdd2cc82fc7c9776e348d46a6d0d4ba725fdb1ff6468d9126f83c96618b",
+    "tests/history_replication.rs": "3c6765c326e334e4da4e96ddffa41e6a5a05056f1c9a9032a7ad1240dd1f8b2b",
+    "tests/loopback_catalogue.rs": "fbb895c073ec4ad2ffaa28159b72a19c02455c8511a88c9e17111874e4a517b7",
+    "tests/loopback_record_server.rs": "34c8fc85d2bc0df861c057516699dd4c9f45542befae3069bb0c79a9537cdef5",
+    "tests/open_page.rs": "d277e19d8d3ad9e5f37176efcf7bd0bee9b49e74a3c9966e89791ff78795cb18",
+    "tests/replication/domain/id.rs": "12f0829a4766cf5fc43152550ce1964d3da27181c69000a584c3834f53c41f85",
+    "tests/replication/domain/id_allocation.rs": "9167c57303fadb781e49da6cbf9ea07ef2bf931aed875a5096319eaa802298a4",
+    "tests/replication/domain/page_request.rs": "1efd5488763f869552ca6ead495a5f1575f561ba7cc1a3ea3885b6f356854531",
+    "tests/replication/infrastructure/id_preflight.rs": "a9e7b96fff308576cb79d6f61554228f3c41bbbbecf0debea7691d393853507c",
+    "tests/replication/infrastructure/loopback_issue_53.rs": "e6e13a38abd477298d9dc75c62cc0c1a54485634c18ccc1072353248a723d33a",
+    "tests/replication/infrastructure/memory_request.rs": "c26cfe2e95e82b6313095e3ae9c512c218ec1994f388ea636b469865883fac20",
+    "tests/replication/infrastructure/request.rs": "d226ec76a6e3299687f58aed9ba2e838f8d2a5114d18d6ee9d07116d5d4a3ea9",
+    "tests/replication/wire_contract.rs": "7d3986bd5de5a4a930dda9a6fba9c6bc1e928cd7073c942d9b46cc87f12fe6cc",
+    "tests/replication.rs": "d3e00a42970a79f7f054c38e5fed92dbdc1ea727bf1a79d7d38f3d5f69335958",
+    "tests/session_authorization.rs": "bbe250fde9f99228ff1d0ae1b4e90bc87a676ede4421a3e1743601eec1436b3d",
+    "tests/session_capabilities.rs": "44a521b8d3a6253841eecabc8633ba2b9b6b0a425e4714078f3b576aab075215",
+    "tests/session_control.rs": "bcf293751d420397b92f63106f00a85238574d8c1f2c033476c8c440f680b68a",
+    "tests/session_follow.rs": "4e41812fbd8aa196e3e49eeb5cf5b9c8c1ebe2105031d2a431bfa9c0caaa7bec",
+    "tests/session_io.rs": "fe0d5e8a0f9391105d750e8f429dffba45b34b128d224c37091dece557243a69",
+    "tests/session_lifecycle.rs": "33880b3e95ed91cc7be122873f771dc11ef62259420f71c167d71fc2abc32260",
+    "tests/session_records.rs": "d565f10e723f6718ef3d9e7c9c7f770f96f699aa2951d6044c74b84c9ae66d74",
+    "tests/source_head.rs": "b876d2bd6d28a65498523d561ad58acd09376ed961a3401a97df19af8c3e4261",
+    "tests/source_publication.rs": "82e30803c86fc6b4e6c912de14bfa277c6580bc4941c8b4e6c9b826e5aeb52a4",
+    "tests/sqlite_replication.rs": "fb4ada3a56e74550867f5573bea46550cf9eba011a94983f6a7f3a567145385a"
+  },
+  "limits": [
+    "Native record integration only; host supplies timer/wake and local cache visibility authorization.",
+    "No existing transport loop or catalogue/history/artifact reader automatically adopts the policy.",
+    "No timestamp persistence or fabricated restart time; observed head is no progress or grant.",
+    "No network/relay/weak-link policy comparison in this native-only slice; #54 remains open."
+  ],
+  "independent_review": {
+    "candidate": "496ab300a5aa948e7aaccd7a9156aff156753ea0",
+    "round": 1,
+    "reviewer": "authority_gate_review",
+    "result": "clean; no substantive findings",
+    "scope": "Policy, lifecycle, authority boundaries, timestamp/clock, retries, uncertainty, source fingerprints and all five measurement repetitions; reviewer read evidence but did not rerun tests. Broader transport scheduling and network claims excluded."
+  }
+}
