@@ -456,3 +456,6 @@ pub use records::capabilities::{
 pub use records::scope_pair::{serve_scope_pair_heads, ScopePairHeadsSession};
 
 pub use records::scope_pair::{serve_scope_pair_batched_heads, PairHeadObservation};
+
+#[cfg(feature = "tls")]
+pub use channel::tls::{TlsIdentity, TlsPeer, TlsSessionIo};
