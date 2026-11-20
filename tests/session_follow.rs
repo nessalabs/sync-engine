@@ -481,3 +481,6 @@ fn initial_policy_and_source_refusals_stay_typed_when_the_server_closes() {
         server.finish();
     }
 }
+
+#[path = "session_follow/local_cancel.rs"]
+mod local_cancel;

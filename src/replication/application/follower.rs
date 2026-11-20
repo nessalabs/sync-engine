@@ -9,6 +9,11 @@ use crate::replication::domain::{
     OpenedPage, Page, PageRequest, Scope, SourceHead, ValidationError,
 };
 
+mod cancellation;
+pub use cancellation::{
+    CancellablePageStep, PageStepAttempt, PageStepCancel, PageStepCancelResult,
+};
+
 /// Current host policy decision for this exact receiver and stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Access {
@@ -346,6 +351,51 @@ pub fn step<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
     if pass.is_complete() {
         return Ok(true);
     }
+    let plan = prepare_step(pass, limits, authorizer, source)?;
+    apply_step(pass, plan, store)
+}
+
+/// Run one ordinary follower page step with an explicit one-shot local apply
+/// gate. This does not cancel the synchronous source read or send a wire
+/// message. A late complete response is discarded if cancellation wins.
+///
+/// Once apply is admitted, the store owns the outcome. Cancellation cannot
+/// interrupt it or turn an uncertain result into a rollback. After uncertainty,
+/// discard the pass and reload durable progress through authorized
+/// [begin_pass]. Actual policy/source/validation errors remain typed even if a
+/// cancellation races the failing read.
+pub fn step_cancellable<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
+    pass: &mut Pass,
+    limits: Limits,
+    authorizer: &mut A,
+    source: &mut S,
+    store: &mut R,
+    attempt: PageStepAttempt,
+) -> Result<CancellablePageStep, SyncError> {
+    if attempt.cancelled() {
+        return Ok(CancellablePageStep::CancelledBeforeApply);
+    }
+    if pass.is_complete() {
+        return Ok(if attempt.finish_without_apply() {
+            CancellablePageStep::Finished { complete: true }
+        } else {
+            CancellablePageStep::CancelledBeforeApply
+        });
+    }
+    let plan = prepare_step(pass, limits, authorizer, source)?;
+    if !attempt.claim() {
+        return Ok(CancellablePageStep::CancelledBeforeApply);
+    }
+    let complete = apply_step(pass, plan, store)?;
+    Ok(CancellablePageStep::Finished { complete })
+}
+
+fn prepare_step<A: ScopeAuthorizer, S: RecordSource>(
+    pass: &Pass,
+    limits: Limits,
+    authorizer: &mut A,
+    source: &mut S,
+) -> Result<CommitPlan, SyncError> {
     check_access(&pass.scope, authorizer)?;
     let request = PageRequest {
         scope: pass.scope.clone(),
@@ -357,7 +407,14 @@ pub fn step<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
     };
     let page = source.page(&request).map_err(SyncError::from)?;
     let expected = Checkpoint::new(pass.scope.clone(), pass.next);
-    let plan = validate_page(&expected, &request, page, limits).map_err(SyncError::Validation)?;
+    validate_page(&expected, &request, page, limits).map_err(SyncError::Validation)
+}
+
+fn apply_step<R: ReplicaStore>(
+    pass: &mut Pass,
+    plan: CommitPlan,
+    store: &mut R,
+) -> Result<bool, SyncError> {
     let next = plan.next().position();
     store.apply(plan).map_err(SyncError::Store)?;
     pass.next = next;

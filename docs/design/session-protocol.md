@@ -339,6 +339,10 @@ an explicit owner and proof. Late replies cannot restore an invalid binding.
 a separate authority field with durable host ownership, not the access epoch.
 Do not claim stale-origin protection before that work exists.
 
+[Local page apply cancellation](local-page-cancellation.md) proves the
+one-shot receiver-side cancel-vs-apply decision on the existing synchronous
+follower and store. It is not a wire Cancel or independent control lane.
+
 ## Independently reviewable slices and finish lines
 
 | Slice | Deliverable and finish line | Dependencies / exclusions |
