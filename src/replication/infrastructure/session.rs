@@ -442,6 +442,11 @@ pub use channel::{
     TcpSessionWriter,
 };
 
+pub use records::follow::cancel_page::{
+    connect_page_cancel_session, serve_page_cancel_session, CancelPageOutput, PageCancelHandle,
+    PageCancelOutcome, PageCancelReceipt, PageCancelSession, PendingCancelPage,
+};
+
 pub use records::follow::{
     connect_follow, serve_capability_follow_record_session, serve_follow_record_session,
     serve_history_follow_record_session, CapabilityFollowHistorySource, CapabilityFollowSource,
