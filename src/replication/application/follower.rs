@@ -36,6 +36,8 @@ pub const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// Typed source failure; source adapters must enforce the request bounds before allocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
+    /// Source metadata version or reader requirements are incompatible.
+    Incompatible(CapabilityError),
     /// Authentication or receiver policy refused this request.
     Denied,
     /// Source is temporarily unavailable.
@@ -78,6 +80,33 @@ pub trait RecordSource {
 pub trait RecordHeadSource: RecordSource {
     /// Read current committed head and requirements, before any payload request.
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError>;
+}
+
+/// One owned, capability-coherent record view for a server read operation.
+/// Requirements/encoding returned by view_head must remain valid for every
+/// page through its captured head on this handle. The factory must establish
+/// that snapshot or immutable-format guarantee; object identity alone is not
+/// evidence. This is stronger than initial-admission RecordHeadSource.
+/// Current authorization remains the server's separate responsibility.
+///
+/// Initial metadata admission alone does not establish a coherent read view:
+/// ```compile_fail
+/// use nessa_sync::replication::application::{RecordSource, RecordHeadSource, RecordReadView, SourceError};
+/// use nessa_sync::replication::domain::{Scope, Page, PageRequest, SourceHead};
+/// struct InitialOnly;
+/// impl RecordSource for InitialOnly {
+///     fn head(&mut self, _: &Scope) -> Result<u64, SourceError> { Ok(0) }
+///     fn page(&mut self, _: &PageRequest) -> Result<Page, SourceError> { Err(SourceError::Unavailable) }
+/// }
+/// impl RecordHeadSource for InitialOnly {
+///     fn source_head(&mut self, s: &Scope) -> Result<SourceHead, SourceError> { Ok(SourceHead::new(s.clone(),0,0,0)) }
+/// }
+/// fn requires_view(_: impl RecordReadView) {}
+/// requires_view(InitialOnly);
+/// ```
+pub trait RecordReadView: RecordSource {
+    /// Read committed metadata for this exact scope and coherent encoding view.
+    fn view_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError>;
 }
 
 /// Optional first-page port. The authoritative adapter captures one committed
@@ -143,6 +172,15 @@ pub enum SyncError {
     SourceBehindCheckpoint,
 }
 
+impl From<SourceError> for SyncError {
+    fn from(error: SourceError) -> Self {
+        match error {
+            SourceError::Incompatible(error) => Self::Incompatible(error),
+            other => Self::Source(other),
+        }
+    }
+}
+
 /// One finite pass, with a target captured from one authorized head read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pass {
@@ -177,7 +215,7 @@ pub fn begin_pass<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
     store: &mut R,
 ) -> Result<Pass, SyncError> {
     begin_from_head(scope, authorizer, store, || {
-        source.head(scope).map_err(SyncError::Source)
+        source.head(scope).map_err(SyncError::from)
     })
 }
 
@@ -193,7 +231,7 @@ pub fn begin_pass_with_capabilities<A: ScopeAuthorizer, S: RecordHeadSource, R: 
     store: &mut R,
 ) -> Result<Pass, SyncError> {
     begin_from_head(scope, authorizer, store, || {
-        let head = source.source_head(scope).map_err(SyncError::Source)?;
+        let head = source.source_head(scope).map_err(SyncError::from)?;
         if head.scope() != scope {
             return Err(SyncError::Validation(ValidationError::WrongRequest));
         }
@@ -266,7 +304,7 @@ pub fn begin_pass_with_page<A: ScopeAuthorizer, S: OpenRecordSource, R: ReplicaS
     };
     validate_open_page_request(&request, limits).map_err(SyncError::Validation)?;
     check_access(scope, authorizer)?;
-    let opened = source.open_page(&request).map_err(SyncError::Source)?;
+    let opened = source.open_page(&request).map_err(SyncError::from)?;
     let (target, plan) = validate_open_page(
         &Checkpoint::new(scope.clone(), position),
         &request,
@@ -317,7 +355,7 @@ pub fn step<A: ScopeAuthorizer, S: RecordSource, R: ReplicaStore>(
         max_payload_bytes: limits.max_payload_bytes(),
         max_record_bytes: limits.max_record_bytes(),
     };
-    let page = source.page(&request).map_err(SyncError::Source)?;
+    let page = source.page(&request).map_err(SyncError::from)?;
     let expected = Checkpoint::new(pass.scope.clone(), pass.next);
     let plan = validate_page(&expected, &request, page, limits).map_err(SyncError::Validation)?;
     let next = plan.next().position();

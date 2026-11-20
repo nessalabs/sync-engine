@@ -1123,6 +1123,7 @@ where
                 .and_then(|mut b| (b.factory)(s))
         },
         Some(&mut hook),
+        None,
     );
     stop.store(true, Ordering::Release);
     signal.wake();

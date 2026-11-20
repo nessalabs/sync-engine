@@ -101,6 +101,10 @@ impl CapabilitySupport {
             writer: KNOWN_WRITER_CAPABILITIES,
         }
     }
+    /// Reader support declared by this consumer; never includes undefined bits.
+    pub fn reader_bits(&self) -> u64 {
+        self.reader
+    }
     /// Select a subset of implemented features. Unknown declarations are refused.
     pub fn new(reader: u64, writer: u64) -> Result<Self, CapabilityError> {
         let unknown_reader = reader & !KNOWN_READER_CAPABILITIES;

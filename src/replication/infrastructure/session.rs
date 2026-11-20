@@ -245,9 +245,13 @@ pub fn write_control(
             correlation,
             reason,
         } => {
+            let code = super::loopback::source_error_code(reason.clone());
+            if !(1..=6).contains(&code) {
+                return Err(ControlError::Incompatible);
+            }
             body.push(5);
             put_correlation(&mut body, *correlation)?;
-            body.push(super::loopback::source_error_code(reason.clone()));
+            body.push(code);
         }
         ControlFrame::Bound {
             correlation,
@@ -420,4 +424,8 @@ pub use channel::{
 pub use records::follow::{
     connect_follow, serve_follow_record_session, FollowAuthorizer, FollowCounters, FollowError,
     FollowIo, FollowSession, FollowSource, HintReceiver, HintSignal, HintStats, HintWake,
+};
+
+pub use records::capabilities::{
+    serve_capability_record_session, CapabilityRecordSession, CapabilitySessionSource,
 };

@@ -432,6 +432,7 @@ fn decode_catalogue_error(code: u8) -> CatalogueSourceError {
 
 pub(super) fn source_error_code(error: SourceError) -> u8 {
     match error {
+        SourceError::Incompatible(_) => 7, // Legacy dialect cannot carry capability details; fatal.
         SourceError::Denied => 1,
         SourceError::Unavailable => 2,
         SourceError::Pruned => 3,

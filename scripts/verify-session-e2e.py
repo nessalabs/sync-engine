@@ -179,8 +179,9 @@ class Forwarder:
             worker.join(timeout=2)
 
 
-def start_server(mode, source):
+def start_server(mode, source, reader=0, writer=0):
     command = [str(LEGACY), "serve", str(source), "0", READ, WRITE] if mode == "loopback" else [str(BIN), "serve", str(source), "0", READ]
+    if mode == "session-caps": command = [str(BIN), "serve-caps", str(source), "0", READ, str(reader), str(writer)]
     child = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     selector = selectors.DefaultSelector()
     selector.register(child.stderr, selectors.EVENT_READ)
@@ -222,7 +223,7 @@ def case(base, mode, path, kbit, rtt):
         assert result.returncode == 0, (mode, path, kbit, result.stderr)
         report = json.loads(result.stdout)
         assert report["transport"] == mode
-        expected_exchanges = {"loopback": [7, 7, 7, 5], "session": [9, 6, 9, 4], "session-open": [8, 6, 8, 4], "session-page": [7, 5, 7, 5], "session-io": [7, 5, 7, 5]}[mode]
+        expected_exchanges = {"loopback": [7, 7, 7, 5], "session": [9, 6, 9, 4], "session-open": [8, 6, 8, 4], "session-page": [7, 5, 7, 5], "session-io": [7, 5, 7, 5], "session-caps": [7, 5, 7, 5]}[mode]
         for position, exchanges, phase in zip([7, 14, 21, 21], expected_exchanges, report["phases"], strict=True):
             assert phase["exchanges"] == exchanges, phase
             assert phase["checkpoint"] == phase["records"] == position and phase["ordered_complete"], phase
@@ -285,7 +286,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", action="store_true", help="add real-time 32/64 kbit application-frame delay profiles")
     parser.add_argument("--repetitions", type=int, default=1)
-    parser.add_argument("--modes", nargs="+", choices=["loopback","session","session-open","session-page","session-io"], default=["loopback","session","session-open","session-page","session-io"])
+    parser.add_argument("--modes", nargs="+", choices=["loopback","session","session-open","session-page","session-io","session-caps"], default=["loopback","session","session-open","session-page","session-io","session-caps"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--markdown", type=Path)
     parser.add_argument("--require-complete", action="store_true")
@@ -340,7 +341,16 @@ def main():
         new=comparable[(*key[:-1],"session-io")]
         for field in ["exchanges","protocol_exchanges","host_auth_exchanges","protocol_bytes","total_bytes","payload_bytes","duplicate_bytes"]:
             assert old[field]==new[field],(field,old,new)
-    report = {"modes": args.modes, "source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "interruptible session I/O prerequisite; no hint/follow transport yet", "completion_ready": False,
+    for key,old in comparable.items():
+        if key[-1]!="session-io" or "session-caps" not in args.modes:
+            continue
+        new=comparable[(*key[:-1],"session-caps")]
+        metadata_count=3 if old["phase"]=="short_session" else 1
+        for field in ["exchanges","protocol_exchanges","host_auth_exchanges","payload_bytes","duplicate_bytes"]:
+            assert old[field]==new[field],(field,old,new)
+        assert new["protocol_bytes"]-old["protocol_bytes"]==64*metadata_count,(old,new)
+        assert new["total_bytes"]-old["total_bytes"]==64*metadata_count,(old,new)
+    report = {"modes": args.modes, "source_sha256": source_hashes, "base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "scope": "matched record-session subset including explicit version1 capability operations; full epic incomplete", "completion_ready": False,
               "coverage_gaps": GAPS, "contract_tests_passed": int(count.group(1)), "environment": platform.platform(),
               "command": "python3 scripts/verify-session-e2e.py" + (" --profiles" if args.profiles else "") + f" --repetitions {args.repetitions} --modes " + " ".join(args.modes),
               "conditions": ["real TCP adapter/source-to-SQLite-cache paths; inspect cache again in a new process",

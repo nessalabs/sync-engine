@@ -4,11 +4,12 @@
 use nessa_sync::replication::{
     application::{
         begin_pass, begin_pass_with_page, finish_pass, Access, OpenRecordSource, Pass,
-        RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, SyncError,
+        RecordReadView, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, SyncError,
     },
-    domain::{Id, Limits, Scope, MAX_ID_BYTES},
+    domain::{CapabilityError, CapabilitySupport, Id, Limits, Scope, SourceHead, MAX_ID_BYTES},
     infrastructure::session::{
-        serve_record_session, RecordSession, RecordSessionAuthorizer, RecordSessionSource,
+        serve_capability_record_session, serve_record_session, CapabilityRecordSession,
+        CapabilitySessionSource, RecordSession, RecordSessionAuthorizer, RecordSessionSource,
         SessionLimits, TcpSessionIo,
     },
     infrastructure::{LoopbackClient, SqliteReferenceSource, SqliteReplicaStore, WireCounters},
@@ -156,7 +157,37 @@ fn finish_and_recheck<A: ScopeAuthorizer, S: RecordSource, D: ReplicaStore>(
         }
     }
 }
+// Fixture metadata is fixed for each server view and does not enable a new
+// payload encoding or implement durable source requirement publication.
+struct CapabilityFixtureView {
+    inner: SqliteReferenceSource,
+    reader: u64,
+    writer: u64,
+}
+impl RecordSource for CapabilityFixtureView {
+    fn head(&mut self, scope: &Scope) -> Result<u64, SourceError> {
+        self.inner.head(scope)
+    }
+    fn page(
+        &mut self,
+        request: &nessa_sync::replication::domain::PageRequest,
+    ) -> Result<nessa_sync::replication::domain::Page, SourceError> {
+        self.inner.page(request)
+    }
+}
+impl RecordReadView for CapabilityFixtureView {
+    fn view_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        self.inner
+            .head(scope)
+            .map(|n| SourceHead::new(scope.clone(), n, self.reader, self.writer))
+    }
+}
 enum Ports {
+    Capability {
+        session: CapabilityRecordSession<TcpSessionIo>,
+        a: RecordSessionAuthorizer<TcpSessionIo>,
+        s: CapabilitySessionSource<TcpSessionIo>,
+    },
     Managed {
         session: RecordSession<TcpSessionIo>,
         a: RecordSessionAuthorizer<TcpSessionIo>,
@@ -175,7 +206,18 @@ enum Ports {
 }
 impl Ports {
     fn connect(mode: &str, endpoint: SocketAddrV4, token: &Id) -> Result<(Self, u64, u64), Error> {
-        if mode == "session-io" {
+        if mode == "session-caps" {
+            let (socket, auth_bytes) = dial_socket(endpoint, token)?;
+            let session = CapabilityRecordSession::connect(
+                TcpSessionIo::new(socket)?,
+                scope("device-a"),
+                limits(),
+                CapabilitySupport::current(),
+            )
+            .map_err(error)?;
+            let (a, s) = session.parts();
+            Ok((Self::Capability { session, a, s }, auth_bytes, 1))
+        } else if mode == "session-io" {
             let (socket, auth_bytes) = dial_socket(endpoint, token)?;
             let session = RecordSession::connect_open_interruptible(
                 TcpSessionIo::new(socket)?,
@@ -208,7 +250,7 @@ impl Ports {
                 1,
             ))
         } else {
-            Err("mode must be loopback, session, session-open, session-page or session-io".into())
+            Err("mode must be loopback, session, session-open, session-page, session-io or session-caps".into())
         }
     }
     fn counters(&self) -> Result<WireCounters, Error> {
@@ -226,6 +268,7 @@ impl Ports {
             }
             Self::Session { session, .. } => Ok(session.counters().map_err(error)?),
             Self::Managed { session, .. } => Ok(session.counters().map_err(error)?),
+            Self::Capability { session, .. } => Ok(session.counters().map_err(error)?),
         }
     }
     fn catch_up(&mut self, store: &mut SqliteReplicaStore) -> Result<u64, Error> {
@@ -235,6 +278,7 @@ impl Ports {
                 Ok(catch_up(a.as_mut(), s.as_mut(), store).map_err(error)?)
             }
             Self::Managed { a, s, .. } => Ok(catch_up_page(a, s, store).map_err(error)?),
+            Self::Capability { a, s, .. } => Ok(catch_up_page(a, s, store).map_err(error)?),
             Self::Session {
                 a, s, first_page, ..
             } => {
@@ -250,6 +294,7 @@ impl Ports {
         match self {
             Self::Session { session, .. } => session.close().map_err(error)?,
             Self::Managed { session, .. } => session.close().map_err(error)?,
+            Self::Capability { session, .. } => session.close().map_err(error)?,
             _ => {}
         }
         Ok(())
@@ -377,10 +422,50 @@ fn bench(
     );
     Ok(())
 }
+fn refused(endpoint: SocketAddrV4, replica: &Path, token: &Id, expected: u64) -> Result<(), Error> {
+    let before = inspect(replica)?;
+    if before.0 != expected {
+        return Err("fixture checkpoint expectation mismatch".into());
+    }
+    let start = Instant::now();
+    let (socket, auth_bytes) = dial_socket(endpoint, token)?;
+    let root = CapabilityRecordSession::connect(
+        TcpSessionIo::new(socket)?,
+        scope("device-a"),
+        limits(),
+        CapabilitySupport::current(),
+    )
+    .map_err(error)?;
+    let (mut a, mut source) = root.parts();
+    let mut store = SqliteReplicaStore::open(replica)?;
+    if begin_pass_with_page(
+        &scope("device-a"),
+        Limits::new(32, 128 * 1024, 128 * 1024).unwrap(),
+        &mut a,
+        &mut source,
+        &mut store,
+    ) != Err(SyncError::Incompatible(CapabilityError::MissingReader(1)))
+    {
+        return Err("fixture expected typed reader incompatibility".into());
+    }
+    let elapsed = start.elapsed().as_secs_f64() * 1000.;
+    drop(store);
+    let counters = root.counters().map_err(error)?;
+    if counters.payload_bytes != 0 || inspect(replica)? != before {
+        return Err("incompatibility moved fixture progress or delivered record payload".into());
+    }
+    root.close().map_err(error)?;
+    println!("{{\"typed_incompatible\":true,\"cache_unchanged\":true,\"checkpoint\":{expected},\"record_payload_bytes\":0,\"exchanges\":{},\"protocol_bytes\":{},\"elapsed_ms\":{elapsed:.3}}}",counters.exchanges+1,counters.protocol_bytes+auth_bytes);
+    Ok(())
+}
 fn run() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str){
-        Some("serve") if args.len()==5=>{
+        Some("serve" | "serve-caps") if args.len()==5 || args.len()==7=>{
+            let capable=args[1]=="serve-caps";
+            if (capable && args.len()!=7) || (!capable && args.len()!=5) { return Err("invalid fixture server arguments".into()); }
+            let reader=if capable { args[5].parse::<u64>()? } else {0};
+            let writer=if capable { args[6].parse::<u64>()? } else {0};
             let path=std::path::PathBuf::from(&args[2]); drop(source(&path)?);
             let listener=TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST,args[3].parse()?))?;
             let token=Id::new(&args[4]).map_err(error)?; let next=Arc::new(Mutex::new(1_u64));
@@ -395,19 +480,28 @@ fn run() -> Result<(), Error> {
                             *value = number.checked_add(1).ok_or("fixture namespace exhausted")?;
                             number
                         };
-                        serve_record_session(&mut socket, number, limits(), &mut FixturePolicy, |_| {
-                            SqliteReferenceSource::open(&path, id("example-origin"), id("transcript"), id("first"), id("text-v1"))
-                                .map_err(|_| SourceError::Unavailable)
-                        }).map_err(error)?;
+                        if capable {
+                            serve_capability_record_session(&mut socket,number,limits(),&mut FixturePolicy, |_| {
+                                SqliteReferenceSource::open(&path,id("example-origin"),id("transcript"),id("first"),id("text-v1"))
+                                    .map(|inner| CapabilityFixtureView {inner,reader,writer}).map_err(|_|SourceError::Unavailable)
+                            }).map_err(error)?;
+                        } else {
+                            serve_record_session(&mut socket, number, limits(), &mut FixturePolicy, |_| {
+                                SqliteReferenceSource::open(&path, id("example-origin"), id("transcript"), id("first"), id("text-v1"))
+                                    .map_err(|_| SourceError::Unavailable)
+                            }).map_err(error)?;
+                        }
                         Ok(())
                     };
                     if let Err(e) = run() { eprintln!("fixture session ended: {e}"); }
                 });
             }Ok(())
         }
+        Some("refuse") if args.len()==6=>refused(address(&args[2])?,Path::new(&args[3]),&Id::new(&args[4]).map_err(error)?,args[5].parse()?),
+        Some("append") if args.len()==3=>{let mut producer=source(Path::new(&args[2]))?;let after=producer.head(&scope("device-a")).map_err(error)?;for n in after+1..=after+7{let (id,payload)=fact(n as usize);producer.append(&id,&payload).map_err(error)?;}println!("{{\"head\":{}}}",after+7);Ok(())},
         Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("inspect") if args.len()==3=>{let(c,n,p)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{p},\"ordered_complete\":true}}");Ok(())}
-        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page|session-io ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
+        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page|session-io|session-caps ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
     }
 }
 fn main() {

@@ -6,7 +6,7 @@ use std::path::Path;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::replication::application::{
-    RecordHeadSource, RecordSource, SourceError, StoreError, MAX_RECORD_BYTES,
+    RecordHeadSource, RecordReadView, RecordSource, SourceError, StoreError, MAX_RECORD_BYTES,
 };
 use crate::replication::domain::{
     validate_page_request, Id, Limits, Page, PageRequest, Record, Scope, SourceHead,
@@ -582,5 +582,13 @@ impl RecordHeadSource for SqliteReferenceSource {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
         RecordSource::head(self, scope)
             .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
+    }
+}
+
+// This reference format has permanently zero optional requirements and immutable
+// records; append-only growth cannot change the encoding of the captured range.
+impl RecordReadView for SqliteReferenceSource {
+    fn view_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        RecordHeadSource::source_head(self, scope)
     }
 }

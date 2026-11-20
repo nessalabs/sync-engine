@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::replication::application::{
-    Access, RecordHeadSource, RecordSource, ReplicaStore, ScopeAuthorizer, SourceError, StoreError,
+    Access, RecordHeadSource, RecordReadView, RecordSource, ReplicaStore, ScopeAuthorizer,
+    SourceError, StoreError,
 };
 use crate::replication::domain::{
     validate_page_request, Checkpoint, CommitPlan, Id, Limits, Page, PageRequest, Record, Scope,
@@ -341,5 +342,13 @@ impl RecordHeadSource for MemorySource {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
         RecordSource::head(self, scope)
             .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
+    }
+}
+
+// This reference format has permanently zero optional requirements and immutable
+// records; append-only growth cannot change the encoding of the captured range.
+impl RecordReadView for MemorySource {
+    fn view_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        RecordHeadSource::source_head(self, scope)
     }
 }

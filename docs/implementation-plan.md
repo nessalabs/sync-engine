@@ -38,7 +38,10 @@ passive reader/writer requirements and opt-in native record/catalogue starts.
 Unknown reader features stop before payload admission; writer-only requirements
 do not block read-only starts. This does not yet provide mid-pass fencing, durable
 requirement publication or capability-bearing transport metadata. Both #47 and #54
-remain open, and existing network/combined-page paths remain explicitly legacy.
+remain open. The opt-in [version1 record capability endpoint](design/source-head-wire.md)
+now checks metadata before optimized first-page and fixed-page payload access,
+with a coherent read-view contract and typed incompatibility. Legacy endpoints
+remain separate; follow/catalogue/history and durable publication are still pending.
 
 ## Outcome we are building toward
 
