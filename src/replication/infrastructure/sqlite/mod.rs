@@ -40,14 +40,14 @@ use connection::{
 pub use origin_authority::{OriginClaimError, OriginProvisionError, SqliteOriginAuthority};
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::{
-    EpochBinding, EpochReplicaError, EpochReplicaOpenError, EpochTailError,
+    EpochBinding, EpochHistoryError, EpochReplicaError, EpochReplicaOpenError, EpochTailError,
     SqliteEpochReplicaStore, SqliteReplicaStore,
 };
 pub use source::{
-    ClaimedNativeHead, ClaimedNativePage, ClaimedNativePlan, ClaimedNativeTail,
-    ClaimedNativeTailPlan, EpochHeadError, EpochSourceError, RecordPinReceipt,
-    RecordRetentionError, SourcePublicationError, SqliteEpochHeadSource, SqliteEpochRecordSource,
-    SqliteReferenceSource,
+    ClaimedNativeHead, ClaimedNativeOlder, ClaimedNativeOlderPlan, ClaimedNativePage,
+    ClaimedNativePlan, ClaimedNativeTail, ClaimedNativeTailPlan, EpochHeadError, EpochSourceError,
+    RecordPinReceipt, RecordRetentionError, SourcePublicationError, SqliteEpochHeadSource,
+    SqliteEpochRecordSource, SqliteReferenceSource,
 };
 
 #[cfg(test)]

@@ -235,12 +235,10 @@ pub fn validate_tail(
     Ok(TailPlan(snapshot))
 }
 
-/// Checks a historical page ending immediately before the requested boundary.
-pub fn validate_older(
+pub(crate) fn validate_older_request(
     request: &OlderRequest,
-    page: OlderPage,
     limits: Limits,
-) -> Result<OlderPlan, HistoryValidationError> {
+) -> Result<(), HistoryValidationError> {
     request_bounds(
         request.generation,
         request.max_records,
@@ -251,6 +249,16 @@ pub fn validate_older(
     if request.before <= 1 {
         return Err(HistoryValidationError::InvalidRequest);
     }
+    Ok(())
+}
+
+/// Checks a historical page ending immediately before the requested boundary.
+pub fn validate_older(
+    request: &OlderRequest,
+    page: OlderPage,
+    limits: Limits,
+) -> Result<OlderPlan, HistoryValidationError> {
+    validate_older_request(request, limits)?;
     if page.request != *request {
         return Err(HistoryValidationError::WrongRequest);
     }

@@ -1,4 +1,4 @@
-//! Claim-qualified local head, forward-page and tail capture. Source writer and wire are unchanged.
+//! Claim-qualified local native record reads. Source writer and wire are unchanged.
 
 use super::super::origin_authority::{OriginClaimError, SqliteOriginAuthority};
 use super::{
@@ -9,8 +9,9 @@ use crate::replication::domain::{
     ValidationError,
 };
 use crate::replication::history::{
-    validate_tail, validate_tail_request, CapabilityHistorySource, HistorySourceError,
-    HistoryValidationError, TailPlan, TailRequest, TailSnapshot,
+    validate_older, validate_older_request, validate_tail, validate_tail_request,
+    CapabilityHistorySource, HistorySourceError, HistoryValidationError, OlderPage, OlderPlan,
+    OlderRequest, TailPlan, TailRequest, TailSnapshot,
 };
 use crate::replication::origin_epoch::{OriginAuthorityKey, OriginEpoch};
 
@@ -136,6 +137,53 @@ impl ClaimedNativeTailPlan {
     }
 }
 
+/// One opaque native older page and its coherent metadata captured under a claim.
+pub struct ClaimedNativeOlder {
+    stamp: Stamp,
+    metadata: SourceHead,
+    page: OlderPage,
+}
+
+impl ClaimedNativeOlder {
+    /// Validate the caller's exact expected request, bounded range, and
+    /// source metadata. Preserve the captured claim without observing it.
+    pub fn validate(
+        self,
+        request: &OlderRequest,
+        limits: Limits,
+    ) -> Result<ClaimedNativeOlderPlan, HistoryValidationError> {
+        if self.metadata.scope() != &request.scope {
+            return Err(HistoryValidationError::WrongRequest);
+        }
+        if self.metadata.position() < request.before.saturating_sub(1) {
+            return Err(HistoryValidationError::InvalidBoundary);
+        }
+        let plan = validate_older(request, self.page, limits)?;
+        Ok(ClaimedNativeOlderPlan {
+            stamp: self.stamp,
+            plan,
+        })
+    }
+}
+
+/// One validated exact older operation retaining its original writer claim.
+pub struct ClaimedNativeOlderPlan {
+    stamp: Stamp,
+    plan: OlderPlan,
+}
+
+impl ClaimedNativeOlderPlan {
+    /// Borrow the exact range, generation and bounds for trusted admission.
+    pub fn request(&self) -> &OlderRequest {
+        &self.plan.page().request
+    }
+
+    /// Extract the original claim and exact validated plan for the trusted host.
+    pub fn into_parts(self) -> (OriginAuthorityKey, OriginEpoch, OlderPlan) {
+        (self.stamp.key, self.stamp.epoch, self.plan)
+    }
+}
+
 /// Refusal from a claim-qualified native source capture.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EpochSourceError {
@@ -147,18 +195,20 @@ pub enum EpochSourceError {
     History(HistorySourceError),
     /// The requested tail generation or bounds are not admissible.
     TailRequest(HistoryValidationError),
+    /// The requested older range, generation or bounds are not admissible.
+    OlderRequest(HistoryValidationError),
 }
 
 /// Compatibility name for head capture refusals.
 pub type EpochHeadError = EpochSourceError;
 
-/// Local claim-qualified head, forward-page and tail producer over an ordinary source.
+/// Local claim-qualified native record producer over an ordinary source.
 ///
 /// The caller gives this mode an existing source handle and trusted shared
 /// authority ledger. It does not expose the owned handle or implement legacy
 /// `RecordHeadSource`. This is a protected **result producer**, not a protected
-/// source file mode: ordinary handles, appends and older pages remain unchanged
-/// and produce no claim-qualified result.
+/// source file mode: ordinary handles and appends remain unchanged and produce
+/// no claim-qualified result.
 ///
 /// A producer cannot be substituted for a legacy bare-head reader:
 /// ```compile_fail
@@ -253,6 +303,27 @@ impl SqliteEpochRecordSource {
             stamp: self.stamp.clone(),
             metadata,
             snapshot,
+        })
+    }
+
+    /// Capture an exact bounded older page under the confirmed writer claim.
+    /// The existing native snapshot checks fresh compatibility before
+    /// acquiring payload, and the authority guard releases before handoff.
+    pub fn capture_older(
+        &mut self,
+        request: &OlderRequest,
+        limits: Limits,
+    ) -> Result<ClaimedNativeOlder, EpochSourceError> {
+        validate_older_request(request, limits).map_err(EpochSourceError::OlderRequest)?;
+        let (metadata, page) = self.capture(|source| {
+            source
+                .older_with_capabilities(request, CapabilitySupport::current())
+                .map_err(EpochSourceError::History)
+        })?;
+        Ok(ClaimedNativeOlder {
+            stamp: self.stamp.clone(),
+            metadata,
+            page,
         })
     }
 
