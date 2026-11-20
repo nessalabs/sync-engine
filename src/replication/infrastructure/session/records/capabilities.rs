@@ -253,6 +253,11 @@ pub struct CapabilitySessionSource<S> {
     inner: RecordSessionSource<S>,
     supported: CapabilitySupport,
 }
+impl<S> CapabilitySessionSource<S> {
+    pub(super) fn from_source(inner: RecordSessionSource<S>, supported: CapabilitySupport) -> Self {
+        Self { inner, supported }
+    }
+}
 impl<S: Read + Write> RecordHeadSource for CapabilitySessionSource<S> {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
         let mut c = active_client(&self.inner.shared, &self.inner.closing)

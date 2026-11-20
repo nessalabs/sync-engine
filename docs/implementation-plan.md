@@ -42,6 +42,10 @@ hosts must explicitly select capability-aware APIs and fence old writers during
 schema upgrades. The acceptance map records these boundaries and the independent
 production transport work still tracked by #54.
 
+[Capability follow prerequisite](design/capability-follow.md) now composes the
+existing capability read codec and freshness owner on the sole follow connection;
+policy-triggered live-read qualification remains pending.
+
 [Record freshness #52](design/freshness.md) now has an opt-in per-scope owner with
 an injected clock, local-only Within reads, finite-pass coordination and one
 jittered backoff deadline. Hosts explicitly connect wake scheduling; existing

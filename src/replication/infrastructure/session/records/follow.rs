@@ -1,5 +1,8 @@
 //! One-scope persistent advisory hints, with one reader and bounded dispatch.
+use super::capabilities::CapabilitySessionSource;
 use super::*;
+use crate::replication::application::{RecordHeadSource, RecordReadView};
+use crate::replication::domain::{CapabilitySupport, SourceHead};
 use crate::replication::infrastructure::session::DuplexSessionIo;
 use std::io::Cursor;
 use std::sync::Condvar;
@@ -75,8 +78,12 @@ struct Rpc {
     expected: Expect,
     deadline: Instant,
     complete: bool,
+    owned_refusal: bool,
 }
 impl Rpc {
+    fn owned_outcome(&self) -> bool {
+        self.setup_outcome() || self.owned_refusal
+    }
     fn setup_outcome(&self) -> bool {
         self.complete && matches!(self.expected, Expect::Handshake { .. })
     }
@@ -149,7 +156,8 @@ impl Shared {
             let packet = read_packet(&mut bytes, s.limit)
                 .map_err(FollowError::from)?
                 .ok_or(FollowError::Protocol)?;
-            if !matches!(packet.kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE)
+            if !(matches!(packet.kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE)
+                || capabilities::operation(packet.kind))
                 || packet.status != 0
                 || packet.offset != 0
                 || packet.total != packet.payload.len()
@@ -167,6 +175,7 @@ impl Shared {
             expected,
             deadline: Instant::now() + timeout,
             complete: false,
+            owned_refusal: false,
         });
         Ok(())
     }
@@ -223,7 +232,13 @@ impl Shared {
                     return Err(FollowError::Protocol);
                 }
                 if p.status != 0 {
-                    if !(1..=7).contains(&p.status)
+                    if p.status == 8 && capabilities::operation(p.kind & !REPLY) {
+                        if p.offset != 0 || p.total != p.payload.len() {
+                            return Err(FollowError::Protocol);
+                        }
+                        capabilities::decode_incompatible(&p.payload).map_err(FollowError::from)?;
+                        rpc.owned_refusal = true;
+                    } else if !(1..=7).contains(&p.status)
                         || p.total != 0
                         || p.offset != 0
                         || !p.payload.is_empty()
@@ -338,9 +353,9 @@ impl<W: Write> Read for FollowIo<W> {
                 .map_err(|_| io::ErrorKind::NotConnected)?;
             let until = s.rpc.as_ref().ok_or(io::ErrorKind::InvalidData)?.deadline;
             while s.frame.is_none() && !s.closed {
-                if s.rpc.as_ref().is_some_and(Rpc::setup_outcome) {
+                if s.rpc.as_ref().is_some_and(Rpc::owned_outcome) {
                     // The complete correlated outcome arrived on time. The
-                    // connecting owner now owns even its reader-local frame;
+                    // consumer now owns even its reader-local frame;
                     // this wait is local publication, not network arrival.
                     s = self
                         .shared
@@ -529,8 +544,14 @@ fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: imp
             s.frame = Some(frame);
             shared.ready.notify_all();
             // A complete correlated setup result belongs to the connecting
-            // owner until validation. Do not read ahead into EOF or hints.
-            while handoff && s.identity.is_none() && !s.closed {
+            // owner until validation. A canonical capability refusal belongs to
+            // the RPC consumer until its complete bounded frame is transferred
+            // into FollowIo's local Cursor. EOF cannot erase either owned result;
+            // after transfer the reader resumes normal terminal-hint handling.
+            while !s.closed
+                && ((handoff && s.identity.is_none())
+                    || (s.rpc.as_ref().is_some_and(|rpc| rpc.owned_refusal) && s.frame.is_some()))
+            {
                 s = shared.ready.wait(s).map_err(|_| FollowError::Closed)?;
             }
         }
@@ -662,6 +683,47 @@ impl<W: Write> OpenRecordSource for FollowSource<W> {
         result
     }
 }
+/// Capability-aware source ports over the existing follow reader/RPC owner.
+/// Peer endpoint support is explicit. Metadata is read from the source, never
+/// synthesized from a hint or legacy head. Terminal hint refusals retain precedence.
+pub struct CapabilityFollowSource<W: Write> {
+    inner: CapabilitySessionSource<FollowIo<W>>,
+    shared: Arc<Shared>,
+}
+impl<W: Write> CapabilityFollowSource<W> {
+    fn read<T>(
+        &mut self,
+        operation: impl FnOnce(&mut CapabilitySessionSource<FollowIo<W>>) -> Result<T, SourceError>,
+    ) -> Result<T, SourceError> {
+        if let Some(e) = self.shared.error() {
+            return Err(source_terminal(e));
+        }
+        let result = operation(&mut self.inner);
+        match self.shared.error() {
+            Some(e) if e != FollowError::Closed => Err(source_terminal(e)),
+            _ => result,
+        }
+    }
+}
+impl<W: Write> RecordHeadSource for CapabilityFollowSource<W> {
+    fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, SourceError> {
+        self.read(|source| source.source_head(scope))
+    }
+}
+impl<W: Write> RecordSource for CapabilityFollowSource<W> {
+    fn head(&mut self, scope: &Scope) -> Result<u64, SourceError> {
+        self.source_head(scope).map(|head| head.position())
+    }
+    fn page(&mut self, request: &PageRequest) -> Result<Page, SourceError> {
+        self.read(|source| source.page(request))
+    }
+}
+impl<W: Write> OpenRecordSource for CapabilityFollowSource<W> {
+    fn open_page(&mut self, request: &OpenPageRequest) -> Result<OpenedPage, SourceError> {
+        self.read(|source| source.open_page(request))
+    }
+}
+
 /// One opt-in follow connection: one bound scope, one RPC and one pending wake.
 pub struct FollowSession<W: Write> {
     inner: RecordSession<FollowIo<W>>,
@@ -679,6 +741,22 @@ impl<W: Write> FollowSession<W> {
             },
             FollowSource {
                 inner: s,
+                shared: self.shared.clone(),
+            },
+        )
+    }
+    /// Select explicit capability-aware reads on this same connection. The host
+    /// must route it to serve_capability_follow_record_session; there is no retry
+    /// as legacy data after a refusal. Returned ports share the sole RPC owner.
+    pub fn capability_parts(
+        &self,
+        supported: CapabilitySupport,
+    ) -> (FollowAuthorizer<W>, CapabilityFollowSource<W>) {
+        let (authorizer, source) = self.parts();
+        (
+            authorizer,
+            CapabilityFollowSource {
+                inner: CapabilitySessionSource::from_source(source.inner, supported),
                 shared: self.shared.clone(),
             },
         )
@@ -1047,6 +1125,53 @@ where
     F: FnMut(&Scope) -> Result<R, SourceError> + Send + 'static,
     R: RecordSource,
 {
+    serve_follow(io, session, limits, policy, factory, signal, None)
+}
+
+/// Serve explicit capability reads and advisory hints on one bound connection.
+/// The factory owns one coherent RecordReadView per operation. Legacy data reads
+/// are refused; legacy serve_follow_record_session remains unchanged. No second
+/// reader, RPC, timer or checkpoint owner is created. Host supplies current policy.
+pub fn serve_capability_follow_record_session<D, A, F, R>(
+    io: D,
+    session: u64,
+    limits: SessionLimits,
+    policy: A,
+    factory: F,
+    signal: HintSignal,
+) -> Result<(), RecordSessionError>
+where
+    D: DuplexSessionIo,
+    A: ScopeAuthorizer + Send + 'static,
+    F: FnMut(&Scope) -> Result<R, SourceError> + Send + 'static,
+    R: RecordReadView,
+{
+    serve_follow(
+        io,
+        session,
+        limits,
+        policy,
+        factory,
+        signal,
+        Some(R::view_head),
+    )
+}
+
+fn serve_follow<D, A, F, R>(
+    io: D,
+    session: u64,
+    limits: SessionLimits,
+    policy: A,
+    factory: F,
+    signal: HintSignal,
+    capability_head: Option<capabilities::ViewHead<R>>,
+) -> Result<(), RecordSessionError>
+where
+    D: DuplexSessionIo,
+    A: ScopeAuthorizer + Send + 'static,
+    F: FnMut(&Scope) -> Result<R, SourceError> + Send + 'static,
+    R: RecordSource,
+{
     let version = signal.version()?;
     let physical = io.interrupt_handle();
     let (reader, writer) = io.split()?;
@@ -1123,7 +1248,7 @@ where
                 .and_then(|mut b| (b.factory)(s))
         },
         Some(&mut hook),
-        None,
+        capability_head,
     );
     stop.store(true, Ordering::Release);
     signal.wake();
@@ -1956,5 +2081,159 @@ mod tests {
             result,
             Err(RecordSessionError::Source(SourceError::Denied))
         ));
+    }
+    #[test]
+    fn capability_refusal_dispatch_requires_exact_kind_complete_body_and_known_reason() {
+        for kind in [
+            capabilities::HEAD_CAP,
+            capabilities::OPEN_CAP,
+            capabilities::PAGE_CAP,
+        ] {
+            let (shared, _peer, task) = fixture();
+            shared
+                .admit(&bytes(&packet(kind, vec![1], 1, 0)), Duration::from_secs(1))
+                .unwrap();
+            let body = capabilities::encode_incompatible(
+                crate::replication::domain::CapabilityError::MissingReader(1),
+            )
+            .unwrap();
+            let mut reply = packet(kind | REPLY, body.clone(), body.len(), 0);
+            reply.status = 8;
+            assert_eq!(shared.route(&bytes(&reply)), Ok(false));
+            assert!(shared.state.lock().unwrap().rpc.as_ref().unwrap().complete);
+            let _ = shared.fail(FollowError::Closed);
+            task.join().unwrap();
+        }
+        for case in 0..6 {
+            let (shared, _peer, task) = fixture();
+            let kind = if case == 0 {
+                HEAD
+            } else {
+                capabilities::HEAD_CAP
+            };
+            shared
+                .admit(&bytes(&packet(kind, vec![1], 1, 0)), Duration::from_secs(1))
+                .unwrap();
+            let body = capabilities::encode_incompatible(
+                crate::replication::domain::CapabilityError::MissingReader(1),
+            )
+            .unwrap();
+            let mut reply = packet(kind | REPLY, body.clone(), body.len(), 0);
+            reply.status = 8;
+            match case {
+                0 => {}
+                1 => reply.status = 9,
+                2 => {
+                    reply.payload.clear();
+                    reply.total = 0;
+                }
+                3 => reply.offset = 1,
+                4 => reply.total += 1,
+                _ => reply.payload[0] = 255,
+            }
+            assert_eq!(shared.route(&bytes(&reply)), Err(FollowError::Protocol));
+            let _ = shared.fail(FollowError::Closed);
+            task.join().unwrap();
+        }
+    }
+    #[test]
+    fn complete_capability_refusal_owns_local_publication_and_queued_frame_before_eof() {
+        for (pause_publication, terminal_hint) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let (arrived, arrival) = std::sync::mpsc::channel();
+            let (release, released) = std::sync::mpsc::channel();
+            let (shared, mut peer, task) = fixture_with_publish(None, move |_| {
+                arrived.send(()).unwrap();
+                if pause_publication {
+                    released.recv().unwrap();
+                }
+            });
+            let mut facade = FollowIo {
+                writer: Vec::new(),
+                shared: shared.clone(),
+                current: Cursor::new(Vec::new()),
+                deadline: Duration::from_secs(2),
+                tx_remaining: 0,
+            };
+            facade
+                .write_all(&bytes(&packet(capabilities::HEAD_CAP, vec![1], 1, 0)))
+                .unwrap();
+            let body = capabilities::encode_incompatible(
+                crate::replication::domain::CapabilityError::MissingReader(1),
+            )
+            .unwrap();
+            let mut reply = packet(capabilities::HEAD_CAP | REPLY, body.clone(), body.len(), 0);
+            reply.status = 8;
+            let frame = bytes(&reply);
+            peer.write_all(&frame).unwrap();
+            if terminal_hint {
+                let mut refused = hint();
+                refused.status = 1;
+                refused.total = 0;
+                refused.payload.clear();
+                peer.write_all(&bytes(&refused)).unwrap();
+            }
+            peer.shutdown(std::net::Shutdown::Write).unwrap();
+            arrival.recv_timeout(Duration::from_secs(1)).unwrap();
+            if !pause_publication {
+                until(|| shared.state.lock().unwrap().frame.is_some());
+            }
+            // Network arrival was on time; local consumer scheduling may exceed it.
+            shared.state.lock().unwrap().rpc.as_mut().unwrap().deadline = Instant::now();
+            let (progress, reading) = std::sync::mpsc::channel();
+            let consumer = thread::spawn(move || {
+                let mut received = vec![0; frame.len()];
+                progress.send(false).unwrap();
+                let result = facade.read_exact(&mut received);
+                progress.send(true).unwrap();
+                result.unwrap();
+                assert_eq!(received, frame);
+                facade
+            });
+            let mut returned_before_publication = false;
+            if pause_publication {
+                assert!(!reading.recv_timeout(Duration::from_secs(1)).unwrap());
+                returned_before_publication =
+                    reading.recv_timeout(Duration::from_millis(30)).is_ok();
+                release.send(()).unwrap();
+            }
+            let _held = consumer.join().unwrap();
+            task.join().unwrap();
+            assert!(
+                !returned_before_publication,
+                "arrival deadline replaced an owned refusal"
+            );
+            assert_eq!(
+                shared.error(),
+                Some(if terminal_hint {
+                    FollowError::Refused(SourceError::Denied)
+                } else {
+                    FollowError::Closed
+                })
+            );
+        }
+    }
+    #[test]
+    fn explicit_close_cancels_a_queued_capability_refusal() {
+        let (shared, mut peer, task) = fixture();
+        shared
+            .admit(
+                &bytes(&packet(capabilities::HEAD_CAP, vec![1], 1, 0)),
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        let body = capabilities::encode_incompatible(
+            crate::replication::domain::CapabilityError::MissingReader(1),
+        )
+        .unwrap();
+        let mut reply = packet(capabilities::HEAD_CAP | REPLY, body.clone(), body.len(), 0);
+        reply.status = 8;
+        peer.write_all(&bytes(&reply)).unwrap();
+        until(|| shared.state.lock().unwrap().frame.is_some());
+        DispatchInterrupt(shared.clone()).interrupt().unwrap();
+        task.join().unwrap();
+        assert_eq!(shared.error(), Some(FollowError::Closed));
+        assert!(shared.state.lock().unwrap().frame.is_none());
     }
 }

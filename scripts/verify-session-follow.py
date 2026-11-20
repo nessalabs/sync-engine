@@ -50,8 +50,8 @@ class FollowLink(link.Forwarder):
                 try:sock.shutdown(link.socket.SHUT_RDWR)
                 except OSError:pass
 
-def start(path):
-    child=subprocess.Popen([str(BIN),'serve',str(path),'0'],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+def start(path,capability=False):
+    child=subprocess.Popen([str(BIN),'serve-cap' if capability else 'serve',str(path),'0'],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
     selector=selectors.DefaultSelector();selector.register(child.stderr,selectors.EVENT_READ)
     until=time.monotonic()+10
     try:
@@ -66,28 +66,28 @@ def start(path):
     finally:selector.close()
 
 def case(base,mode,path,kbit,rtt,cadence):
-    base.mkdir();child,port=start(base/'source.db');hops=[]
+    base.mkdir();child,port=start(base/'source.db',mode=='freshness');hops=[]
     try:
         target=port
         if path=='relay':
             relay=link.Forwarder(port,'session');hops.append(relay);target=relay.port
-        shaper=FollowLink(target,'session',framed=True,kbit=kbit,rtt=rtt,drop=mode=='push');hops.append(shaper)
+        shaper=FollowLink(target,'session',framed=True,kbit=kbit,rtt=rtt,drop=mode!='poll');hops.append(shaper)
         process=subprocess.run([str(BIN),'bench',mode,f'127.0.0.1:{shaper.port}',f'127.0.0.1:{port}',str(base/'cache.db'),str(cadence)],cwd=ROOT,text=True,capture_output=True,timeout=240)
         assert process.returncode==0,process.stderr
         report=json.loads(process.stdout);assert report['mode']==mode
         phases=report['phases'];assert len(phases)==6,phases
         for p,target,payload in zip(phases,[7,14,21,21,28,30],[4126,4126,4126,0,4126,9],strict=True):
             assert p['records']==p['checkpoint']==target and p['ordered_complete'],p
-            assert p['payload_bytes']==payload and p['head_checks']==2,p
+            assert p['payload_bytes']==payload and p['head_checks']==(1 if mode=='freshness' and p['phase']=='idle_fallback' else 2),p
             assert p['total_bytes']==p['protocol_bytes']+payload,p
             if p['phase']=='warm_update':
-                assert p['wake']==('push' if mode=='push' else 'explicit_poll'),p
-                assert p['hint_frames']==(1 if mode=='push' else 0),p
-                assert (p['notification_to_durable_ms'] is not None)==(mode=='push'),p
+                assert p['wake']==('push' if mode!='poll' else 'explicit_poll'),p
+                assert p['hint_frames']==(1 if mode!='poll' else 0),p
+                assert (p['notification_to_durable_ms'] is not None)==(mode!='poll'),p
             if p['phase'] in ['idle_fallback','lost_hint_fallback']:
-                assert p['wake']==('fallback' if mode=='push' else 'explicit_poll'),p
+                assert p['wake']==('fallback' if mode!='poll' else 'explicit_poll'),p
                 assert p['notification_to_durable_ms'] is None,p
-            if p['phase']=='coalesced_updates' and mode=='push':
+            if p['phase']=='coalesced_updates' and mode!='poll':
                 assert p['hint_frames']==2 and p['coalesced']>=1,p
         inspected=subprocess.run([str(BIN),'inspect',str(base/'cache.db')],cwd=ROOT,text=True,capture_output=True,check=True)
         assert json.loads(inspected.stdout)=={'checkpoint':30,'records':30,'payload_bytes':16513,'ordered_complete':True}
@@ -95,7 +95,7 @@ def case(base,mode,path,kbit,rtt,cadence):
             requests=dict(shaper.requests);connections=shaper.connections;dropped=shaper.dropped
             delivered=shaper.up_bytes+shaper.down_bytes+connections*17
         assert sum(requests.values())==sum(p['exchanges'] for p in phases),(requests,phases)
-        assert connections==2 and dropped==(1 if mode=='push' else 0),(connections,dropped)
+        assert connections==2 and dropped==(1 if mode!='poll' else 0),(connections,dropped)
         assert delivered==sum(p['total_bytes'] for p in phases),(delivered,phases)
         return {'mode':mode,'path':path,'kbit_per_second':kbit,'rtt_seconds':rtt,'connections':connections,'dropped_hint_frames':dropped,'observed_requests':requests,'observed_delivered_bytes':delivered,'fresh_process_cache_inspection':True,'phases':phases}
     finally:
@@ -122,18 +122,19 @@ def summary(cases):
     return rows
 
 def markdown(report):
+    modes = ['push','freshness'] if report.get('capability_follow') else ['poll','push']
     rows={(r['path'],r['kbit_per_second'],r['rtt_seconds'],r['phase'],r['mode']):r for r in report['summary']}
-    lines=['Polling and push use the same 2s cadence/fallback and authorized read path. Short sums cold/warm/reconnect per run, excluding idle, producer control, close cleanup and verification. Notification timing is source hint-write start to actual SQLite apply; polling has no notification metric. n is per-mode samples; timings are evidence, not CI thresholds.','','| Path/profile | Phase | Poll: exchanges; protocol/total B; elapsed ms median [min,max] | Push: exchanges; protocol/total B; elapsed ms median [min,max] | Poll/Push commit→durable ms | Push notification→durable ms | n |','| --- | --- | --- | --- | --- | --- | ---: |']
+    lines=[('Legacy push and capability-follow explicit-wake RecordFreshness use' if report.get('capability_follow') else 'Polling and push use')+' the same 2s cadence/fallback and authorized read path. Short sums cold/warm/reconnect per run, excluding idle, producer control, close cleanup and verification. Notification timing is source hint-write start to actual SQLite apply; polling has no notification metric. n is per-mode samples; timings are evidence, not CI thresholds.','','| Path/profile | Phase | Baseline: exchanges; protocol/total B; elapsed ms median [min,max] | Current: exchanges; protocol/total B; elapsed ms median [min,max] | Baseline/current commit→durable ms | Current notification→durable ms | n |','| --- | --- | --- | --- | --- | --- | ---: |']
     def timing(value):return 'unmeasured' if value is None else f"{value['median']} [{value['min']},{value['max']}]"
     for path,kbit,rtt,phase in sorted({key[:4] for key in rows}):
-        left,right=[rows[(path,kbit,rtt,phase,m)] for m in ['poll','push']]
+        left,right=[rows[(path,kbit,rtt,phase,m)] for m in modes]
         profile=f'{kbit} kbit/s,{rtt}s RTT' if kbit else 'unshaped'
         def cell(r):return f"{r['exchanges']}; {r['protocol_bytes']}/{r['total_bytes']}; {timing(r['elapsed_ms'])}"
         lines.append(f"| {path}/{profile} | {phase} | {cell(left)} | {cell(right)} | {timing(left['commit_to_durable_ms'])} / {timing(right['commit_to_durable_ms'])} | {timing(right['notification_to_durable_ms'])} | {right['samples']} |")
     return '\n'.join(lines)+'\n'
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--profiles',action='store_true');parser.add_argument('--repetitions',type=int,default=1);parser.add_argument('--output',type=Path);parser.add_argument('--markdown',type=Path);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--profiles',action='store_true');parser.add_argument('--capability-follow',action='store_true');parser.add_argument('--repetitions',type=int,default=1);parser.add_argument('--output',type=Path);parser.add_argument('--markdown',type=Path);args=parser.parse_args()
     if not 1<=args.repetitions<=10:parser.error('repetitions must be1..10')
     subprocess.run(['cargo','build','--locked','--all-features','--example','session_follow'],cwd=ROOT,check=True,capture_output=True)
     tested=subprocess.run(['cargo','test','--locked','--all-features','--test','session_follow'],cwd=ROOT,check=True,text=True,capture_output=True)
@@ -145,11 +146,11 @@ def main():
         for repeat in range(args.repetitions):
             for kbit,rtt in [(0,0)]+([(32,.8),(64,1.5)] if args.profiles else []):
                 for path in ['direct','relay']:
-                    for mode in ['poll','push']:
+                    for mode in (['push','freshness'] if args.capability_follow else ['poll','push']):
                         name=f'{repeat}-{kbit}-{path}-{mode}';print('measuring '+name,file=sys.stderr,flush=True)
                         run=case(Path(folder)/name,mode,path,kbit,rtt,2000);run['repetition']=repeat+1;cases.append(run)
     assert hashes==fingerprints(),'measured source changed'
-    report={'scope':'one-scope persistent advisory hints and authorized follow; #54 remains incomplete','completion_ready':False,'contract_tests_passed':int(count.group(1)),'source_sha256':hashes,'base_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'environment':platform.platform(),'command':'python3 scripts/verify-session-follow.py'+(' --profiles' if args.profiles else '')+f' --repetitions {args.repetitions}','cadence_ms':2000,'conditions':['real TCP/direct or opaque raw-TCP relay, actual production follow adapter, reopened SQLite caches and new-process inspection','plaintext loopback fixture authentication; no deployed encrypted direct/relay trust qualification','producer commits occur on source via separate unshaped fixture-control connection; control bytes/time excluded from data-plane phase counters','notification-to-durable uses source wall-clock hint write start and receiver actual apply end on same host; not a distributed-clock guarantee','phase timer ends after post-pass head recheck; durable latency stops earlier at actual apply','coalesced_updates gates first hint reception before second commit without consuming; timing is a gated correctness episode, not throughput','one head28 hint deliberately dropped for push; same2s fallback deadline as explicit polling;16 repeated source wake signals deduplicated','no packet/IP/TCP/TLS overhead, radio/power, shared duplex contention or general packet loss/outage model','min/median/max repeated observations; no timing performance CI threshold'],'remaining':['production secure channels and capability/status/head metadata','history/catalogue/artifact routes and large/multistream resume','multiplexed priority/credit/cancel versus commit','controlled outages/loss and urgent-under-bulk qualification'],'cases':cases,'summary':summary(cases)}
+    report={'capability_follow':args.capability_follow,'scope':('single-connection capability follow with RecordFreshness explicit wakes; policy/read qualification pending' if args.capability_follow else 'one-scope persistent advisory hints and authorized follow; #54 remains incomplete'),'completion_ready':False,'contract_tests_passed':int(count.group(1)),'source_sha256':hashes,'base_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'environment':platform.platform(),'command':'python3 scripts/verify-session-follow.py'+(' --profiles' if args.profiles else '')+(' --capability-follow' if args.capability_follow else '')+f' --repetitions {args.repetitions}','cadence_ms':2000,'conditions':['real TCP/direct or opaque raw-TCP relay, actual production follow adapter, reopened SQLite caches and new-process inspection','plaintext loopback fixture authentication; no deployed encrypted direct/relay trust qualification','producer commits occur on source via separate unshaped fixture-control connection; control bytes/time excluded from data-plane phase counters','notification-to-durable uses source wall-clock hint write start and receiver actual apply end on same host; not a distributed-clock guarantee','phase timer ends after post-pass head recheck; durable latency stops earlier at actual apply','coalesced_updates gates first hint reception before second commit without consuming; timing is a gated correctness episode, not throughput','one head28 hint deliberately dropped for push; same2s fallback deadline as explicit polling;16 repeated source wake signals deduplicated','no packet/IP/TCP/TLS overhead, radio/power, shared duplex contention or general packet loss/outage model','min/median/max repeated observations; no timing performance CI threshold'],'remaining':['production secure channels and capability/status/head metadata','history/catalogue/artifact routes and large/multistream resume','multiplexed priority/credit/cancel versus commit','controlled outages/loss and urgent-under-bulk qualification'],'cases':cases,'summary':summary(cases)}
     if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n')
     if args.markdown:args.markdown.write_text(markdown(report))
     print(json.dumps(report,separators=(',',':')))
