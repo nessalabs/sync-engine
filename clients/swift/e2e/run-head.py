@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive Swift's bound v1 Head against the real Rust loopback-only fixture."""
+"""Drive Swift's v1 record client against the real Rust loopback-only fixture."""
 import argparse
 import base64
 from contextlib import contextmanager
@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import socket
 import subprocess
 import tempfile
@@ -120,9 +121,65 @@ def run_pages(rust, swift, repetitions):
                 require([base64.b64decode(r["payload"]) for r in rows] == payloads, "record bytes")
 
 
+def expect_bound(child, deadline):
+    marker = b"bound\n"
+    observed = bytearray()
+    fd = child.stderr.fileno()
+    while len(observed) < len(marker):
+        remaining = max(0, deadline - time.monotonic())
+        ready, _, _ = select.select([fd], [], [], remaining)
+        require(ready, "timed out waiting for a bound Swift client")
+        part = os.read(fd, len(marker) - len(observed))
+        require(part, "Swift child closed before reporting Bound")
+        observed.extend(part)
+    require(observed == marker, "expected bound signal")
+
+
+def run_overlap(rust, swift, clients):
+    with tempfile.TemporaryDirectory(prefix="swift-overlap-e2e-") as temp:
+        with server_fixture(rust, Path(temp), 0, 0) as port:
+            release, send = os.pipe()
+            children = []
+            try:
+                for i in range(clients):
+                    scope = (("device-a" if i % 2 == 0 else "device-b"), *SCOPE[1:])
+                    with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+                        authenticate_fixture(sock)
+                        sock.setblocking(True)
+                        child = subprocess.Popen(
+                            [swift, *scope, "overlap", str(release)], stdin=sock, stdout=sock,
+                            stderr=subprocess.PIPE, pass_fds=(release,),
+                        )
+                        children.append(child)
+                deadline = time.monotonic() + 5
+                for child in children:
+                    expect_bound(child, deadline)
+                require(all(child.poll() is None for child in children), "client exited before release")
+                # All independent Swift owners are bound, not merely connected;
+                # each is blocked on this separate fixture pipe before data I/O.
+                require(os.write(send, b"\1" * clients) == clients, "short release")
+                deadline = time.monotonic() + 8
+                for child in children:
+                    remaining = max(0, deadline - time.monotonic())
+                    _, report = child.communicate(timeout=remaining)
+                    require(child.returncode == 0 and report == b"overlap:7\n", report)
+            finally:
+                os.close(release)
+                os.close(send)
+                for child in children:
+                    if child.poll() is None:
+                        child.kill()
+                for child in children:
+                    try:
+                        child.wait(timeout=2)
+                    finally:
+                        child.stderr.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repetitions", type=int, default=5, choices=range(1, 101), metavar="1..100")
+    parser.add_argument("--overlap-clients", type=int, default=4, choices=range(2, 17), metavar="2..16")
     parser.add_argument("--rust-bin", type=Path)
     parser.add_argument("--swift-bin", type=Path)
     args = parser.parse_args()
@@ -148,6 +205,7 @@ def main():
     run(rust, swift, 0, (1 << 64) - 1, args.repetitions, f"head:7:{(1 << 64) - 1}")
     run(rust, swift, 1, 0, args.repetitions, "missing-reader:1")
     run_pages(rust, swift, args.repetitions)
+    run_overlap(rust, swift, args.overlap_clients)
     print(json.dumps({
         "peer": "rust-session_records-capability-v1",
         "connections": 3 * args.repetitions,
@@ -157,6 +215,10 @@ def main():
         "page_connections": 4 * args.repetitions,
         "page_operations": 4 * args.repetitions,
         "reopened_exact_records": 7 * args.repetitions,
+        "overlapping_bound_clients": args.overlap_clients,
+        "overlap_head_operations": args.overlap_clients,
+        "overlap_page_operations": 2 * args.overlap_clients,
+        "overlap_exact_records": 7 * args.overlap_clients,
         "elapsed_seconds": round(time.monotonic() - start, 3),
     }))
 
