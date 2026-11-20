@@ -123,6 +123,11 @@ jobs:
       - name: Durable record-source publication and restart lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-source-publication.py
+      - name: Durable catalogue publication and restart lab
+        if: steps.changes.outputs.rust != 'false'
+        run: |
+          python3 scripts/verify-catalogue-publication.py
+          python3 scripts/measure-catalogue-publication.py --native-repetitions 1
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

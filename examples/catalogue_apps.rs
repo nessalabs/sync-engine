@@ -4,8 +4,11 @@
 use std::env;
 use std::path::PathBuf;
 
-use nessa_sync::replication::catalogue::{apply_next_page, begin_or_resume, CatalogueStore};
-use nessa_sync::replication::domain::{Id, Scope};
+use nessa_sync::replication::catalogue::{
+    apply_next_page, begin_or_resume, begin_or_resume_with_capabilities, CatalogueError,
+    CatalogueStore,
+};
+use nessa_sync::replication::domain::{CapabilitySupport, Id, Scope};
 use nessa_sync::replication::infrastructure::{
     MemoryAuthorizer, SqliteCatalogueSource, SqliteCatalogueStore,
 };
@@ -72,7 +75,7 @@ fn main() {
             let revision = source.delete(&id(&args[5])).unwrap();
             println!("{{\"revision\":{revision}}}");
         }
-        "pass" => {
+        "pass" | "cap-pass" => {
             let mut source = source(source_path, &selected);
             let mut store = SqliteCatalogueStore::open(receiver_path).unwrap();
             let mut auth = MemoryAuthorizer::allowed(selected.clone());
@@ -80,7 +83,25 @@ fn main() {
                 .get(5)
                 .map_or(usize::MAX, |value| value.parse().unwrap());
             let mut pages = 0;
-            let mut pass = begin_or_resume(&selected, &mut auth, &mut source, &mut store).unwrap();
+            let started = if args[4] == "cap-pass" {
+                begin_or_resume_with_capabilities(
+                    &selected,
+                    CapabilitySupport::current(),
+                    &mut auth,
+                    &mut source,
+                    &mut store,
+                )
+            } else {
+                begin_or_resume(&selected, &mut auth, &mut source, &mut store)
+            };
+            let mut pass = match started {
+                Ok(pass) => pass,
+                Err(CatalogueError::Incompatible(_)) => {
+                    println!("{{\"typed_incompatible\":true,\"manifest_reads\":{},\"resolve_reads\":{},\"payload_bytes\":{}}}",source.manifest_reads(),source.resolve_reads(),source.payload_bytes());
+                    return;
+                }
+                Err(error) => panic!("catalogue admission: {error:?}"),
+            };
             while let Some(active) = pass {
                 if pages >= max_pages {
                     break;

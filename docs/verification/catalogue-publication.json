@@ -1,0 +1,2067 @@
+{
+  "scope": "native SQLite catalogue publication/snapshot admission only; #47 and #54 remain open",
+  "source_commit": "198399872c53a3d82a6e3304fb5fac89d1ee253c",
+  "base_commit": "fdd7cac39db285c85c43a7db1645c0251a9f7c85",
+  "native_process_lab": {
+    "scope": "native catalogue durable publication; not a session catalogue adapter",
+    "entries": 620,
+    "first_page_records": 40,
+    "active_boundary": 620,
+    "writer_only_completed": 620,
+    "reopened_cache_and_cursor_unchanged": true,
+    "typed_cold_and_resumed_reader_refusal": true,
+    "integration_tests": 9,
+    "nonzero_publication_enabled": false
+  },
+  "matched_before": {
+    "scope": "native publication and620-entry development-loopback wire; no session catalogue or secure channel claim",
+    "source_commit": "fdd7cac39db285c85c43a7db1645c0251a9f7c85",
+    "source_sha256": {
+      "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+      "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+      "examples/catalogue_apps.rs": "4c2182db8912fd7fb446e73685d9a4986092eeadf9e509500ac9201e5081837b",
+      "examples/catalogue_network.rs": "0e28d969b8f02958db5d48fe64877659def820ba266dbfcf60dda35bbe01438f",
+      "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+      "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+      "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+      "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+      "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+      "src/replication/catalogue/application.rs": "e754186b28291748e967d5bb4168a0efdc7d6dbd7385e46f0b468e55d849d7cc",
+      "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+      "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+      "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+      "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+      "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+      "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+      "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+      "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+      "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+      "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+      "src/replication/infrastructure/loopback.rs": "79cc84ada22b61ec1548cf83e715c8f71a87be24c121af1615d20726bf83c70e",
+      "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+      "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+      "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+      "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+      "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+      "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+      "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+      "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+      "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+      "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+      "src/replication/infrastructure/sqlite/catalogue.rs": "a83cf990e8475fb985005e8d61475a20563588307df815b9a04ebbea79e89798",
+      "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+      "src/replication/infrastructure/sqlite/mod.rs": "c47089a2dd2cf7b2bd716273faf468919c99be1e11705293327bd24f566907ed",
+      "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+      "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+      "src/replication/infrastructure/sqlite/source/publication.rs": "2ff4b8d80d49691b91b31cdfc49a0839ac56a87a53e94078014338f6fbe782ef",
+      "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+      "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+    },
+    "harness_sha256": {
+      "measure-catalogue-publication.py": "4ec29bec8ea63ec56bf871e6155e485daef738eb809d72a06e316df1cf913129",
+      "verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b"
+    },
+    "command": "python3 scripts/measure-catalogue-publication.py --root /workspace/scratch/1e92cc46a545/issue-47-catalogue-baseline --repetitions 2 --native-repetitions 5",
+    "conditions": [
+      "unshaped debug builds; timings have no CI threshold or performance gain claim",
+      "direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop",
+      "fixture plaintext tokens; no production authentication, encryption, session or weak-link claim",
+      "wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes",
+      "wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification",
+      "native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit",
+      "legacy active resume skips initial head; explicit unchanged_recheck is measured separately",
+      "fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress"
+    ],
+    "native_cases": [
+      {
+        "phase": "seed620",
+        "repetition": 1,
+        "elapsed_ms": 40.983,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 1,
+        "elapsed_ms": 3.348,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 1,
+        "elapsed_ms": 2.162,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 2,
+        "elapsed_ms": 64.446,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 2,
+        "elapsed_ms": 2.134,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 2,
+        "elapsed_ms": 2.264,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 3,
+        "elapsed_ms": 37.487,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 3,
+        "elapsed_ms": 2.215,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 3,
+        "elapsed_ms": 2.53,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 4,
+        "elapsed_ms": 66.783,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 4,
+        "elapsed_ms": 2.615,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 4,
+        "elapsed_ms": 2.425,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 5,
+        "elapsed_ms": 37.24,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 5,
+        "elapsed_ms": 2.501,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 5,
+        "elapsed_ms": 2.502,
+        "head": 622,
+        "entries": 620
+      }
+    ],
+    "native_summary": [
+      {
+        "phase": "delete",
+        "n": 5,
+        "elapsed_ms_min": 2.162,
+        "elapsed_ms_median": 2.425,
+        "elapsed_ms_max": 2.53
+      },
+      {
+        "phase": "seed620",
+        "n": 5,
+        "elapsed_ms_min": 37.24,
+        "elapsed_ms_median": 40.983,
+        "elapsed_ms_max": 66.783
+      },
+      {
+        "phase": "upsert",
+        "n": 5,
+        "elapsed_ms_min": 2.134,
+        "elapsed_ms_median": 2.501,
+        "elapsed_ms_max": 3.348
+      }
+    ],
+    "wire_cases": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "repetition": 1,
+        "elapsed_ms": 838.535,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "repetition": 1,
+        "elapsed_ms": 59.07,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "repetition": 1,
+        "elapsed_ms": 775.915,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "repetition": 1,
+        "elapsed_ms": 8.803,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "repetition": 1,
+        "elapsed_ms": 3.344,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "repetition": 1,
+        "elapsed_ms": 1162.39,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "repetition": 1,
+        "elapsed_ms": 75.335,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "repetition": 1,
+        "elapsed_ms": 1167.551,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "repetition": 1,
+        "elapsed_ms": 10.384,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "repetition": 1,
+        "elapsed_ms": 5.159,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "repetition": 2,
+        "elapsed_ms": 771.053,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "repetition": 2,
+        "elapsed_ms": 53.89,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "repetition": 2,
+        "elapsed_ms": 724.83,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "repetition": 2,
+        "elapsed_ms": 16.675,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "repetition": 2,
+        "elapsed_ms": 4.841,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "repetition": 2,
+        "elapsed_ms": 1174.678,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "repetition": 2,
+        "elapsed_ms": 74.799,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "repetition": 2,
+        "elapsed_ms": 1136.729,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "repetition": 2,
+        "elapsed_ms": 11.087,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "repetition": 2,
+        "elapsed_ms": 4.343,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      }
+    ],
+    "wire_summary": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 2,
+        "elapsed_ms_min": 771.053,
+        "elapsed_ms_median": 804.794,
+        "elapsed_ms_max": 838.535,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 2,
+        "elapsed_ms_min": 8.803,
+        "elapsed_ms_median": 12.739,
+        "elapsed_ms_max": 16.675,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 2,
+        "elapsed_ms_min": 53.89,
+        "elapsed_ms_median": 56.48,
+        "elapsed_ms_max": 59.07,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 2,
+        "elapsed_ms_min": 724.83,
+        "elapsed_ms_median": 750.372,
+        "elapsed_ms_max": 775.915,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 2,
+        "elapsed_ms_min": 3.344,
+        "elapsed_ms_median": 4.093,
+        "elapsed_ms_max": 4.841,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 2,
+        "elapsed_ms_min": 1162.39,
+        "elapsed_ms_median": 1168.534,
+        "elapsed_ms_max": 1174.678,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 2,
+        "elapsed_ms_min": 10.384,
+        "elapsed_ms_median": 10.736,
+        "elapsed_ms_max": 11.087,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 2,
+        "elapsed_ms_min": 74.799,
+        "elapsed_ms_median": 75.067,
+        "elapsed_ms_max": 75.335,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 2,
+        "elapsed_ms_min": 1136.729,
+        "elapsed_ms_median": 1152.14,
+        "elapsed_ms_max": 1167.551,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 2,
+        "elapsed_ms_min": 4.343,
+        "elapsed_ms_median": 4.751,
+        "elapsed_ms_max": 5.159,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ],
+    "full_issue47_ready": false
+  },
+  "matched_after": {
+    "scope": "native publication and620-entry development-loopback wire; no session catalogue or secure channel claim",
+    "source_commit": "198399872c53a3d82a6e3304fb5fac89d1ee253c",
+    "source_sha256": {
+      "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+      "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+      "examples/catalogue_apps.rs": "14d2ae64c08f917df22e8f523ac6da340ff14a8d9c5b946db94394131b965deb",
+      "examples/catalogue_network.rs": "0e28d969b8f02958db5d48fe64877659def820ba266dbfcf60dda35bbe01438f",
+      "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+      "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+      "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+      "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+      "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+      "src/replication/catalogue/application.rs": "aec52e6ac3fc4a858b0224f98b76366120d461b811638b8b6c33121cea4d240b",
+      "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+      "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+      "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+      "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+      "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+      "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+      "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+      "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+      "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+      "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+      "src/replication/infrastructure/loopback.rs": "eaf57f515b264833d31bd0bd94f6dc5321586570984fbf3cb44e61b03e91a1c2",
+      "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+      "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+      "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+      "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+      "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+      "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+      "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+      "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+      "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+      "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+      "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+      "src/replication/infrastructure/sqlite/catalogue.rs": "11005ce92f4c74727f17cf8afc76e2b09fa6ce4702dc4f00227f58eb5946bb36",
+      "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+      "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+      "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+      "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+      "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+      "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+      "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+      "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+    },
+    "harness_sha256": {
+      "measure-catalogue-publication.py": "4ec29bec8ea63ec56bf871e6155e485daef738eb809d72a06e316df1cf913129",
+      "verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b"
+    },
+    "command": "python3 scripts/measure-catalogue-publication.py --root /workspace/scratch/1e92cc46a545/issue-47-catalogue-publication --repetitions 2 --native-repetitions 5",
+    "conditions": [
+      "unshaped debug builds; timings have no CI threshold or performance gain claim",
+      "direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop",
+      "fixture plaintext tokens; no production authentication, encryption, session or weak-link claim",
+      "wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes",
+      "wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification",
+      "native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit",
+      "legacy active resume skips initial head; explicit unchanged_recheck is measured separately",
+      "fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress"
+    ],
+    "native_cases": [
+      {
+        "phase": "seed620",
+        "repetition": 1,
+        "elapsed_ms": 54.033,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 1,
+        "elapsed_ms": 2.803,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 1,
+        "elapsed_ms": 2.921,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 2,
+        "elapsed_ms": 62.784,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 2,
+        "elapsed_ms": 2.579,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 2,
+        "elapsed_ms": 2.197,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 3,
+        "elapsed_ms": 55.413,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 3,
+        "elapsed_ms": 2.991,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 3,
+        "elapsed_ms": 3.036,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 4,
+        "elapsed_ms": 54.008,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 4,
+        "elapsed_ms": 2.468,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 4,
+        "elapsed_ms": 2.243,
+        "head": 622,
+        "entries": 620
+      },
+      {
+        "phase": "seed620",
+        "repetition": 5,
+        "elapsed_ms": 61.652,
+        "head": 620,
+        "entries": 620
+      },
+      {
+        "phase": "upsert",
+        "repetition": 5,
+        "elapsed_ms": 3.447,
+        "head": 621,
+        "entries": 620
+      },
+      {
+        "phase": "delete",
+        "repetition": 5,
+        "elapsed_ms": 2.689,
+        "head": 622,
+        "entries": 620
+      }
+    ],
+    "native_summary": [
+      {
+        "phase": "delete",
+        "n": 5,
+        "elapsed_ms_min": 2.197,
+        "elapsed_ms_median": 2.689,
+        "elapsed_ms_max": 3.036
+      },
+      {
+        "phase": "seed620",
+        "n": 5,
+        "elapsed_ms_min": 54.008,
+        "elapsed_ms_median": 55.413,
+        "elapsed_ms_max": 62.784
+      },
+      {
+        "phase": "upsert",
+        "n": 5,
+        "elapsed_ms_min": 2.468,
+        "elapsed_ms_median": 2.803,
+        "elapsed_ms_max": 3.447
+      }
+    ],
+    "wire_cases": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "repetition": 1,
+        "elapsed_ms": 980.806,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "repetition": 1,
+        "elapsed_ms": 75.235,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "repetition": 1,
+        "elapsed_ms": 855.962,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "repetition": 1,
+        "elapsed_ms": 9.249,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "repetition": 1,
+        "elapsed_ms": 4.458,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "repetition": 1,
+        "elapsed_ms": 1351.513,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "repetition": 1,
+        "elapsed_ms": 76.215,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "repetition": 1,
+        "elapsed_ms": 1114.634,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "repetition": 1,
+        "elapsed_ms": 10.573,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "repetition": 1,
+        "elapsed_ms": 4.132,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "repetition": 2,
+        "elapsed_ms": 930.873,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "repetition": 2,
+        "elapsed_ms": 56.663,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "repetition": 2,
+        "elapsed_ms": 785.636,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "repetition": 2,
+        "elapsed_ms": 8.41,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "repetition": 2,
+        "elapsed_ms": 3.691,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "repetition": 2,
+        "elapsed_ms": 1208.08,
+        "exchanges": 637,
+        "observed_operations": {
+          "11": 1,
+          "12": 16,
+          "13": 620
+        },
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "repetition": 2,
+        "elapsed_ms": 76.915,
+        "exchanges": 42,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 40
+        },
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720,
+        "cache_entries": 40,
+        "completed": 0,
+        "active_boundary": 620,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "repetition": 2,
+        "elapsed_ms": 1161.523,
+        "exchanges": 595,
+        "observed_operations": {
+          "12": 15,
+          "13": 580
+        },
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440,
+        "cache_entries": 620,
+        "completed": 620,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "repetition": 2,
+        "elapsed_ms": 11.012,
+        "exchanges": 4,
+        "observed_operations": {
+          "11": 1,
+          "12": 1,
+          "13": 2
+        },
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "repetition": 2,
+        "elapsed_ms": 4.251,
+        "exchanges": 1,
+        "observed_operations": {
+          "11": 1
+        },
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0,
+        "cache_entries": 620,
+        "completed": 622,
+        "active_boundary": null,
+        "fresh_process_rows_match": true
+      }
+    ],
+    "wire_summary": [
+      {
+        "path": "direct",
+        "phase": "bootstrap",
+        "n": 2,
+        "elapsed_ms_min": 930.873,
+        "elapsed_ms_median": 955.84,
+        "elapsed_ms_max": 980.806,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "direct",
+        "phase": "churn",
+        "n": 2,
+        "elapsed_ms_min": 8.41,
+        "elapsed_ms_median": 8.829,
+        "elapsed_ms_max": 9.249,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "direct",
+        "phase": "partial",
+        "n": 2,
+        "elapsed_ms_min": 56.663,
+        "elapsed_ms_median": 65.949,
+        "elapsed_ms_max": 75.235,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "direct",
+        "phase": "restart_resume",
+        "n": 2,
+        "elapsed_ms_min": 785.636,
+        "elapsed_ms_median": 820.799,
+        "elapsed_ms_max": 855.962,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "direct",
+        "phase": "unchanged_recheck",
+        "n": 2,
+        "elapsed_ms_min": 3.691,
+        "elapsed_ms_median": 4.075,
+        "elapsed_ms_max": 4.458,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      },
+      {
+        "path": "relay",
+        "phase": "bootstrap",
+        "n": 2,
+        "elapsed_ms_min": 1208.08,
+        "elapsed_ms_median": 1279.796,
+        "elapsed_ms_max": 1351.513,
+        "exchanges": 637,
+        "wire_total_bytes": 212637,
+        "protocol_overhead_bytes": 184737,
+        "manifest_bytes": 16740,
+        "opaque_payload_bytes": 11160
+      },
+      {
+        "path": "relay",
+        "phase": "churn",
+        "n": 2,
+        "elapsed_ms_min": 10.573,
+        "elapsed_ms_median": 10.793,
+        "elapsed_ms_max": 11.012,
+        "exchanges": 4,
+        "wire_total_bytes": 920,
+        "protocol_overhead_bytes": 859,
+        "manifest_bytes": 54,
+        "opaque_payload_bytes": 7
+      },
+      {
+        "path": "relay",
+        "phase": "partial",
+        "n": 2,
+        "elapsed_ms_min": 76.215,
+        "elapsed_ms_median": 76.565,
+        "elapsed_ms_max": 76.915,
+        "exchanges": 42,
+        "wire_total_bytes": 12387,
+        "protocol_overhead_bytes": 10587,
+        "manifest_bytes": 1080,
+        "opaque_payload_bytes": 720
+      },
+      {
+        "path": "relay",
+        "phase": "restart_resume",
+        "n": 2,
+        "elapsed_ms_min": 1114.634,
+        "elapsed_ms_median": 1138.079,
+        "elapsed_ms_max": 1161.523,
+        "exchanges": 595,
+        "wire_total_bytes": 200250,
+        "protocol_overhead_bytes": 174150,
+        "manifest_bytes": 15660,
+        "opaque_payload_bytes": 10440
+      },
+      {
+        "path": "relay",
+        "phase": "unchanged_recheck",
+        "n": 2,
+        "elapsed_ms_min": 4.132,
+        "elapsed_ms_median": 4.191,
+        "elapsed_ms_max": 4.251,
+        "exchanges": 1,
+        "wire_total_bytes": 143,
+        "protocol_overhead_bytes": 143,
+        "manifest_bytes": 0,
+        "opaque_payload_bytes": 0
+      }
+    ],
+    "full_issue47_ready": false
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.124,
+      "log": "qualification-00.log",
+      "log_sha256": "ff6ce01f479eed94ea519b980b6438b6cd3e3867d3a8780341d1d117833a917e"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.335,
+      "log": "qualification-01.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 1.236,
+      "log": "qualification-02.log",
+      "log_sha256": "69908d36305ad04a925d7e834322f3b62677dfbef211af65386e67aa5dba0894"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.859,
+      "log": "qualification-03.log",
+      "log_sha256": "67cbe2741f8bf4211fe6722d75560821820eb3bd2b06354124931bea3e6c4420"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 4.102,
+      "log": "qualification-04.log",
+      "log_sha256": "d3f49a642803f98ae609695b1e3832663d6048ae45c334b287361facf2f3245b"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 3.623,
+      "log": "qualification-05.log",
+      "log_sha256": "6dee62603a18c615bc0becf8e5fc9c1792b9cad6836cb2a162bc1446e31fe978"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 14.18,
+      "log": "qualification-06.log",
+      "log_sha256": "fae7654ceb733b7795d0ad758305784b1b384b6d8be5896fdbd7e2f9b9a2ca30"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.326,
+      "log": "qualification-07.log",
+      "log_sha256": "b3a7e1ddef7abb8c3bc4fd16db05c127cf113463f28ebce26d15c1bfb86a55ed"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.926,
+      "log": "qualification-08.log",
+      "log_sha256": "096617b51c17f09a3fba7109ce7e2154d934d4817bf69c8c106b2d3acfbad0d7"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.766,
+      "log": "qualification-09.log",
+      "log_sha256": "6fd22db9f96d99458cc53b4898dbe7966bb5f78beebc18ceb2a73081a5fbdc34"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.891,
+      "log": "qualification-10.log",
+      "log_sha256": "55e9bd15d42bec66988b6cd38ba20070c96fb0e5b90a25697323959cea1c3088"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.99,
+      "log": "qualification-11.log",
+      "log_sha256": "a230d85d0baf85dea817c0bdd2f4e886eff6f3624f3e811923a2a73b9ca45a5d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.625,
+      "log": "qualification-12.log",
+      "log_sha256": "6f7bec16f6fbf8b391236f55d242599544aa8dd52b3bf2381faef115444ff524"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.954,
+      "log": "qualification-13.log",
+      "log_sha256": "d5d5e141faab70d2268915063aaa6282a0f80008351959640a05d729f69e49d1"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 3.063,
+      "log": "qualification-14.log",
+      "log_sha256": "705dae8e15370a7bd4009ec3ecd3920118fa064e7b747298d7a55b91f5a7cee2"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.328,
+      "log": "qualification-15.log",
+      "log_sha256": "05e8a5b7e9f412051cee8f0b37b98f6bd71de42b816f7943967ce324ff0c6cc6"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.163,
+      "log": "qualification-16.log",
+      "log_sha256": "4b42e428a30703c63be68bc2012d91f36e1750e43a13abeaeeec727598edf33d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.643,
+      "log": "qualification-17.log",
+      "log_sha256": "65665974315bade7bbc2af98de75ff634e7d5a29077155bdedbecb4dd4e1f773"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.151,
+      "log": "qualification-18.log",
+      "log_sha256": "9a68fdd8a779945c79d64d02954d6685031758179d5cc760e4830d97a67734a4"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.182,
+      "log": "qualification-19.log",
+      "log_sha256": "91c47262de352c57ea4553c0f231b893534a587c0af4bf2910c76ae407637aa0"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.213,
+      "log": "qualification-20.log",
+      "log_sha256": "9d5f26b19ea63f37c8a42dc3d2668e6f85d081769a947b6469212b7761e5723e"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.226,
+      "log": "qualification-21.log",
+      "log_sha256": "24e8ee65c756c272334c96c462fb89a9302645e74ece70476eb40a66929eb2e5"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.739,
+      "log": "qualification-22.log",
+      "log_sha256": "4892f31b64e1e6a3fdeaa965f83977f57cb0d51ddd84c66f360dd3c9da136fbb"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 26.079,
+      "log": "qualification-23.log",
+      "log_sha256": "39155b5cdb556c7de2869cadd7208907ce1b39fa278561fa8cdeb8251d6032ec"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-head.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.634,
+      "log": "qualification-24.log",
+      "log_sha256": "82a93497f0135f038efddbabc1e1a5dc4cf6e1bf118b02553414422c3c89258d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.011,
+      "log": "qualification-25.log",
+      "log_sha256": "2837ff6baad87440ff22cf71fbf555942fb03c7bdf609df61c62782c5975cdd9"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 0.734,
+      "log": "qualification-26.log",
+      "log_sha256": "10a43e3c10bf303fa8d6bd4b5d4722f1fa2f08d3c84108cb5df501706a517049"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 2.322,
+      "log": "qualification-27.log",
+      "log_sha256": "e117fa3c4c98fd7e1232f1224b95db4e792bc8c9572153d088f86f60c932a9ca"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.425,
+      "log": "qualification-28.log",
+      "log_sha256": "07400157e14ffb09cb0b7299e2be54fcf42de1b2f806e71ccd112d6745e9413d"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 11.073,
+      "log": "qualification-29.log",
+      "log_sha256": "a2b1e892c5ad3fe8d78df6ab80f2b314e68ba270b3edadc8ff555a038edf078c"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.393,
+      "log": "qualification-30.log",
+      "log_sha256": "56836df478d11a35b2fbebf37237fbbc8b5963623114b1f1f9614c02d6184e15"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.32,
+      "log": "qualification-31.log",
+      "log_sha256": "640dc1710e0cbee0cd5a6fc3400361be74b6d3dda70d0f34cee1c676ebd014e1"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 5.173,
+      "log": "qualification-32.log",
+      "log_sha256": "ab94093c551c2796848271beae2e8d4b6a54e08a39daf9d1a61098908738f0f9"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.022,
+      "log": "qualification-33.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "all_features_tests_passed": 264,
+  "doctests_passed": 6,
+  "reversions": [
+    {
+      "guard": "cas-fields",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "compare_upsert_cas_scope_idempotence_and_lost_result_reload"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-cas-fields.log",
+      "failure_excerpt": "failures:\n\n---- compare_upsert_cas_scope_idempotence_and_lost_result_reload stdout ----\n\nthread 'compare_upsert_cas_scope_idempotence_and_lost_result_reload' (607) panicked at tests/catalogue_publication.rs:223:9:\nassertion `left == right` failed\n  left: Ok(1)\n right: Err(Stale)",
+      "log_sha256": "537884c16f8732448f715b6d4c1171499a470edb90f3aa6b8587f69d1a61887c"
+    },
+    {
+      "guard": "writer-before-noop",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-writer-before-noop.log",
+      "failure_excerpt": "failures:\n\n---- future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete stdout ----\n\nthread 'future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete' (949) panicked at tests/catalogue_publication.rs:353:5:\nassertion `left == right` failed\n  left: Ok(1)\n right: Err(Failed)",
+      "log_sha256": "3a77aadaceb0eab51298559a0d67a38d4852f99d9f78539db261796cce29095a"
+    },
+    {
+      "guard": "delete-writer",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-delete-writer.log",
+      "failure_excerpt": "failures:\n\n---- future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete stdout ----\n\nthread 'future_masks_are_lossless_and_existing_writers_recheck_before_noop_or_delete' (1291) panicked at tests/catalogue_publication.rs:358:5:\nassertion `left == right` failed\n  left: Ok(2)\n right: Err(Failed)",
+      "log_sha256": "9a4eeb30b8ab7324215b3124e458654eedea7a4664e6958ac8cd6b2e5be2b946"
+    },
+    {
+      "guard": "manifest-reader",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-manifest-reader.log",
+      "failure_excerpt": "failures:\n\n---- reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache stdout ----\n\nthread 'reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache' (1633) panicked at tests/catalogue_publication.rs:432:5:\nassertion `left == right` failed\n  left: Ok(ManifestPage { request: ManifestRequest { pass: CataloguePass { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"catalogue\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, completed: 0, boundary: 3, cursor: Some(EntryKey { creation: 1, id: Id(\"a\") }), generation: 1 }, max_entries: 10 }, entries: [ManifestEntry { key: EntryKey { creation: 2, id: Id(\"b\") }, revision: 2, deleted: false }, ManifestEntry { key: EntryKey { creation: 3, id: Id(\"c\") }, revision: 3, deleted: false }], has_more: false })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "6e7f9e5b1df7c9575b66ebce873e999d7788401f43e5de401915c3dcee103dcd"
+    },
+    {
+      "guard": "resolve-reader",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-resolve-reader.log",
+      "failure_excerpt": "failures:\n\n---- newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published stdout ----\n\nthread 'newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published' (1975) panicked at tests/catalogue_publication.rs:540:9:\nassertion `left == right` failed\n  left: Ok(CatalogueProgress { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"catalogue\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, completed: 3, generation: 1, active: None })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "2a3890558071be57622c3582c8712037e5834b85fd7c7a244eb305950d3ecd8c"
+    },
+    {
+      "guard": "head-reader",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-head-reader.log",
+      "failure_excerpt": "failures:\n\n---- reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache stdout ----\n\nthread 'reader_refusal_before_initial_or_resume_preserves_reopened_cursor_and_cache' (2317) panicked at tests/catalogue_publication.rs:459:5:\nassertion `left == right` failed\n  left: Ok(Some(CataloguePass { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"catalogue\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, completed: 0, boundary: 3, cursor: None, generation: 1 }))\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "c6f5a5cc165cbc6d41f3d560a8e34bde50e328e009899daa3e2c1c1ccc7be25b"
+    },
+    {
+      "guard": "publication-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "publication_and_delete_faults_rollback_head_masks_and_current_value"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-publication-atomicity.log",
+      "failure_excerpt": "failures:\n\n---- publication_and_delete_faults_rollback_head_masks_and_current_value stdout ----\n\nthread 'publication_and_delete_faults_rollback_head_masks_and_current_value' (2659) panicked at tests/catalogue_publication.rs:324:9:\nassertion `left == right` failed\n  left: SourceHead { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"catalogue\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }\n right: SourceHead { scope: Scope { receiver: Id(\"receiver\"), origin: Id(\"origin\"), stream: Id(\"catalogue\"), incarnation: Id(\"incarnation\"), schema: Id(\"schema\"), access_epoch: Id(\"epoch\") }, version: 1, position: 0, reader_required: 0, writer_required: 0 }",
+      "log_sha256": "ec6e2235c705efd41501f7865e35345b44d1a2a2bbca5e2688ceb2b9dd1e5788"
+    },
+    {
+      "guard": "migration-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "migration_identity_partial_future_and_rollback_never_default_requirements"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-migration-atomicity.log",
+      "failure_excerpt": "failures:\n\n---- migration_identity_partial_future_and_rollback_never_default_requirements stdout ----\n\nthread 'migration_identity_partial_future_and_rollback_never_default_requirements' (3001) panicked at tests/catalogue_publication.rs:154:5:\nassertion `left == right` failed\n  left: 2\n right: 1",
+      "log_sha256": "375a70ccd02ebdebd1ec46db385b3903a3328060aa667d611d5906676c21cc9a"
+    },
+    {
+      "guard": "migration-identity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "migration_identity_partial_future_and_rollback_never_default_requirements"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-migration-identity.log",
+      "failure_excerpt": "failures:\n\n---- migration_identity_partial_future_and_rollback_never_default_requirements stdout ----\n\nthread 'migration_identity_partial_future_and_rollback_never_default_requirements' (3343) panicked at tests/catalogue_publication.rs:133:5:\nassertion failed: matches!(SqliteCatalogueSource::open(&p, id(\"other\"), id(\"catalogue\"),\n    id(\"incarnation\"), id(\"schema\")),\n    Err(SqliteOpenError::SourceIdentityMismatch))",
+      "log_sha256": "cd36d26be39000f306b0112597516f01bb9f3633738d878d31c87a4c0aa1d93c"
+    },
+    {
+      "guard": "publication-identity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "compare_upsert_cas_scope_idempotence_and_lost_result_reload"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-publication-identity.log",
+      "failure_excerpt": "failures:\n\n---- compare_upsert_cas_scope_idempotence_and_lost_result_reload stdout ----\n\nthread 'compare_upsert_cas_scope_idempotence_and_lost_result_reload' (3685) panicked at tests/catalogue_publication.rs:257:5:\nassertion `left == right` failed\n  left: Ok(3)\n right: Err(IdentityChanged)",
+      "log_sha256": "f92b19a1d164fa9bce81047727e6978555d733ffd1a3c3370f5cb3dc5c8ef670"
+    },
+    {
+      "guard": "implemented-encoder-only",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "compare_upsert_cas_scope_idempotence_and_lost_result_reload"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-implemented-encoder-only.log",
+      "failure_excerpt": "failures:\n\n---- compare_upsert_cas_scope_idempotence_and_lost_result_reload stdout ----\n\nthread 'compare_upsert_cas_scope_idempotence_and_lost_result_reload' (4027) panicked at tests/catalogue_publication.rs:266:9:\nassertion `left == right` failed\n  left: Err(Store(Conflict))\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "cc0d57638bbb01a0041d6152c8b71574f0f187c1895b274dec498b2dc6393836"
+    },
+    {
+      "guard": "typed-page-refusal",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--test",
+        "catalogue_publication",
+        "newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-typed-page-refusal.log",
+      "failure_excerpt": "failures:\n\n---- newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published stdout ----\n\nthread 'newer_value_and_requirements_are_checked_together_and_failed_page_is_not_published' (4369) panicked at tests/catalogue_publication.rs:540:9:\nassertion `left == right` failed\n  left: Err(Source(Incompatible(MissingReader(1))))\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "99bfcc086062c4e781a1012dfb726c08960264f572832531a289c93e3b83b376"
+    }
+  ],
+  "restoration": {
+    "focused_tests_passed": 9,
+    "tracked_tree_clean": true
+  },
+  "independent_review": {
+    "reviewer": "authority_gate_review",
+    "head": "198399872c53a3d82a6e3304fb5fac89d1ee253c",
+    "round": 1,
+    "substantive_findings": 0,
+    "reviewer_reran_checks": false
+  },
+  "limits": [
+    "known masks remain0 and public encoders reject undefined bits",
+    "development plaintext loopback framing, not session catalogue or production secure channel",
+    "unshaped debug timing evidence, no weak-link timing or performance gain claim",
+    "source format upgrade does not fence already-open old binaries; host must stop/fence writers",
+    "whole-page rejection on observed incompatibility is tested; not instantaneous publication-versus-apply fencing",
+    "nonzero supported encoder rollout requires additional read/response/client/apply proof including unchanged-only pages",
+    "SQL rollback/lost successful result/restart covered; not every commit I/O error, power loss or restore",
+    "native timings use ordinary upsert/delete through shared owner, CAS-specific overhead not isolated"
+  ]
+}

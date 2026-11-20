@@ -44,8 +44,10 @@ with a coherent read-view contract and typed incompatibility. Legacy endpoints
 remain separate. The [durable record-source owner](design/source-publication.md)
 now stores requirements in the existing append transaction with source-specific
 migration, writer compatibility checks and compare-and-append. Known masks remain
-zero; nonzero rollout, catalogue publication and the remaining transport routes
-still require their own qualification.
+zero. The [native catalogue owner](design/catalogue-publication.md) now commits
+requirements with current values/revisions and checks manifest/resolution snapshots.
+Nonzero rollout, capability-bearing catalogue transport and remaining routes still
+require independent qualification.
 
 ## Outcome we are building toward
 

@@ -1,4 +1,5 @@
 //! Source-file format and atomic publication, owned by the record append path.
+use super::super::source_metadata::{decode, Publication};
 use super::*;
 use crate::replication::domain::{
     validate_head_transition, validate_writer_capabilities, CapabilityError, CapabilitySupport,
@@ -103,41 +104,11 @@ pub(super) fn initialize(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct Publication {
-    pub version: u16,
-    pub position: u64,
-    pub reader: u64,
-    pub writer: u64,
-}
-impl Publication {
-    pub fn head(self, scope: &Scope) -> SourceHead {
-        SourceHead::advertised(
-            scope.clone(),
-            self.version,
-            self.position,
-            self.reader,
-            self.writer,
-        )
-    }
-    pub fn reader(self) -> Result<(), CapabilityError> {
-        CapabilitySupport::current().validate_reader(self.version, self.reader)
-    }
-    pub fn writer(self) -> Result<(), CapabilityError> {
-        CapabilitySupport::current().validate_writer(self.version, self.reader, self.writer)
-    }
-}
 pub(super) fn read(conn: &rusqlite::Connection) -> rusqlite::Result<Publication> {
     conn.query_row("SELECT metadata_version,head,
         CASE WHEN typeof(reader_required)='blob' AND length(reader_required)=8 THEN reader_required END,
         CASE WHEN typeof(writer_required)='blob' AND length(writer_required)=8 THEN writer_required END
-        FROM source_meta WHERE singleton=1",[],|r| {
-        let version:i64=r.get(0)?;let position:i64=r.get(1)?;
-        let reader:Vec<u8>=r.get(2)?;let writer:Vec<u8>=r.get(3)?;
-        let invalid=||rusqlite::Error::InvalidQuery;
-        Ok(Publication{version:version.try_into().map_err(|_|invalid())?,position:position.try_into().map_err(|_|invalid())?,
-            reader:u64::from_be_bytes(reader.try_into().map_err(|_|invalid())?),writer:u64::from_be_bytes(writer.try_into().map_err(|_|invalid())?)})
-    })
+        FROM source_meta WHERE singleton=1",[],decode)
 }
 
 impl SqliteReferenceSource {
