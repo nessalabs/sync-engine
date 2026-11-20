@@ -1,6 +1,6 @@
 //! Native v2 coverage snapshots; no collector or wire fallback.
 use super::*;
-use crate::replication::catalogue::validate_catalogue_coverage;
+use crate::replication::catalogue::coverage_base;
 
 pub(super) const OBSERVATIONS:&str="CREATE TABLE catalogue_horizons (
 receiver TEXT NOT NULL, origin TEXT NOT NULL, stream TEXT NOT NULL,
@@ -29,14 +29,22 @@ pub(super) fn validate_layout(c: &Connection) -> rusqlite::Result<()> {
 pub(super) fn admit(
     kind: Option<CatalogueReadKind>,
     completed: u64,
+    boundary: u64,
     head: &CatalogueHorizonHead,
 ) -> Result<(), CatalogueSourceError> {
     match kind {
         None if head.horizon > 0 => Err(CatalogueSourceError::HorizonRequired),
         None => Ok(()),
-        Some(CatalogueReadKind::Incremental) => validate_catalogue_coverage(completed, head),
-        Some(CatalogueReadKind::FullReset) if completed == 0 => Ok(()),
-        Some(CatalogueReadKind::FullReset) => Err(CatalogueSourceError::InvalidRequest),
+        Some(kind) => {
+            if coverage_base(kind, completed, boundary)? < head.horizon {
+                Err(CatalogueSourceError::HorizonExpired {
+                    completed,
+                    head: Box::new(head.clone()),
+                })
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 fn observed(c: &Connection, s: &Scope) -> Result<Option<u64>, CatalogueStoreError> {
@@ -143,5 +151,17 @@ impl CatalogueHorizonSource for SqliteCatalogueSource {
         k: CatalogueReadKind,
     ) -> Result<HorizonValueRead, CatalogueSourceError> {
         self.value_snapshot(p, id, b, s, Some(k))
+    }
+}
+
+pub(super) fn check_reset_boundary(
+    c: &Connection,
+    s: &Scope,
+    boundary: u64,
+) -> Result<(), CatalogueStoreError> {
+    if observed(c, s)?.is_some_and(|h| boundary < h) {
+        Err(CatalogueStoreError::ResetRequired)
+    } else {
+        Ok(())
     }
 }
