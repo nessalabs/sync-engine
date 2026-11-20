@@ -298,9 +298,12 @@ core commits must not automatically advance that dependency.
 The native [catalogue horizon prerequisite](design/catalogue-horizon.md) adds explicit
 v2 coverage admission and durable exact-scope observations. Positive publication
 and atomic native marker collection are now explicit source-owner operations;
-the successful v2 network dialect remains pending.
+the [explicit v2 development route](design/catalogue-horizon-wire.md) now
+qualifies head/manifest/value/reset contracts. Secure production catalogue
+transport remains #54 work.
 
 The [native v2 reset composition](design/catalogue-horizon-reset.md) now uses the
 same candidate journal after typed horizon expiry, including atomic cold start and
 commit-time horizon fences. Checked native activation/collection shares the
-source transaction; versioned network qualification remains. Issue #49 remains open.
+source transaction. Explicit development-wire mixed-version qualification now
+uses those same owners; final #49 acceptance audit remains. Issue #49 remains open.

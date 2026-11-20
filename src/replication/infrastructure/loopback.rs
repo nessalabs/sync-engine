@@ -46,6 +46,11 @@ use crate::replication::{
     domain::{validate_capabilities, CapabilitySupport},
 };
 pub use record_server::{LoopbackReadConfig, LoopbackRecordServer};
+mod catalogue_horizon;
+pub use catalogue_horizon::{
+    HorizonCatalogueClient, CATALOGUE_HEAD_HORIZON, CATALOGUE_MANIFEST_HORIZON,
+    CATALOGUE_VALUE_HORIZON,
+};
 mod catalogue_capabilities;
 pub use catalogue_capabilities::{
     CapabilityCatalogueClient, CATALOGUE_HEAD_CAP, CATALOGUE_MANIFEST_CAP, CATALOGUE_VALUE_CAP,
@@ -1112,6 +1117,9 @@ fn serve_one(
                 Err(error) => response.push(catalogue_error_code(error)),
             }
             write_catalogue_frame(&mut stream, &response, config, counters)?;
+        }
+        CATALOGUE_HEAD_HORIZON..=CATALOGUE_VALUE_HORIZON => {
+            catalogue_horizon::serve(&mut stream, config, counters, operation, &token, input)?;
         }
         CATALOGUE_HEAD_CAP..=CATALOGUE_VALUE_CAP => {
             catalogue_capabilities::serve(&mut stream, config, counters, operation, &token, input)?;
