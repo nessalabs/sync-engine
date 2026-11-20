@@ -1,5 +1,8 @@
 # Native horizon prerequisite measurements
 
+Historical receipt for its named runtime. The current native activation contract
+and real collection evidence are in [catalogue collection](catalogue-collection.md).
+
 Adds a native-only #49 coverage prerequisite: explicit catalogue v2 metadata and typed expiry, durable exact-scope monotone observations, fresh initial/resume admission, per-read source snapshot checks, and a receiver transaction fence using completed C rather than H/cursor. Equality is accepted. The existing whole-page commit loop and current authorization checks remain the owners.
 
 Positive source publication and collection are **disabled**. No horizon setter, collector, successful v2 network dialect or reset-composition claim is included. Existing generation-bound reset remains intact on the default zero horizon. V1 native and development wire routes refuse positive fixture floors before data, without downgrade. Source v4 and receiver v3 migrations preserve populated values/fences/progress; previously open old writers still require host fencing.

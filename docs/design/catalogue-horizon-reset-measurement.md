@@ -1,5 +1,8 @@
 # Native v2 reset measurements
 
+Historical receipt for its named runtime. The current native activation contract
+and real collection evidence are in [catalogue collection](catalogue-collection.md).
+
 Issue #49 remains open. This focused slice composes explicit native v2 reset with the existing same-incarnation Enumerate/Reconcile/Finish journal. FullReset compares captured H (C stays zero), preserves pending creation/revision floors and permanent fences, and requires current full-scope authority. Cold reset CASes actual parent absence and creates its first parent/journal atomically; Some(expected) never falls through to cold creation. Every effect rechecks observed coverage, including H publication and fence release. Fresh post-commit v2 metadata remains mandatory; errors/uncertainty stop for explicit reload/supersession.
 
 Independent review also found and corrected a missing reauthorization after an empty candidate read in the shared engine. A deterministic policy-change regression failed before the fix and now passes through both adapters for Denied and Unverifiable, with no journal movement.

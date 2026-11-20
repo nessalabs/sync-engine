@@ -2,7 +2,9 @@
 
 This opt-in path recovers the existing native SQLite catalogue under the exact
 same scope/incarnation/schema/epoch. It does not add a transport dialect, horizon
-policy, collection API or foreign/unknown absence semantics. The source still
+policy, collection API or foreign/unknown absence semantics by itself; the
+subsequent [native collection boundary](catalogue-collection.md) composes with
+explicit v2 recovery. The source still
 retains permanent identity/deletion rows. Missing rows and unavailable ownership
 are errors, never deletion proof. The host explicitly authorizes each bounded
 step and every payload read; the application checks authority again before

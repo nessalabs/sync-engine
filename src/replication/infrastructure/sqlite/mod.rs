@@ -30,7 +30,9 @@ mod source;
 mod source_metadata;
 
 pub use artifact::{SqliteArtifactCache, SqliteArtifactSource};
-pub use catalogue::{CataloguePublicationError, SqliteCatalogueSource, SqliteCatalogueStore};
+pub use catalogue::{
+    CatalogueCollection, CataloguePublicationError, SqliteCatalogueSource, SqliteCatalogueStore,
+};
 pub use connection::SqliteOpenError;
 use connection::{
     configure_connection, ensure_schema, open_connection, ARTIFACT_CACHE_APPLICATION_ID,

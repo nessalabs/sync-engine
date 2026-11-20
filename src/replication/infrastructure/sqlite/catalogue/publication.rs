@@ -5,19 +5,36 @@ use crate::replication::domain::{
     validate_head_transition, validate_writer_capabilities, CapabilityError, CapabilitySupport,
     HeadTransitionError, SOURCE_HEAD_VERSION,
 };
-/// Source-owned compare-and-upsert refusal; receiver progress is unaffected.
+/// Source-owned publication/collection refusal; receiver progress is unaffected.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CataloguePublicationError {
     /// Expected publication belongs to another immutable source identity.
     IdentityChanged,
-    /// Head/version/requirements changed; reload the current publication.
+    /// Head/version/requirements/horizon changed; reload the current publication.
     Stale,
     /// Current or requested requirements exceed this encoder's support.
     Incompatible(CapabilityError),
     /// Requirements would regress within this source incarnation.
     Transition(HeadTransitionError),
+    /// Requested coverage is outside the source's monotone inclusive bounds.
+    InvalidHorizon {
+        /// Previous committed horizon.
+        previous: u64,
+        /// Requested horizon.
+        requested: u64,
+        /// Current committed source revision.
+        head: u64,
+    },
     /// Local mutation failed, conflicted, or has an uncertain commit outcome.
     Store(CatalogueStoreError),
+}
+/// Confirmed native collection receipt; no receiver progress or grant is implied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogueCollection {
+    /// Committed v2 source publication; entry revision/masks are unchanged.
+    pub head: CatalogueHorizonHead,
+    /// Newly hidden retired serving markers, never permanent identity rows.
+    pub hidden_markers: usize,
 }
 pub(super) fn initialize(
     conn: &mut rusqlite::Connection,
@@ -231,5 +248,229 @@ impl SqliteCatalogueSource {
         tx.commit()
             .map_err(|_| Error::Store(CatalogueStoreError::Uncertain))?;
         to_u64(revision).map_err(Error::Store)
+    }
+}
+
+/// Source-internal seam: caller owns this source identity and an Immediate write
+/// transaction. Future catalogue pin validation/selection must run in this same
+/// transaction before this helper; it must not precompute eligibility outside it.
+/// This helper does not commit or open another transaction. Publish its candidate
+/// receipt only after the caller's commit succeeds.
+pub(super) fn collect_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    expected: &CatalogueHorizonHead,
+    requested: u64,
+) -> Result<CatalogueCollection, CataloguePublicationError> {
+    use CataloguePublicationError as E;
+    let (publication, previous) =
+        read_snapshot(tx).map_err(|_| E::Store(CatalogueStoreError::Failed))?;
+    publication.writer().map_err(E::Incompatible)?;
+    let current = CatalogueHorizonHead::new(publication.head(expected.source.scope()), previous);
+    if current != *expected {
+        return Err(E::Stale);
+    }
+    if requested < previous || requested > publication.position {
+        return Err(E::InvalidHorizon {
+            previous,
+            requested,
+            head: publication.position,
+        });
+    }
+    let horizon = to_i64(requested).map_err(E::Store)?;
+    let changed = tx
+        .execute(
+            "UPDATE catalogue_source_meta SET horizon=?1 WHERE singleton=1",
+            [horizon],
+        )
+        .map_err(|_| E::Store(CatalogueStoreError::Failed))?;
+    if changed != 1 {
+        return Err(E::Store(CatalogueStoreError::Failed));
+    }
+    let hidden_markers=tx.execute("UPDATE catalogue_source_entries SET manifest_visible=0 WHERE manifest_visible=1 AND deleted=1 AND revision<?1",[horizon]).map_err(|_|E::Store(CatalogueStoreError::Failed))?;
+    Ok(CatalogueCollection {
+        head: CatalogueHorizonHead::new(publication.head(expected.source.scope()), requested),
+        hidden_markers,
+    })
+}
+impl SqliteCatalogueSource {
+    /// Explicitly activate/advance native deletion coverage and collect eligible
+    /// serving markers atomically under the existing source writer. The caller
+    /// owns source policy; no retention-pin policy or receiver grant is inferred.
+    /// Immutable source identity, complete v2 publication and writer support are
+    /// checked before any effect, including an equal-horizon no-op. Bounds are
+    /// previous<=requested<=head; only retired revision<requested is hidden.
+    /// Live rows, permanent IDs, creation/deletion revisions and payloads remain.
+    /// On Stale/Uncertain reload v2 metadata and inspect before retrying. Stop old
+    /// binaries before activation; current legacy read APIs refuse positive h.
+    pub fn compare_collect(
+        &mut self,
+        expected: &CatalogueHorizonHead,
+        requested: u64,
+    ) -> Result<CatalogueCollection, CataloguePublicationError> {
+        if !self.matches(expected.source.scope()) {
+            return Err(CataloguePublicationError::IdentityChanged);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| CataloguePublicationError::Store(CatalogueStoreError::Failed))?;
+        let receipt = collect_in_transaction(&tx, expected, requested)?;
+        tx.commit()
+            .map_err(|_| CataloguePublicationError::Store(CatalogueStoreError::Uncertain))?;
+        Ok(receipt)
+    }
+}
+
+#[cfg(test)]
+mod collection_commit_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    #[test]
+    fn commit_refusal_is_uncertain_and_reload_has_no_partial_publication() {
+        let path = std::env::temp_dir().join(format!(
+            "owned-collection-commit-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let id = |s: &str| Id::new(s).unwrap();
+        let scope = Scope::new(
+            id("receiver"),
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+            id("epoch"),
+        );
+        let mut source = SqliteCatalogueSource::open(
+            &path,
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+        )
+        .unwrap();
+        source.upsert(&id("retired"), b"old").unwrap();
+        source.delete(&id("retired")).unwrap();
+        source.upsert(&id("live"), b"live").unwrap();
+        let expected = source
+            .horizon_head(&scope, CapabilitySupport::current())
+            .unwrap();
+        // Ordinary deferred constraint failure occurs at COMMIT, after both
+        // statements ran. It must never expose a half-activated source.
+        source.conn.execute_batch("PRAGMA foreign_keys=ON;
+        CREATE TABLE fixture_parent(id INTEGER PRIMARY KEY);
+        CREATE TABLE fixture_child(id INTEGER REFERENCES fixture_parent(id) DEFERRABLE INITIALLY DEFERRED);
+        CREATE TRIGGER fixture_commit AFTER UPDATE OF horizon ON catalogue_source_meta BEGIN INSERT INTO fixture_child VALUES(1); END;").unwrap();
+        assert_eq!(
+            source.compare_collect(&expected, 3),
+            Err(CataloguePublicationError::Store(
+                CatalogueStoreError::Uncertain
+            ))
+        );
+        assert_eq!(
+            source
+                .horizon_head(&scope, CapabilitySupport::current())
+                .unwrap(),
+            expected
+        );
+        assert_eq!(source.conn.query_row("SELECT manifest_visible FROM catalogue_source_entries WHERE entry_id='retired'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(
+            source
+                .conn
+                .query_row("SELECT count(*) FROM fixture_child", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        source
+            .conn
+            .execute_batch(
+                "DROP TRIGGER fixture_commit; DROP TABLE fixture_child; DROP TABLE fixture_parent;",
+            )
+            .unwrap();
+        drop(source);
+        let mut source = SqliteCatalogueSource::open(
+            &path,
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+        )
+        .unwrap();
+        assert_eq!(
+            source
+                .horizon_head(&scope, CapabilitySupport::current())
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            source.compare_collect(&expected, 3).unwrap().hidden_markers,
+            1
+        );
+        drop(source);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod collection_seam_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    #[test]
+    fn helper_keeps_publication_and_membership_in_callers_uncommitted_transaction() {
+        let path = std::env::temp_dir().join(format!(
+            "owned-collection-seam-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let id = |s: &str| Id::new(s).unwrap();
+        let scope = Scope::new(
+            id("receiver"),
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+            id("epoch"),
+        );
+        let mut source = SqliteCatalogueSource::open(
+            &path,
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+        )
+        .unwrap();
+        source.upsert(&id("retired"), b"old").unwrap();
+        source.delete(&id("retired")).unwrap();
+        source.upsert(&id("live"), b"live").unwrap();
+        let expected = source
+            .horizon_head(&scope, CapabilitySupport::current())
+            .unwrap();
+        let observer = Connection::open(&path).unwrap();
+        let snapshot = || {
+            observer.query_row("SELECT horizon,(SELECT manifest_visible FROM catalogue_source_entries WHERE entry_id='retired') FROM catalogue_source_meta",[],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap()
+        };
+        let tx = source
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let pending = collect_in_transaction(&tx, &expected, 3).unwrap();
+        assert_eq!(pending.hidden_markers, 1);
+        assert_eq!(snapshot(), (0, 1));
+        tx.rollback().unwrap();
+        assert_eq!(snapshot(), (0, 1));
+        let tx = source
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        collect_in_transaction(&tx, &expected, 3).unwrap();
+        assert_eq!(snapshot(), (0, 1));
+        tx.commit().unwrap();
+        assert_eq!(snapshot(), (3, 0));
+        drop(observer);
+        drop(source);
+        std::fs::remove_file(path).unwrap();
     }
 }

@@ -152,6 +152,9 @@ jobs:
           python3 scripts/verify-catalogue-reset.py
           python3 scripts/verify-catalogue-horizon.py
           python3 scripts/verify-catalogue-horizon-reset.py
+          python3 scripts/verify-catalogue-collection.py
+          python3 scripts/verify-catalogue-collection.py --profile v2-zero
+          python3 scripts/verify-catalogue-collection.py --profile legacy-collected
       - name: Set up Java for the pinned finite reset model
         if: steps.changes.outputs.rust != 'false'
         uses: actions/setup-java@v6
@@ -163,6 +166,7 @@ jobs:
         run: |
           curl --fail --location --max-time 60 https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar --output "$RUNNER_TEMP/tla2tools.jar"
           python3 scripts/verify-catalogue-reset-model.py --jar "$RUNNER_TEMP/tla2tools.jar"
+          python3 scripts/verify-catalogue-collection-model.py --jar "$RUNNER_TEMP/tla2tools.jar"
       - name: Finite receiver origin-epoch model and controls
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-origin-epoch-model.py --jar "$RUNNER_TEMP/tla2tools.jar"

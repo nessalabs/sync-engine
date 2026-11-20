@@ -62,14 +62,11 @@ to refuse legacy head/manifest/value routes before data; v2 never falls back.
 Hosts must explicitly select the v2 recovery API. No new wire operation or mode is
 introduced, and old binary/host upgrade fencing remains necessary.
 
-**Source activation and collection remain disabled.** Owned fixtures alone inject
-a positive horizon and hide retired serving membership, strictly below that floor.
-Permanent source identities, creation/deletion revisions and receiver fences stay
-intact. This qualifies recovery under that future storage condition, not a public
-publisher/collector or its atomic policy selection. The next slice must qualify
-one monotone source publication/selection transaction and its collection-aware
-finite model before exposing activation. Catalogue pins (#48) and the versioned
-network dialect remain separate. Issue #49 remains open.
+The [native collection boundary](catalogue-collection.md) now atomically advances
+coverage and hides strict-below retired markers while retaining permanent source
+identity and receiver fences. Its real-activation process lab and collection-aware
+finite model extend this earlier fixture qualification. Catalogue pins (#48) and
+the explicit versioned network dialect remain separate. Issue #49 remains open.
 
 ## Reproduction and measured costs
 

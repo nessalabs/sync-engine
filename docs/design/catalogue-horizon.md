@@ -38,7 +38,7 @@ refusal. It grants no access and is not progress. Authority checks remain before
 source reads, after acquired metadata and before the existing whole-page commit.
 A refused or uncertain operation does not replay itself; hosts explicitly reload.
 
-## Storage and disabled activation
+## Storage and explicit native activation
 
 The source's existing singleton metadata row owns horizon alongside head/masks;
 source file v4 adds one integer with `0 <= horizon <= head`. Head and horizon are
@@ -50,14 +50,12 @@ journals. Recognized old files initialize horizon to zero; malformed/future rows
 are not converted to zero. Stop old binaries before upgrading: reopening refuses
 unknown file versions, but that does not fence a previously open old writer.
 
-**Positive publication and collection remain disabled.** There is no production
-horizon setter and no collector. Owned test/lab fixtures alone inject positive
-floors. The [native v2 reset composition](catalogue-horizon-reset.md) now consumes
-FullReset reads through the same generation-bound Enumerate/Reconcile/Finish
-journal, including its fresh finish check and an atomic cold start. Its C stays
-zero while rebuilding; captured H must cover the current horizon. This supports
-owned positive fixtures but does not expose source activation/collection. The source owner must then atomically select a monotone safe
-floor and marker removals. No parallel marker/identity owner is introduced here.
+The [native atomic collection boundary](catalogue-collection.md) now exposes
+checked source-owner activation. Horizon publication and strict retired-marker
+selection share the existing writer transaction; permanent identities remain.
+The [native v2 reset composition](catalogue-horizon-reset.md) uses the existing
+Enumerate/Reconcile/Finish journal after expiry, including fresh Finish admission.
+Current authority and host fencing of already-open old writers remain required.
 
 Legacy native head, manifest and current-value operations fail closed for positive
 fixtures, even if their C happens to be high enough: their request contract cannot
@@ -83,8 +81,7 @@ Debug timings have no CI threshold. Wire measurement uses the existing developme
 plaintext loopback route, direct plus counted hop or with an additional opaque
 relay, with no session/secure transport/weak-link claim.
 
-Remaining #49 acceptance includes monotone source publication/atomic marker collection, versioned transport coverage and typed expiry,
-full cross-boundary delayed-result/restart proof and collection measurements. The
-existing finite reset model remains a reset-only proof; it makes no horizon or
-collection claim. #48 pin integration, #51 encoding and #54 production transport
-remain separate work. No savings or full-issue completion is claimed.
+Remaining #49 acceptance includes explicit versioned network coverage, typed expiry
+and mixed-version restart/delayed-result qualification. Native atomic collection
+and its bounded finite model are described in [the collection contract](catalogue-collection.md).
+#48 pins, #51 encoding and #54 transport remain separate. Issue #49 remains open.

@@ -1,13 +1,14 @@
 # Implementation plan: verifiable vertical slices
 
 The #49 [native reset recovery](design/catalogue-reset.md) now owns a finite
-generation-bound candidate worklist through Enumerate/Reconcile/Finish, before
-any horizon or collection API is enabled. It is opt-in and same-scope only.
+generation-bound candidate worklist through Enumerate/Reconcile/Finish. The
+[native atomic collection boundary](design/catalogue-collection.md) composes with
+v2 horizon admission and explicit same-scope recovery.
 
 The #49 [source-retirement prerequisite](design/catalogue-retirement.md) separates
 permanent source identity from manifest membership in the native catalogue. All
-publicly reachable markers remain served; horizon, collection and compatible
-reset/resume admission are not enabled by this storage migration.
+markers were initially served by this migration; explicit checked native
+collection now removes serving membership while retaining permanent identities.
 
 **Status: seven reference slices are implemented.**
 The core, optional SQLite and loopback adapters, examples and seven verification
@@ -296,8 +297,10 @@ core commits must not automatically advance that dependency.
 
 The native [catalogue horizon prerequisite](design/catalogue-horizon.md) adds explicit
 v2 coverage admission and durable exact-scope observations. Positive publication
-and marker collection remain disabled pending compatible reset/transport composition.
+and atomic native marker collection are now explicit source-owner operations;
+the successful v2 network dialect remains pending.
 
 The [native v2 reset composition](design/catalogue-horizon-reset.md) now uses the
 same candidate journal after typed horizon expiry, including atomic cold start and
-commit-time horizon fences. Source activation/collection remains disabled; Issue #49 remains open.
+commit-time horizon fences. Checked native activation/collection shares the
+source transaction; versioned network qualification remains. Issue #49 remains open.
