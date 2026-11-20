@@ -31,6 +31,18 @@ pub enum CatalogueReadKind {
     /// Explicit compatible full scan with completed zero and per-ID reconciliation.
     FullReset,
 }
+/// Select the comparison point without treating a reset's zero C as coverage.
+pub(crate) fn coverage_base(
+    kind: CatalogueReadKind,
+    completed: u64,
+    boundary: u64,
+) -> Result<u64, CatalogueSourceError> {
+    match kind {
+        CatalogueReadKind::Incremental => Ok(completed),
+        CatalogueReadKind::FullReset if completed == 0 => Ok(boundary),
+        CatalogueReadKind::FullReset => Err(CatalogueSourceError::InvalidRequest),
+    }
+}
 /// Coherent descriptors plus v2 coverage metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HorizonManifestRead {
@@ -161,7 +173,10 @@ pub fn begin_or_resume_with_horizon<
     application::authorize(scope, authorizer)?;
     application::begin_checked(scope, saved, head.source.position(), store).map(|p| p.active)
 }
-fn observe<A: crate::replication::application::ScopeAuthorizer, D: CatalogueHorizonStore>(
+pub(super) fn observe<
+    A: crate::replication::application::ScopeAuthorizer,
+    D: CatalogueHorizonStore,
+>(
     h: &CatalogueHorizonHead,
     s: &Scope,
     supported: CapabilitySupport,
@@ -194,6 +209,7 @@ impl<
                 .horizon_manifest(r, self.supported, CatalogueReadKind::Incremental),
             &r.pass,
             self.supported,
+            CatalogueReadKind::Incremental,
             a,
             d,
         )?;
@@ -225,6 +241,7 @@ impl<
                 .horizon_value(p, id, b, self.supported, CatalogueReadKind::Incremental),
             p,
             self.supported,
+            CatalogueReadKind::Incremental,
             a,
             d,
         )?;
@@ -265,7 +282,7 @@ pub fn apply_next_page_with_horizon<
     )
 }
 
-fn coverage_result<
+pub(super) fn coverage_result<
     T,
     A: crate::replication::application::ScopeAuthorizer,
     D: CatalogueHorizonStore,
@@ -273,13 +290,14 @@ fn coverage_result<
     result: Result<T, CatalogueSourceError>,
     p: &CataloguePass,
     supported: CapabilitySupport,
+    kind: CatalogueReadKind,
     a: &mut A,
     d: &mut D,
 ) -> Result<T, CatalogueError> {
     match result {
         Err(CatalogueSourceError::HorizonExpired { completed, head }) => {
             if completed != p.completed
-                || head.horizon <= completed
+                || head.horizon <= coverage_base(kind, p.completed, p.boundary)?
                 || head.source.position() < p.boundary
             {
                 return Err(CatalogueError::Source(CatalogueSourceError::InvalidRequest));
@@ -292,3 +310,6 @@ fn coverage_result<
         other => other.map_err(CatalogueError::from),
     }
 }
+
+mod recovery;
+pub use recovery::*;
