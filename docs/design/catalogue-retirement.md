@@ -13,7 +13,9 @@ identity, revisions and deletion meaning do not depend on that bit. Resolution
 still looks up the permanent row by ID, so a previously selected manifest can
 resolve a newer deletion even if future collection removes index membership.
 
-This prerequisite exposes no operation to clear membership. Every migrated row,
+This storage prerequisite initially exposed no operation to clear membership.
+The subsequent [native collection boundary](catalogue-collection.md) now exposes
+checked source-owner removal while preserving these permanent rows. Every migrated row,
 new live row and deletion made through public APIs stays visible. SQL fixtures
 exercise a future invisible retired row only to verify representation and fences;
 editing membership directly is not a supported collection procedure. Authorization,

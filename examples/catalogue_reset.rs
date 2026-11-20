@@ -1,4 +1,4 @@
-//! Owned native same-scope recovery lab. No transport or collection API.
+//! Owned native reset/collection lab. No transport or pin policy.
 use nessa_sync::replication::{
     catalogue::*,
     domain::{CapabilitySupport, Id, Scope},
@@ -38,8 +38,12 @@ fn main() {
         a.len() == 5 && a[4] == "owned",
         "catalogue_reset prepare|start|step SOURCE CACHE owned"
     );
-    let horizon = a[1].starts_with("horizon-");
-    let command = a[1].strip_prefix("horizon-").unwrap_or(&a[1]);
+    let collection = a[1].starts_with("collection-");
+    let horizon = a[1].starts_with("horizon-") || collection;
+    let command = a[1]
+        .strip_prefix("horizon-")
+        .or_else(|| a[1].strip_prefix("collection-"))
+        .unwrap_or(&a[1]);
     let sp = Path::new(&a[2]);
     let cp = Path::new(&a[3]);
     if command == "prepare" {
@@ -62,22 +66,45 @@ fn main() {
         for i in 0..160 {
             s.delete(&id(&format!("entry-{i:04}"))).unwrap();
         }
-        // Owned fixture only; no production activation/collection API exists.
-        let mut fixture = rusqlite::Connection::open(sp).unwrap();
-        let tx = fixture.transaction().unwrap();
-        if horizon {
-            tx.execute("UPDATE catalogue_source_meta SET horizon=780", [])
+        if !collection {
+            // Earlier reset labs retain their owned compatibility fixture.
+            // collection-* profiles use the checked API instead.
+            let mut fixture = rusqlite::Connection::open(sp).unwrap();
+            let tx = fixture.transaction().unwrap();
+            if horizon {
+                tx.execute("UPDATE catalogue_source_meta SET horizon=780", [])
+                    .unwrap();
+                tx.execute("UPDATE catalogue_source_entries SET manifest_visible=0 WHERE deleted=1 AND revision<780",[]).unwrap();
+            } else {
+                tx.execute(
+                    "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE deleted=1",
+                    [],
+                )
                 .unwrap();
-            tx.execute("UPDATE catalogue_source_entries SET manifest_visible=0 WHERE deleted=1 AND revision<780",[]).unwrap();
-        } else {
-            tx.execute(
-                "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE deleted=1",
-                [],
-            )
-            .unwrap();
+            }
+            tx.commit().unwrap();
         }
-        tx.commit().unwrap();
         println!("{{\"prepared\":620,\"retired\":160,\"head\":780}}");
+        return;
+    }
+    if collection && ["collect", "zero"].contains(&command) {
+        let expected = s
+            .horizon_head(&scope(), CapabilitySupport::current())
+            .unwrap();
+        let requested = if command == "zero" {
+            0
+        } else {
+            expected.source.position()
+        };
+        let timer = Instant::now();
+        let receipt = s.compare_collect(&expected, requested).unwrap();
+        let work_ms = timer.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "{{\"head\":{},\"horizon\":{},\"hidden_markers\":{},\"work_ms\":{work_ms:.6}}}",
+            receipt.head.source.position(),
+            receipt.head.horizon,
+            receipt.hidden_markers
+        );
         return;
     }
     let timer = Instant::now();
@@ -119,7 +146,8 @@ fn main() {
                 {
                     HorizonRecoveryStep::Pending(r) => (false, Some(r)),
                     HorizonRecoveryStep::Finished(h) => {
-                        assert_eq!((h.source.position(), h.horizon), (780, 780));
+                        assert_eq!(h.source.position(), 780);
+                        assert!(h.horizon == 780 || (collection && h.horizon == 0));
                         (true, None)
                     }
                 }

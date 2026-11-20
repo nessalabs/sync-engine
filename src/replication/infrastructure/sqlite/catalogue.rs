@@ -30,7 +30,7 @@ mod horizon;
 mod publication;
 mod recovery;
 mod source_connection;
-pub use publication::CataloguePublicationError;
+pub use publication::{CatalogueCollection, CataloguePublicationError};
 
 const SOURCE_SCHEMA: &str = "
 CREATE TABLE catalogue_source_meta (
