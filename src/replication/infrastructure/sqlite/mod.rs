@@ -4,7 +4,7 @@
 //! backup consistency, or authenticated remote delivery.
 //!
 //! `source` implements bounded committed reads, recent tails, older pages and
-//! append for the example; its `publication` module owns the version2 record-source
+//! append for the example; its `publication` module owns the record-source
 //! migration and requirements/head/fact transaction. `replica` implements atomic live apply/checkpoint,
 //! tail installation, older coverage and deletion fences, plus cached reads.
 //! `connection` owns file identity, opening policy, and schema setup. Each
@@ -40,7 +40,9 @@ use connection::{
 pub use origin_authority::{OriginClaimError, OriginProvisionError, SqliteOriginAuthority};
 use record_rows::{read_record_row, MAX_STORED_ID_BYTES};
 pub use replica::SqliteReplicaStore;
-pub use source::{SourcePublicationError, SqliteReferenceSource};
+pub use source::{
+    RecordPinReceipt, RecordRetentionError, SourcePublicationError, SqliteReferenceSource,
+};
 
 #[cfg(test)]
 #[path = "../../../../tests/replication/infrastructure/id_preflight.rs"]

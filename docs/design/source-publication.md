@@ -14,7 +14,8 @@ There is no independent registry, metadata-only setter or receiver-side grant.
 Replacing an incarnation requires a separately created source and explicit host
 reset/reconciliation; this adapter cannot replace an existing file's identity.
 
-Record-source SQLite `user_version` is now 2. Only this application ID migrates;
+Record-source SQLite `user_version` is now 3. Version2 introduced the capability metadata;
+version3 installs the [record retention ledger](retention-policy.md). Only this application ID migrates;
 replica, catalogue and artifact formats keep their existing versions. A populated
 version1 record file is checked for exact immutable identity and expected metadata
 columns, then upgraded under one immediate transaction. Existing records, immutable
