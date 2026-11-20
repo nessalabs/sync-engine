@@ -8,7 +8,7 @@ use crate::replication::domain::{
 pub(super) const HEAD_CAP: u8 = 5;
 pub(super) const OPEN_CAP: u8 = 6;
 pub(super) const PAGE_CAP: u8 = 7;
-const META_BYTES: usize = 26;
+pub(super) const META_BYTES: usize = 26;
 pub(super) type ViewHead<R> = fn(&mut R, &Scope) -> Result<SourceHead, SourceError>;
 pub(super) fn operation(kind: u8) -> bool {
     matches!(kind, HEAD_CAP | OPEN_CAP | PAGE_CAP)
@@ -117,6 +117,7 @@ where
             head: Some(R::view_head),
             history: None,
             scope_pair: false,
+            pair_batch: false,
         },
     )
 }

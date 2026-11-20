@@ -3,6 +3,9 @@
 use super::*;
 use crate::replication::application::RecordReadView;
 use crate::replication::domain::{CapabilitySupport, SourceHead};
+mod batch;
+pub use batch::PairHeadObservation;
+pub(super) use batch::{serve_batch, HEAD_BATCH};
 
 /// Serve two independently authorized scopes on one host-authenticated
 /// serialized channel. Only explicit pair setup and capability Head v1 are
@@ -13,6 +16,41 @@ pub fn serve_scope_pair_heads<S, A, F, R>(
     limits: SessionLimits,
     policy: &mut A,
     factory: F,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordReadView,
+{
+    serve_pair(stream, session, limits, policy, factory, false)
+}
+
+/// Serve the explicit two-scope batch opening on a host-authenticated channel.
+/// The mode also supports the existing independent Head v1 request.
+pub fn serve_scope_pair_batched_heads<S, A, F, R>(
+    stream: &mut S,
+    session: u64,
+    limits: SessionLimits,
+    policy: &mut A,
+    factory: F,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordReadView,
+{
+    serve_pair(stream, session, limits, policy, factory, true)
+}
+
+fn serve_pair<S, A, F, R>(
+    stream: &mut S,
+    session: u64,
+    limits: SessionLimits,
+    policy: &mut A,
+    factory: F,
+    batched: bool,
 ) -> Result<(), RecordSessionError>
 where
     S: Read + Write,
@@ -31,6 +69,7 @@ where
             head: Some(R::view_head),
             history: None,
             scope_pair: true,
+            pair_batch: batched,
         },
     )
 }
@@ -131,6 +170,7 @@ pub struct ScopePairHeadsSession<S> {
     inner: RecordSession<S>,
     secondary: Result<ScopeIdentity, SourceError>,
     support: CapabilitySupport,
+    batched: bool,
 }
 
 impl<S: InterruptibleSessionIo> ScopePairHeadsSession<S> {
@@ -144,12 +184,43 @@ impl<S: InterruptibleSessionIo> ScopePairHeadsSession<S> {
         limits: SessionLimits,
         support: CapabilitySupport,
     ) -> Result<Self, RecordSessionError> {
+        Self::connect_pair(io, primary, secondary, limits, support, false)
+    }
+
+    /// Open the explicit pair-batch mode. A legacy endpoint is not a fallback.
+    pub fn connect_batched(
+        io: S,
+        primary: Scope,
+        secondary: Scope,
+        limits: SessionLimits,
+        support: CapabilitySupport,
+    ) -> Result<Self, RecordSessionError> {
+        Self::connect_pair(io, primary, secondary, limits, support, true)
+    }
+
+    fn connect_pair(
+        io: S,
+        primary: Scope,
+        secondary: Scope,
+        limits: SessionLimits,
+        support: CapabilitySupport,
+        batched: bool,
+    ) -> Result<Self, RecordSessionError> {
         if limits.bindings != 2 || primary.same_receiver_stream(&secondary) {
             return Err(SourceError::InvalidRequest.into());
         }
         let interrupt = io.interrupt_handle();
-        let inner =
-            RecordSession::connect_with(io, primary, limits, Opening::ScopePair, Some(interrupt))?;
+        let inner = RecordSession::connect_with(
+            io,
+            primary,
+            limits,
+            if batched {
+                Opening::ScopePairBatch
+            } else {
+                Opening::ScopePair
+            },
+            Some(interrupt),
+        )?;
         let secondary = {
             let mut client = active_client(&inner.shared, &inner.closing)?;
             let key = client.owner.connection_id();
@@ -188,6 +259,7 @@ impl<S: InterruptibleSessionIo> ScopePairHeadsSession<S> {
             inner,
             secondary,
             support,
+            batched,
         })
     }
 }
