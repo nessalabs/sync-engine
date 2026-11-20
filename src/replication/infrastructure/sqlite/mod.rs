@@ -44,8 +44,9 @@ pub use replica::{
     SqliteReplicaStore,
 };
 pub use source::{
-    ClaimedNativeHead, EpochHeadError, RecordPinReceipt, RecordRetentionError,
-    SourcePublicationError, SqliteEpochHeadSource, SqliteReferenceSource,
+    ClaimedNativeHead, ClaimedNativePage, ClaimedNativePlan, EpochHeadError, EpochSourceError,
+    RecordPinReceipt, RecordRetentionError, SourcePublicationError, SqliteEpochHeadSource,
+    SqliteEpochRecordSource, SqliteReferenceSource,
 };
 
 #[cfg(test)]
