@@ -16,6 +16,8 @@ use super::{
 /// Source refusal before receiver progress changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueSourceError {
+    /// Source metadata version or reader format requirements are unsupported.
+    Incompatible(CapabilityError),
     /// Authentication or receiver policy refused this request.
     Denied,
     /// Source cannot currently answer or resolve an entry.
@@ -76,6 +78,15 @@ pub enum CatalogueError {
     Validation(CatalogueValidationError),
     /// Local store refused the transition.
     Store(CatalogueStoreError),
+}
+
+impl From<CatalogueSourceError> for CatalogueError {
+    fn from(error: CatalogueSourceError) -> Self {
+        match error {
+            CatalogueSourceError::Incompatible(error) => Self::Incompatible(error),
+            other => Self::Source(other),
+        }
+    }
 }
 
 /// One current-value source, with no per-receiver payload history.
@@ -162,7 +173,7 @@ where
     D: CatalogueStore,
 {
     begin_with_head(scope, authorizer, source, store, false, |s| {
-        s.head(scope).map_err(CatalogueError::Source)
+        s.head(scope).map_err(CatalogueError::from)
     })
 }
 
@@ -182,7 +193,7 @@ pub fn begin_or_resume_with_capabilities<
     store: &mut D,
 ) -> Result<Option<CataloguePass>, CatalogueError> {
     begin_with_head(scope, authorizer, source, store, true, |source| {
-        let head = source.source_head(scope).map_err(CatalogueError::Source)?;
+        let head = source.source_head(scope).map_err(CatalogueError::from)?;
         if head.scope() != scope {
             return Err(CatalogueError::Validation(
                 CatalogueValidationError::WrongRequest,
@@ -293,7 +304,7 @@ where
     validate_manifest_request(&request, MAX_CATALOGUE_ENTRIES)
         .map_err(CatalogueError::Validation)?;
     authorize(&pass.scope, authorizer)?;
-    let page = source.manifest(&request).map_err(CatalogueError::Source)?;
+    let page = source.manifest(&request).map_err(CatalogueError::from)?;
     validate_manifest(&request, &page, MAX_CATALOGUE_ENTRIES)
         .map_err(CatalogueError::Validation)?;
     let mut resolved = Vec::new();
@@ -316,7 +327,7 @@ where
         }
         let value = source
             .resolve(pass, &entry.key.id, remaining)
-            .map_err(CatalogueError::Source)?;
+            .map_err(CatalogueError::from)?;
         validate_resolved(entry, &value, max_payload_bytes).map_err(CatalogueError::Validation)?;
         total_bytes =
             total_bytes

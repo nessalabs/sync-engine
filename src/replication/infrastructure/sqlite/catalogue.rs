@@ -21,6 +21,9 @@ use super::{
     CATALOGUE_REPLICA_APPLICATION_ID, CATALOGUE_SOURCE_APPLICATION_ID,
 };
 
+mod publication;
+pub use publication::CataloguePublicationError;
+
 const SOURCE_SCHEMA: &str = "
 CREATE TABLE catalogue_source_meta (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -82,6 +85,8 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
+    /// Recognized version1 files migrate atomically to version2 after identity
+    /// validation. Hosts must stop old writers; open old binaries are not fenced.
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
@@ -90,36 +95,7 @@ impl SqliteCatalogueSource {
         schema: Id,
     ) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
-        ensure_schema(
-            &mut conn,
-            CATALOGUE_SOURCE_APPLICATION_ID,
-            SOURCE_SCHEMA,
-            |tx| {
-                tx.execute(
-                    "INSERT INTO catalogue_source_meta VALUES (1, ?1, ?2, ?3, ?4, 0)",
-                    params![
-                        origin.as_str(),
-                        stream.as_str(),
-                        incarnation.as_str(),
-                        schema.as_str()
-                    ],
-                )?;
-                Ok(())
-            },
-        )?;
-        let saved: Option<(String, String, String, String)> = conn.query_row(
-            "SELECT origin, stream, incarnation, schema_id FROM catalogue_source_meta WHERE singleton = 1",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        ).optional()?;
-        match saved {
-            Some((o, s, i, k))
-                if o == origin.as_str()
-                    && s == stream.as_str()
-                    && i == incarnation.as_str()
-                    && k == schema.as_str() => {}
-            Some(_) => return Err(SqliteOpenError::SourceIdentityMismatch),
-            None => return Err(SqliteOpenError::UnexpectedDatabase),
-        }
+        publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema])?;
         configure_connection(&conn)?;
         Ok(Self {
             conn,
@@ -136,52 +112,14 @@ impl SqliteCatalogueSource {
     }
 
     /// Replaces one current value and advances the global revision atomically.
+    /// Fresh unsupported writer requirements return Failed before no-op success
+    /// or mutation; compare_upsert preserves typed publication errors.
     pub fn upsert(&mut self, entry_id: &Id, payload: &[u8]) -> Result<u64, CatalogueStoreError> {
-        if payload.len() > MAX_CATALOGUE_PAYLOAD_BYTES {
-            return Err(CatalogueStoreError::Failed);
-        }
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| CatalogueStoreError::Failed)?;
-        let existing: Option<(i64, i64, i64, Vec<u8>)> = tx
-            .query_row(
-                "SELECT creation, revision, deleted, payload FROM catalogue_source_entries WHERE entry_id = ?1",
-                [entry_id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .optional()
-            .map_err(|_| CatalogueStoreError::Failed)?;
-        if existing
-            .as_ref()
-            .is_some_and(|(_, _, deleted, _)| *deleted != 0)
-        {
-            return Err(CatalogueStoreError::Fenced);
-        }
-        if let Some((_, revision, _, prior)) = &existing {
-            if prior == payload {
-                return to_u64(*revision);
-            }
-        }
-        let head: i64 = tx
-            .query_row(
-                "SELECT head FROM catalogue_source_meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| CatalogueStoreError::Failed)?;
-        let revision = head.checked_add(1).ok_or(CatalogueStoreError::Failed)?;
-        let creation = existing.map_or(revision, |(creation, _, _, _)| creation);
-        tx.execute("INSERT INTO catalogue_source_entries (entry_id, creation, revision, deleted, payload) VALUES (?1, ?2, ?3, 0, ?4)
-            ON CONFLICT(entry_id) DO UPDATE SET revision=excluded.revision, payload=excluded.payload",
-            params![entry_id.as_str(), creation, revision, payload]).map_err(|_| CatalogueStoreError::Failed)?;
-        tx.execute(
-            "UPDATE catalogue_source_meta SET head = ?1 WHERE singleton = 1",
-            [revision],
-        )
-        .map_err(|_| CatalogueStoreError::Failed)?;
-        tx.commit().map_err(|_| CatalogueStoreError::Uncertain)?;
-        to_u64(revision)
+        self.upsert_publication(entry_id, payload, None)
+            .map_err(|error| match error {
+                CataloguePublicationError::Store(error) => error,
+                _ => CatalogueStoreError::Failed,
+            })
     }
 
     /// Replaces a visible entry with a retained deletion marker, preserving its key.
@@ -189,6 +127,10 @@ impl SqliteCatalogueSource {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| CatalogueStoreError::Failed)?;
+        publication::read(&tx)
+            .map_err(|_| CatalogueStoreError::Failed)?
+            .writer()
             .map_err(|_| CatalogueStoreError::Failed)?;
         let existing: Option<i64> = tx
             .query_row(
@@ -255,16 +197,10 @@ impl CatalogueSource for SqliteCatalogueSource {
         if !self.matches(scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
-        let head: i64 = self
-            .conn
-            .query_row(
-                "SELECT head FROM catalogue_source_meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        let value = publication::read(&self.conn).map_err(|_| CatalogueSourceError::Unavailable)?;
+        value.reader().map_err(CatalogueSourceError::Incompatible)?;
         self.head_reads += 1;
-        u64::try_from(head).map_err(|_| CatalogueSourceError::Unavailable)
+        Ok(value.position)
     }
 
     fn manifest(
@@ -294,6 +230,10 @@ impl CatalogueSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
+        publication::read(&tx)
+            .map_err(|_| CatalogueSourceError::Unavailable)?
+            .reader()
+            .map_err(CatalogueSourceError::Incompatible)?;
         let head: i64 = tx
             .query_row(
                 "SELECT head FROM catalogue_source_meta WHERE singleton = 1",
@@ -362,6 +302,10 @@ impl CatalogueSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
+        publication::read(&tx)
+            .map_err(|_| CatalogueSourceError::Unavailable)?
+            .reader()
+            .map_err(CatalogueSourceError::Incompatible)?;
         let metadata: Option<(i64, i64, i64, i64)> = tx.query_row(
             "SELECT creation, revision, deleted, length(payload) FROM catalogue_source_entries WHERE entry_id = ?1", [entry_id.as_str()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -720,7 +664,12 @@ fn revision_error(error: CatalogueValidationError) -> CatalogueStoreError {
 
 impl CatalogueHeadSource for SqliteCatalogueSource {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, CatalogueSourceError> {
-        CatalogueSource::head(self, scope)
-            .map(|position| SourceHead::new(scope.clone(), position, 0, 0))
+        if !self.matches(scope) {
+            return Err(CatalogueSourceError::IdentityChanged);
+        }
+        self.head_reads += 1;
+        publication::read(&self.conn)
+            .map(|value| value.head(scope))
+            .map_err(|_| CatalogueSourceError::Unavailable)
     }
 }

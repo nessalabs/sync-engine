@@ -14,7 +14,9 @@
 //! the core walkthrough representation/bounds table describes accepted encodings
 //! and conversion accounting. `id_preflight_tests` checks those acquisition rows.
 //! `catalogue` supplies separate latest-value source and receiver files for
-//! finite list passes; it does not share transcript history tables.
+//! finite list passes; its publication module owns catalogue-only schema migration
+//! and atomic requirements/current-value revision writes. It does not share
+//! transcript history tables. `source_metadata` shares only stateless row decoding.
 //! `artifact` keeps current source bytes and a separate receiver staging cache.
 
 mod artifact;
@@ -23,9 +25,10 @@ mod connection;
 mod record_rows;
 mod replica;
 mod source;
+mod source_metadata;
 
 pub use artifact::{SqliteArtifactCache, SqliteArtifactSource};
-pub use catalogue::{SqliteCatalogueSource, SqliteCatalogueStore};
+pub use catalogue::{CataloguePublicationError, SqliteCatalogueSource, SqliteCatalogueStore};
 pub use connection::SqliteOpenError;
 use connection::{
     configure_connection, ensure_schema, open_connection, ARTIFACT_CACHE_APPLICATION_ID,

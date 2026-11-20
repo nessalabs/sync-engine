@@ -410,6 +410,7 @@ fn decode_chunk_source_error(code: u8) -> ChunkSourceError {
 #[cfg(feature = "sqlite")]
 fn catalogue_error_code(error: CatalogueSourceError) -> u8 {
     match error {
+        CatalogueSourceError::Incompatible(_) => 7,
         CatalogueSourceError::Denied => 1,
         CatalogueSourceError::Unavailable => 2,
         CatalogueSourceError::IdentityChanged => 3,
