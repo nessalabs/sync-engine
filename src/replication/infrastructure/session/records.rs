@@ -38,6 +38,7 @@ enum Opening {
     Open,
     Follow,
 }
+pub(super) mod capabilities;
 pub(super) mod follow;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
@@ -54,6 +55,11 @@ pub enum RecordSessionError {
     Source(SourceError),
     /// Connection is closed or its shared owner became unavailable.
     Closed,
+}
+impl From<SourceError> for RecordSessionError {
+    fn from(error: SourceError) -> Self {
+        Self::Source(error)
+    }
 }
 impl From<io::Error> for RecordSessionError {
     fn from(error: io::Error) -> Self {
@@ -199,11 +205,17 @@ fn read_packet_wait(
         HEAD,
         PAGE,
         OPEN_PAGE,
+        capabilities::HEAD_CAP,
+        capabilities::OPEN_CAP,
+        capabilities::PAGE_CAP,
         HINT,
         AUTHORIZE | REPLY,
         HEAD | REPLY,
         PAGE | REPLY,
         OPEN_PAGE | REPLY,
+        capabilities::HEAD_CAP | REPLY,
+        capabilities::OPEN_CAP | REPLY,
+        capabilities::PAGE_CAP | REPLY,
     ]
     .contains(&kind)
     {
@@ -331,6 +343,18 @@ impl<S: Read + Write> Wire<S> {
                     return Err(RecordSessionError::Protocol);
                 }
                 if p.status != 0 {
+                    if p.status == 8 && capabilities::operation(kind) {
+                        if !result.is_empty()
+                            || p.offset != 0
+                            || p.total != p.payload.len()
+                            || p.payload.len() > 9
+                        {
+                            return Err(RecordSessionError::Protocol);
+                        }
+                        let error = capabilities::decode_incompatible(&p.payload)?;
+                        self.counters.exchanges += 1;
+                        return Err(RecordSessionError::Source(SourceError::Incompatible(error)));
+                    }
                     if p.total != 0 || p.offset != 0 || !p.payload.is_empty() {
                         return Err(RecordSessionError::Protocol);
                     }
@@ -368,7 +392,8 @@ impl<S: Read + Write> Wire<S> {
         match &result {
             Ok(_)
             | Err(RecordSessionError::Source(
-                SourceError::Denied
+                SourceError::Incompatible(_)
+                | SourceError::Denied
                 | SourceError::Unavailable
                 | SourceError::Pruned
                 | SourceError::InvalidRequest
@@ -921,9 +946,17 @@ fn respond<S: Write, A: ScopeAuthorizer>(
                     kind: request.kind | REPLY,
                     status,
                     meta: request.meta,
-                    total: 0,
+                    total: if status == 8 && current == 0 {
+                        body.len()
+                    } else {
+                        0
+                    },
                     offset: 0,
-                    payload: Vec::new(),
+                    payload: if status == 8 && current == 0 {
+                        body.to_vec()
+                    } else {
+                        Vec::new()
+                    },
                 },
                 limit,
             )?;
@@ -1025,7 +1058,15 @@ where
     F: FnMut(&Scope) -> Result<R, SourceError>,
     R: RecordSource,
 {
-    serve_bound(stream, session, supported, policy, &mut open_source, None)
+    serve_bound(
+        stream,
+        session,
+        supported,
+        policy,
+        &mut open_source,
+        None,
+        None,
+    )
 }
 type BoundHook<'a> =
     Option<&'a mut dyn FnMut(Correlation, Scope, usize) -> Result<(), RecordSessionError>>;
@@ -1036,6 +1077,7 @@ fn serve_bound<S, A, F, R>(
     policy: &mut A,
     mut open_source: F,
     mut hook: BoundHook<'_>,
+    capability_head: Option<capabilities::ViewHead<R>>,
 ) -> Result<(), RecordSessionError>
 where
     S: Read + Write,
@@ -1129,6 +1171,13 @@ where
             limit,
         )?,
         Err(reason) => {
+            // The unchanged control dialect cannot carry capability details.
+            // Fail setup explicitly, without inventing zero requirements or
+            // turning an unsupported source preparation into a retryable EOF.
+            let reason = match reason {
+                SourceError::Incompatible(_) => SourceError::InvalidRequest,
+                other => other,
+            };
             write_control(
                 stream,
                 &ControlFrame::Refused {
@@ -1161,6 +1210,47 @@ where
         }
         last = request.meta.request;
         let current = access_code(policy.authorize(&scope), &scope);
+        if capabilities::operation(request.kind) {
+            let result = if current != 0 {
+                Err(RecordSessionError::Source(decode_source_error(current)))
+            } else if let Some(head) = capability_head {
+                capabilities::server_response(&request, &scope, policy, &mut open_source, head)
+            } else {
+                Err(RecordSessionError::Source(SourceError::InvalidRequest))
+            };
+            let (status, body) = match result {
+                Ok(body) => (0, body),
+                Err(RecordSessionError::Source(SourceError::Incompatible(error))) => {
+                    match capabilities::encode_incompatible(error) {
+                        Ok(body) => (8, body),
+                        Err(_) => (7, Vec::new()),
+                    }
+                }
+                Err(RecordSessionError::Source(error)) => (
+                    if current != 0 {
+                        current
+                    } else {
+                        source_error_code(error)
+                    },
+                    Vec::new(),
+                ),
+                Err(_) => (7, Vec::new()),
+            };
+            respond(stream, &request, status, &body, &scope, policy, limit)?;
+            continue;
+        }
+        if capability_head.is_some() && matches!(request.kind, HEAD | PAGE | OPEN_PAGE) {
+            respond(
+                stream,
+                &request,
+                if current != 0 { current } else { 4 },
+                &[],
+                &scope,
+                policy,
+                limit,
+            )?;
+            continue;
+        }
         let result = if current != 0 {
             Err(current)
         } else {

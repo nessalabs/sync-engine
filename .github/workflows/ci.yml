@@ -117,6 +117,9 @@ jobs:
       - name: Native SourceHead initial compatibility admission
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-source-head.py
+      - name: Record capability direct and relay admission
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-session-capabilities.py
       - name: Public API documentation
         if: steps.changes.outputs.rust != 'false'
         env:

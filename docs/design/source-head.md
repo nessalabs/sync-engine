@@ -101,3 +101,7 @@ claimed by a native metadata check.
 
 [Native/transport/gate/reversion receipts](../verification/source-head-admission.json)
 retain the matched measurements and reviewed source fingerprints.
+
+The later [version1 record wire slice](source-head-wire.md) supplies an explicitly
+selected record endpoint and a stronger coherent read-view contract. This original
+initial-admission port alone still makes no per-read snapshot promise.

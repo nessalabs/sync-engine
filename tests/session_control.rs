@@ -441,3 +441,22 @@ fn follow_open_is_explicit_and_has_the_same_bounded_fields_as_open() {
     };
     assert!(write_control(&mut Vec::new(), &invalid, 2048).is_err());
 }
+
+#[test]
+fn capability_details_are_not_a_control_refusal_extension() {
+    let frame = ControlFrame::Refused {
+        correlation: Correlation {
+            session: 1,
+            request: 1,
+        },
+        reason: nessa_sync::replication::application::SourceError::Incompatible(
+            nessa_sync::replication::domain::CapabilityError::MissingReader(1),
+        ),
+    };
+    let mut wire = Vec::new();
+    assert!(matches!(
+        write_control(&mut wire, &frame, 2048),
+        Err(ControlError::Incompatible)
+    ));
+    assert!(wire.is_empty());
+}
