@@ -1,5 +1,9 @@
 # Implementation plan: verifiable vertical slices
 
+The #49 [native reset recovery](design/catalogue-reset.md) now owns a finite
+generation-bound candidate worklist through Enumerate/Reconcile/Finish, before
+any horizon or collection API is enabled. It is opt-in and same-scope only.
+
 The #49 [source-retirement prerequisite](design/catalogue-retirement.md) separates
 permanent source identity from manifest membership in the native catalogue. All
 publicly reachable markers remain served; horizon, collection and compatible

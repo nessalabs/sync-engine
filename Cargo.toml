@@ -89,5 +89,9 @@ name = "session_freshness"
 required-features = ["transport", "sqlite"]
 
 [[example]]
+name = "catalogue_reset"
+required-features = ["sqlite"]
+
+[[example]]
 name = "origin_authority"
 required-features = ["sqlite"]

@@ -14,6 +14,7 @@ use nessa_sync::replication::domain::{Id, Scope};
 use nessa_sync::replication::infrastructure::{
     LoopbackClient, LoopbackConfig, LoopbackServer, SqliteArtifactCache, SqliteArtifactSource,
 };
+use sha2::{Digest, Sha256};
 
 fn id(value: &str) -> Id {
     Id::new(value).expect("valid lab identity")
@@ -63,16 +64,23 @@ fn main() {
         Some("upsert") if args.len() == 6 => {
             let size: usize = args[4].parse().unwrap();
             assert!(size <= 8*1024*1024);
-            let value = args[5].as_bytes();
-            assert_eq!(value.len(),1);
-            let revision = source(&args[2]).upsert(&id(&args[3]),&vec![value[0];size]).unwrap();
+            let bytes = if args[5] == "pattern" {
+                (0..size).map(|index| ((index + index / 4096 * 37) % 251) as u8).collect()
+            } else {
+                let value = args[5].as_bytes();
+                assert_eq!(value.len(), 1);
+                vec![value[0]; size]
+            };
+            let revision = source(&args[2]).upsert(&id(&args[3]), &bytes).unwrap();
             println!("{{\"revision\":{revision},\"size\":{size}}}");
         }
         Some("delete") if args.len() == 4 => {
             let revision = source(&args[2]).delete(&id(&args[3])).unwrap();
             println!("{{\"revision\":{revision}}}");
         }
-        Some("step") if args.len() == 7 => {
+        Some("step") if matches!(args.len(), 7 | 8) => {
+            let chunk_bytes = args.get(7).map_or(MAX_CHUNK_BYTES, |value| value.parse().unwrap());
+            assert!((1..=MAX_CHUNK_BYTES).contains(&chunk_bytes));
             let selected = key(&args[4],&args[5]);
             let mut remote = client(&args[2],&args[6]);
             let mut cache = SqliteArtifactCache::open(&args[3]).unwrap();
@@ -97,7 +105,7 @@ fn main() {
                 return;
             }
             let ArtifactState::Live(content) = manifest.state else { unreachable!() };
-            let mut latest = transfer_one(&manifest, MAX_CHUNK_BYTES, &mut remote, &mut cache).unwrap();
+            let mut latest = transfer_one(&manifest, chunk_bytes, &mut remote, &mut cache).unwrap();
             if latest.next_offset == content.length {
                 match publish_if_current(&manifest, &mut remote, &mut cache) {
                     Ok(published) => latest = published,
@@ -124,7 +132,8 @@ fn main() {
                 Ok(Some(saved)) => {
                     let bytes = cache.read_verified(&saved.manifest).unwrap();
                     let offset = cache.progress(&saved.manifest).unwrap().unwrap().next_offset;
-                    println!("{{\"revision\":{},\"deleted\":{},\"verified\":{},\"size\":{},\"offset\":{}}}",
+                    let digest = bytes.as_ref().map_or_else(|| "null".to_owned(), |value| format!("\"{:x}\"", Sha256::digest(value)));
+                    println!("{{\"revision\":{},\"deleted\":{},\"verified\":{},\"size\":{},\"offset\":{},\"sha256\":{digest}}}",
                         saved.manifest.revision,matches!(saved.manifest.state,ArtifactState::Deleted),
                         bytes.is_some(),bytes.as_ref().map_or(0,Vec::len),offset);
                 }
@@ -161,6 +170,6 @@ fn main() {
             let state = cache.progress(&manifest).unwrap().unwrap();
             println!("{{\"hash_mismatch\":true,\"offset\":{},\"verified\":{}}}",state.next_offset,state.verified);
         }
-        _ => panic!("usage: artifact_network serve SOURCE_DB PORT READ WRITE | upsert SOURCE_DB ID SIZE BYTE | delete SOURCE_DB ID | step PORT CACHE_DB RECEIVER ID READ | show CACHE_DB RECEIVER ID | record-head PORT RECEIVER READ | inject-bad PORT CACHE_DB RECEIVER ID READ"),
+        _ => panic!("usage: artifact_network serve SOURCE_DB PORT READ WRITE | upsert SOURCE_DB ID SIZE BYTE_OR_PATTERN | delete SOURCE_DB ID | step PORT CACHE_DB RECEIVER ID READ [CHUNK_BYTES] | show CACHE_DB RECEIVER ID | record-head PORT RECEIVER READ | inject-bad PORT CACHE_DB RECEIVER ID READ"),
     }
 }

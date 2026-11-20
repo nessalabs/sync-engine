@@ -9,10 +9,12 @@ use crate::replication::application::{
     RecordHeadSource, RecordReadView, RecordSource, SourceError, StoreError, MAX_RECORD_BYTES,
 };
 use crate::replication::domain::{
-    validate_page_request, Id, Limits, Page, PageRequest, Record, Scope, SourceHead,
+    validate_capabilities, validate_page_request, CapabilitySupport, Id, Limits, Page, PageRequest,
+    Record, Scope, SourceHead,
 };
 use crate::replication::history::{
-    HistorySource, HistorySourceError, OlderPage, OlderRequest, TailRequest, TailSnapshot,
+    CapabilityHistorySource, HistorySource, HistorySourceError, OlderPage, OlderRequest,
+    TailRequest, TailSnapshot,
 };
 
 use super::{
@@ -313,18 +315,19 @@ impl RecordSource for SqliteReferenceSource {
     }
 }
 
-fn history_meta(tx: &rusqlite::Transaction<'_>) -> Result<(u64, u64), HistorySourceError> {
-    publication::read(tx)
-        .map_err(|_| HistorySourceError::Unavailable)?
+// The publication SELECT pins the transaction snapshot before floor or rows
+// are acquired. The metadata and payload must not come from separate reads.
+fn history_meta(
+    tx: &rusqlite::Transaction<'_>,
+    scope: &Scope,
+    supported: CapabilitySupport,
+) -> Result<(SourceHead, u64), HistorySourceError> {
+    let publication = publication::read(tx).map_err(|_| HistorySourceError::Unavailable)?;
+    let head = publication.head(scope);
+    validate_capabilities(&head, supported).map_err(HistorySourceError::Incompatible)?;
+    publication
         .reader()
         .map_err(HistorySourceError::Incompatible)?;
-    let head: i64 = tx
-        .query_row(
-            "SELECT head FROM source_meta WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|_| HistorySourceError::Unavailable)?;
     let floor: i64 = tx
         .query_row(
             "SELECT pruned_through FROM source_history WHERE singleton = 1",
@@ -333,7 +336,7 @@ fn history_meta(tx: &rusqlite::Transaction<'_>) -> Result<(u64, u64), HistorySou
         )
         .map_err(|_| HistorySourceError::Unavailable)?;
     Ok((
-        u64::try_from(head).map_err(|_| HistorySourceError::Unavailable)?,
+        head,
         u64::try_from(floor).map_err(|_| HistorySourceError::Unavailable)?,
     ))
 }
@@ -428,6 +431,22 @@ fn read_backward(
 
 impl HistorySource for SqliteReferenceSource {
     fn tail(&mut self, request: &TailRequest) -> Result<TailSnapshot, HistorySourceError> {
+        self.tail_with_capabilities(request, CapabilitySupport::current())
+            .map(|(_, tail)| tail)
+    }
+
+    fn older(&mut self, request: &OlderRequest) -> Result<OlderPage, HistorySourceError> {
+        self.older_with_capabilities(request, CapabilitySupport::current())
+            .map(|(_, page)| page)
+    }
+}
+
+impl CapabilityHistorySource for SqliteReferenceSource {
+    fn tail_with_capabilities(
+        &mut self,
+        request: &TailRequest,
+        supported: CapabilitySupport,
+    ) -> Result<(SourceHead, TailSnapshot), HistorySourceError> {
         self.tail_reads += 1;
         if !self.matches(&request.scope) {
             return Err(HistorySourceError::IdentityChanged);
@@ -436,15 +455,19 @@ impl HistorySource for SqliteReferenceSource {
             .conn
             .transaction()
             .map_err(|_| HistorySourceError::Unavailable)?;
-        let (head, floor) = history_meta(&tx)?;
+        let (metadata, floor) = history_meta(&tx, &request.scope, supported)?;
+        let head = metadata.position();
         if head == 0 {
-            return Ok(TailSnapshot {
-                request: request.clone(),
-                watermark: 0,
-                first: 1,
-                oldest_available: 1,
-                records: Vec::new(),
-            });
+            return Ok((
+                metadata,
+                TailSnapshot {
+                    request: request.clone(),
+                    watermark: 0,
+                    first: 1,
+                    oldest_available: 1,
+                    records: Vec::new(),
+                },
+            ));
         }
         let oldest = floor
             .checked_add(1)
@@ -463,16 +486,23 @@ impl HistorySource for SqliteReferenceSource {
         )?;
         let bytes: usize = records.iter().map(|record| record.payload.len()).sum();
         self.history_payload_bytes = self.history_payload_bytes.saturating_add(bytes as u64);
-        Ok(TailSnapshot {
-            request: request.clone(),
-            watermark: head,
-            first: records[0].position,
-            oldest_available: oldest,
-            records,
-        })
+        Ok((
+            metadata,
+            TailSnapshot {
+                request: request.clone(),
+                watermark: head,
+                first: records[0].position,
+                oldest_available: oldest,
+                records,
+            },
+        ))
     }
 
-    fn older(&mut self, request: &OlderRequest) -> Result<OlderPage, HistorySourceError> {
+    fn older_with_capabilities(
+        &mut self,
+        request: &OlderRequest,
+        supported: CapabilitySupport,
+    ) -> Result<(SourceHead, OlderPage), HistorySourceError> {
         self.older_reads += 1;
         if !self.matches(&request.scope) {
             return Err(HistorySourceError::IdentityChanged);
@@ -481,7 +511,8 @@ impl HistorySource for SqliteReferenceSource {
             .conn
             .transaction()
             .map_err(|_| HistorySourceError::Unavailable)?;
-        let (head, floor) = history_meta(&tx)?;
+        let (metadata, floor) = history_meta(&tx, &request.scope, supported)?;
+        let head = metadata.position();
         if request.before > head.saturating_add(1) {
             return Err(HistorySourceError::InvalidRequest);
         }
@@ -502,11 +533,14 @@ impl HistorySource for SqliteReferenceSource {
         )?;
         let bytes: usize = records.iter().map(|record| record.payload.len()).sum();
         self.history_payload_bytes = self.history_payload_bytes.saturating_add(bytes as u64);
-        Ok(OlderPage {
-            request: request.clone(),
-            oldest_available: oldest,
-            records,
-        })
+        Ok((
+            metadata,
+            OlderPage {
+                request: request.clone(),
+                oldest_available: oldest,
+                records,
+            },
+        ))
     }
 }
 
@@ -531,3 +565,6 @@ impl RecordReadView for SqliteReferenceSource {
         RecordHeadSource::source_head(self, scope)
     }
 }
+
+#[cfg(test)]
+mod history_capability_tests;

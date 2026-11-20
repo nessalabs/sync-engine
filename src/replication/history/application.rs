@@ -2,7 +2,7 @@
 //! the host; fetching and installation can be separated to test delayed replies.
 
 use crate::replication::application::{Access, ScopeAuthorizer};
-use crate::replication::domain::{CapabilityError, Limits, Scope};
+use crate::replication::domain::{CapabilityError, CapabilitySupport, Limits, Scope, SourceHead};
 
 use super::{
     validate_older, validate_tail, HistoryProgress, HistoryValidationError, OlderPage, OlderPlan,
@@ -107,6 +107,26 @@ pub trait HistorySource {
     fn tail(&mut self, request: &TailRequest) -> Result<TailSnapshot, HistorySourceError>;
     /// Reads one bounded contiguous older page, ending before `before`.
     fn older(&mut self, request: &OlderRequest) -> Result<OlderPage, HistorySourceError>;
+}
+
+/// Opt-in history source whose metadata, capability admission and record
+/// acquisition describe one coherent read snapshot. This port does not authorize
+/// a scope or install data. Implementors must check the offered reader support
+/// and their own format support before acquiring record payloads.
+pub trait CapabilityHistorySource: HistorySource {
+    /// Returns admitted metadata and a bounded suffix at exactly that head.
+    fn tail_with_capabilities(
+        &mut self,
+        request: &TailRequest,
+        supported: CapabilitySupport,
+    ) -> Result<(SourceHead, TailSnapshot), HistorySourceError>;
+
+    /// Returns admitted metadata and one older range from the same snapshot.
+    fn older_with_capabilities(
+        &mut self,
+        request: &OlderRequest,
+        supported: CapabilitySupport,
+    ) -> Result<(SourceHead, OlderPage), HistorySourceError>;
 }
 
 /// Atomic tail/history store. The live follower's `ReplicaStore` port is
