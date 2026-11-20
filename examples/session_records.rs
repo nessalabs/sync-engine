@@ -21,6 +21,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+#[path = "session_records/outage.rs"]
+mod outage;
+
 type Error = Box<dyn std::error::Error>;
 fn error<E: std::fmt::Debug>(e: E) -> io::Error {
     io::Error::other(format!("{e:?}"))
@@ -498,10 +501,11 @@ fn run() -> Result<(), Error> {
             }Ok(())
         }
         Some("refuse") if args.len()==6=>refused(address(&args[2])?,Path::new(&args[3]),&Id::new(&args[4]).map_err(error)?,args[5].parse()?),
+        Some("outage") if args.len()==7=>outage::run(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("append") if args.len()==3=>{let mut producer=source(Path::new(&args[2]))?;let after=producer.head(&scope("device-a")).map_err(error)?;for n in after+1..=after+7{let (id,payload)=fact(n as usize);producer.append(&id,&payload).map_err(error)?;}println!("{{\"head\":{}}}",after+7);Ok(())},
         Some("bench") if args.len()==7=>bench(&args[2],address(&args[3])?,Path::new(&args[4]),Path::new(&args[5]),&Id::new(&args[6]).map_err(error)?),
         Some("inspect") if args.len()==3=>{let(c,n,p)=inspect(Path::new(&args[2]))?;println!("{{\"checkpoint\":{c},\"records\":{n},\"payload_bytes\":{p},\"ordered_complete\":true}}");Ok(())}
-        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page|session-io|session-caps ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
+        _=>Err("usage: session_records serve SOURCE PORT READ_TOKEN | bench loopback|session|session-open|session-page|session-io|session-caps ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | outage loopback|session-io ADDR EMPTY_SOURCE EMPTY_REPLICA READ_TOKEN | inspect REPLICA".into()),
     }
 }
 fn main() {

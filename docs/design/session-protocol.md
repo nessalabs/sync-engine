@@ -232,7 +232,10 @@ shared duplex capacity, TLS or relay overhead. The page uses one request/respons
 pair even if TCP divides its bytes. Thus these measurements do not establish
 #54's rough 12–14 RTT arithmetic, nor production latency or percentiles.
 The ordinary lab also verifies recovery after a deliberately unavailable proxy;
-this is not a timed multi-second outage profile.
+this is not a timed multi-second outage profile. The separate
+[record timed-outage lab](session-record-timed-outage.md) measures a real TCP
+cut, rejected reconnect and exact SQLite resume under both application
+profiles. It does not qualify transport packet loss.
 
 The 620-entry catalogue and catalogue-plus-K-transcript resume estimates in #54
 are **not measured yet**. Count those separately before accepting inline payloads
