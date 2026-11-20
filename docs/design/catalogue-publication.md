@@ -81,3 +81,7 @@ claims. Matched baseline/current numbers and source fingerprints belong in the P
 
 [Verification and matched measurement receipts](../verification/catalogue-publication.json)
 retain exact source/harness fingerprints and regression evidence.
+
+The later [explicit capability wire slice](catalogue-capability-wire.md) supplies
+versioned development-route operations using the owned snapshot reads described
+there. This document remains the native publication ownership milestone.

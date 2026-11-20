@@ -46,8 +46,10 @@ now stores requirements in the existing append transaction with source-specific
 migration, writer compatibility checks and compare-and-append. Known masks remain
 zero. The [native catalogue owner](design/catalogue-publication.md) now commits
 requirements with current values/revisions and checks manifest/resolution snapshots.
-Nonzero rollout, capability-bearing catalogue transport and remaining routes still
-require independent qualification.
+The [explicit catalogue capability route](design/catalogue-capability-wire.md) now
+pairs metadata and data in source snapshots and provides typed early wire refusal.
+Nonzero rollout, session catalogue and remaining routes still require independent
+qualification.
 
 ## Outcome we are building toward
 

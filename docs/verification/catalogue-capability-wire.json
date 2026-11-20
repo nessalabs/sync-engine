@@ -1,0 +1,2993 @@
+{
+  "scope": "explicit version1 catalogue capability operations on development loopback; #47 and #54 remain open",
+  "source_commit": "26779b914452c64f7e64434d5fe8773e5169c68f",
+  "base_commit": "319072b71d549e9e8d67df77b23a07ee582556e5",
+  "matched_reports": {
+    "before-legacy": {
+      "client_dialect": "legacy",
+      "scope": "native publication and620-entry development-loopback wire; no session catalogue or secure channel claim",
+      "source_commit": "319072b71d549e9e8d67df77b23a07ee582556e5",
+      "source_sha256": {
+        "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+        "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+        "examples/catalogue_apps.rs": "14d2ae64c08f917df22e8f523ac6da340ff14a8d9c5b946db94394131b965deb",
+        "examples/catalogue_network.rs": "0e28d969b8f02958db5d48fe64877659def820ba266dbfcf60dda35bbe01438f",
+        "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+        "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+        "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+        "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+        "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+        "src/replication/catalogue/application.rs": "aec52e6ac3fc4a858b0224f98b76366120d461b811638b8b6c33121cea4d240b",
+        "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+        "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+        "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+        "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+        "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+        "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+        "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+        "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+        "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+        "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+        "src/replication/infrastructure/loopback.rs": "eaf57f515b264833d31bd0bd94f6dc5321586570984fbf3cb44e61b03e91a1c2",
+        "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+        "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+        "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+        "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+        "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+        "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+        "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+        "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+        "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+        "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+        "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+        "src/replication/infrastructure/sqlite/catalogue.rs": "11005ce92f4c74727f17cf8afc76e2b09fa6ce4702dc4f00227f58eb5946bb36",
+        "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+        "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+        "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+        "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+        "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+        "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+        "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+        "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+      },
+      "harness_sha256": {
+        "measure-catalogue-publication.py": "55b80436dfa67639c0c1e54bf9ca8274077ef361135d9e30ae46276279db4672",
+        "verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b"
+      },
+      "command": "python3 scripts/measure-catalogue-publication.py --root /workspace/scratch/1e92cc46a545/issue-47-catalogue-cap-baseline --repetitions 2 --native-repetitions 5 --client-dialect legacy",
+      "conditions": [
+        "unshaped debug builds; timings have no CI threshold or performance gain claim",
+        "direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop",
+        "fixture plaintext tokens; no production authentication, encryption, session or weak-link claim",
+        "wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes",
+        "wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification",
+        "native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit",
+        "legacy active resume skips initial head; capability resume rechecks metadata before returning a pass; explicit unchanged_recheck is measured separately",
+        "fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress"
+      ],
+      "native_cases": [
+        {
+          "phase": "seed620",
+          "repetition": 1,
+          "elapsed_ms": 174.364,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 1,
+          "elapsed_ms": 2.766,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 1,
+          "elapsed_ms": 2.574,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 2,
+          "elapsed_ms": 72.009,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 2,
+          "elapsed_ms": 2.479,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 2,
+          "elapsed_ms": 2.529,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 3,
+          "elapsed_ms": 66.641,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 3,
+          "elapsed_ms": 2.56,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 3,
+          "elapsed_ms": 2.453,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 4,
+          "elapsed_ms": 64.149,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 4,
+          "elapsed_ms": 2.468,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 4,
+          "elapsed_ms": 2.457,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 5,
+          "elapsed_ms": 73.078,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 5,
+          "elapsed_ms": 2.424,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 5,
+          "elapsed_ms": 2.318,
+          "head": 622,
+          "entries": 620
+        }
+      ],
+      "native_summary": [
+        {
+          "phase": "delete",
+          "n": 5,
+          "elapsed_ms_min": 2.318,
+          "elapsed_ms_median": 2.457,
+          "elapsed_ms_max": 2.574
+        },
+        {
+          "phase": "seed620",
+          "n": 5,
+          "elapsed_ms_min": 64.149,
+          "elapsed_ms_median": 72.009,
+          "elapsed_ms_max": 174.364
+        },
+        {
+          "phase": "upsert",
+          "n": 5,
+          "elapsed_ms_min": 2.424,
+          "elapsed_ms_median": 2.479,
+          "elapsed_ms_max": 2.766
+        }
+      ],
+      "wire_cases": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 1032.231,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 61.903,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 891.797,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 8.92,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 3.238,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 1343.108,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 129.509,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 1165.65,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 12.347,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 5.046,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 939.763,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 57.159,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 969.95,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 9.904,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 4.023,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 1292.976,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 102.852,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 1156.33,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 24.451,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 11.981,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        }
+      ],
+      "wire_summary": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 939.763,
+          "elapsed_ms_median": 985.997,
+          "elapsed_ms_max": 1032.231,
+          "exchanges": 637,
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 8.92,
+          "elapsed_ms_median": 9.412,
+          "elapsed_ms_max": 9.904,
+          "exchanges": 4,
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 57.159,
+          "elapsed_ms_median": 59.531,
+          "elapsed_ms_max": 61.903,
+          "exchanges": 42,
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 891.797,
+          "elapsed_ms_median": 930.874,
+          "elapsed_ms_max": 969.95,
+          "exchanges": 595,
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 3.238,
+          "elapsed_ms_median": 3.63,
+          "elapsed_ms_max": 4.023,
+          "exchanges": 1,
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 1292.976,
+          "elapsed_ms_median": 1318.042,
+          "elapsed_ms_max": 1343.108,
+          "exchanges": 637,
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 12.347,
+          "elapsed_ms_median": 18.399,
+          "elapsed_ms_max": 24.451,
+          "exchanges": 4,
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 102.852,
+          "elapsed_ms_median": 116.18,
+          "elapsed_ms_max": 129.509,
+          "exchanges": 42,
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 1156.33,
+          "elapsed_ms_median": 1160.99,
+          "elapsed_ms_max": 1165.65,
+          "exchanges": 595,
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 5.046,
+          "elapsed_ms_median": 8.514,
+          "elapsed_ms_max": 11.981,
+          "exchanges": 1,
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        }
+      ],
+      "full_issue47_ready": false
+    },
+    "after-legacy": {
+      "client_dialect": "legacy",
+      "scope": "native publication and620-entry development-loopback wire; no session catalogue or secure channel claim",
+      "source_commit": "26779b914452c64f7e64434d5fe8773e5169c68f",
+      "source_sha256": {
+        "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+        "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+        "examples/catalogue_apps.rs": "14d2ae64c08f917df22e8f523ac6da340ff14a8d9c5b946db94394131b965deb",
+        "examples/catalogue_network.rs": "0aa6a73359aa160187231b4b0bb11894e79944357741c7cd08b1bd27ff295267",
+        "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+        "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+        "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+        "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+        "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+        "src/replication/catalogue/application.rs": "13889d847cd8c60fc4e965b24df1c934131d5f99aa264bae9146c246c6f0bebb",
+        "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+        "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+        "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+        "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+        "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+        "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+        "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+        "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+        "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+        "src/replication/infrastructure/loopback/catalogue_capabilities.rs": "c759f1a3e737f7c8335184bc8c49d71c57f709dbf7f4b127ca66984884babbec",
+        "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+        "src/replication/infrastructure/loopback.rs": "d73bb1e4d200420edf703315cdf8d40f7a7e8530607b764263037e2df22e6cee",
+        "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+        "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+        "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+        "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+        "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+        "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+        "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+        "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+        "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+        "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+        "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+        "src/replication/infrastructure/sqlite/catalogue.rs": "eea0e2275463a5597bed26872e844ce412b6302cdb2f2efe8e14fcc21be7fb0e",
+        "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+        "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+        "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+        "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+        "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+        "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+        "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+        "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+      },
+      "harness_sha256": {
+        "measure-catalogue-publication.py": "55b80436dfa67639c0c1e54bf9ca8274077ef361135d9e30ae46276279db4672",
+        "verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b"
+      },
+      "command": "python3 scripts/measure-catalogue-publication.py --root /workspace/scratch/1e92cc46a545/issue-47-catalogue-capabilities --repetitions 2 --native-repetitions 5 --client-dialect legacy",
+      "conditions": [
+        "unshaped debug builds; timings have no CI threshold or performance gain claim",
+        "direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop",
+        "fixture plaintext tokens; no production authentication, encryption, session or weak-link claim",
+        "wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes",
+        "wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification",
+        "native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit",
+        "legacy active resume skips initial head; capability resume rechecks metadata before returning a pass; explicit unchanged_recheck is measured separately",
+        "fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress"
+      ],
+      "native_cases": [
+        {
+          "phase": "seed620",
+          "repetition": 1,
+          "elapsed_ms": 59.75,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 1,
+          "elapsed_ms": 2.393,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 1,
+          "elapsed_ms": 3.037,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 2,
+          "elapsed_ms": 51.838,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 2,
+          "elapsed_ms": 2.271,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 2,
+          "elapsed_ms": 2.318,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 3,
+          "elapsed_ms": 53.009,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 3,
+          "elapsed_ms": 2.28,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 3,
+          "elapsed_ms": 2.363,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 4,
+          "elapsed_ms": 52.649,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 4,
+          "elapsed_ms": 2.56,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 4,
+          "elapsed_ms": 2.533,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 5,
+          "elapsed_ms": 65.006,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 5,
+          "elapsed_ms": 2.664,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 5,
+          "elapsed_ms": 2.406,
+          "head": 622,
+          "entries": 620
+        }
+      ],
+      "native_summary": [
+        {
+          "phase": "delete",
+          "n": 5,
+          "elapsed_ms_min": 2.318,
+          "elapsed_ms_median": 2.406,
+          "elapsed_ms_max": 3.037
+        },
+        {
+          "phase": "seed620",
+          "n": 5,
+          "elapsed_ms_min": 51.838,
+          "elapsed_ms_median": 53.009,
+          "elapsed_ms_max": 65.006
+        },
+        {
+          "phase": "upsert",
+          "n": 5,
+          "elapsed_ms_min": 2.271,
+          "elapsed_ms_median": 2.393,
+          "elapsed_ms_max": 2.664
+        }
+      ],
+      "wire_cases": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 903.254,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 61.758,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 928.908,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 9.328,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 3.974,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 1253.903,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 85.682,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 1167.146,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 11.743,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 4.057,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 916.322,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 62.619,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 836.929,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 9.791,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 3.971,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 1280.085,
+          "exchanges": 637,
+          "observed_operations": {
+            "11": 1,
+            "12": 16,
+            "13": 620
+          },
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 82.977,
+          "exchanges": 42,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 40
+          },
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 1149.706,
+          "exchanges": 595,
+          "observed_operations": {
+            "12": 15,
+            "13": 580
+          },
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 10.551,
+          "exchanges": 4,
+          "observed_operations": {
+            "11": 1,
+            "12": 1,
+            "13": 2
+          },
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 4.437,
+          "exchanges": 1,
+          "observed_operations": {
+            "11": 1
+          },
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        }
+      ],
+      "wire_summary": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 903.254,
+          "elapsed_ms_median": 909.788,
+          "elapsed_ms_max": 916.322,
+          "exchanges": 637,
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 9.328,
+          "elapsed_ms_median": 9.559,
+          "elapsed_ms_max": 9.791,
+          "exchanges": 4,
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 61.758,
+          "elapsed_ms_median": 62.189,
+          "elapsed_ms_max": 62.619,
+          "exchanges": 42,
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 836.929,
+          "elapsed_ms_median": 882.918,
+          "elapsed_ms_max": 928.908,
+          "exchanges": 595,
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 3.971,
+          "elapsed_ms_median": 3.973,
+          "elapsed_ms_max": 3.974,
+          "exchanges": 1,
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 1253.903,
+          "elapsed_ms_median": 1266.994,
+          "elapsed_ms_max": 1280.085,
+          "exchanges": 637,
+          "wire_total_bytes": 212637,
+          "protocol_overhead_bytes": 184737,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 10.551,
+          "elapsed_ms_median": 11.147,
+          "elapsed_ms_max": 11.743,
+          "exchanges": 4,
+          "wire_total_bytes": 920,
+          "protocol_overhead_bytes": 859,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 82.977,
+          "elapsed_ms_median": 84.329,
+          "elapsed_ms_max": 85.682,
+          "exchanges": 42,
+          "wire_total_bytes": 12387,
+          "protocol_overhead_bytes": 10587,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 1149.706,
+          "elapsed_ms_median": 1158.426,
+          "elapsed_ms_max": 1167.146,
+          "exchanges": 595,
+          "wire_total_bytes": 200250,
+          "protocol_overhead_bytes": 174150,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 4.057,
+          "elapsed_ms_median": 4.247,
+          "elapsed_ms_max": 4.437,
+          "exchanges": 1,
+          "wire_total_bytes": 143,
+          "protocol_overhead_bytes": 143,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        }
+      ],
+      "full_issue47_ready": false
+    },
+    "after-capabilities": {
+      "client_dialect": "capabilities",
+      "scope": "native publication and620-entry development-loopback wire; no session catalogue or secure channel claim",
+      "source_commit": "26779b914452c64f7e64434d5fe8773e5169c68f",
+      "source_sha256": {
+        "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+        "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+        "examples/catalogue_apps.rs": "14d2ae64c08f917df22e8f523ac6da340ff14a8d9c5b946db94394131b965deb",
+        "examples/catalogue_network.rs": "0aa6a73359aa160187231b4b0bb11894e79944357741c7cd08b1bd27ff295267",
+        "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+        "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+        "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+        "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+        "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+        "src/replication/catalogue/application.rs": "13889d847cd8c60fc4e965b24df1c934131d5f99aa264bae9146c246c6f0bebb",
+        "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+        "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+        "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+        "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+        "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+        "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+        "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+        "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+        "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+        "src/replication/infrastructure/loopback/catalogue_capabilities.rs": "c759f1a3e737f7c8335184bc8c49d71c57f709dbf7f4b127ca66984884babbec",
+        "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+        "src/replication/infrastructure/loopback.rs": "d73bb1e4d200420edf703315cdf8d40f7a7e8530607b764263037e2df22e6cee",
+        "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+        "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+        "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+        "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+        "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+        "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+        "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+        "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+        "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+        "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+        "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+        "src/replication/infrastructure/sqlite/catalogue.rs": "eea0e2275463a5597bed26872e844ce412b6302cdb2f2efe8e14fcc21be7fb0e",
+        "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+        "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+        "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+        "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+        "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+        "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+        "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+        "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+      },
+      "harness_sha256": {
+        "measure-catalogue-publication.py": "55b80436dfa67639c0c1e54bf9ca8274077ef361135d9e30ae46276279db4672",
+        "verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b"
+      },
+      "command": "python3 scripts/measure-catalogue-publication.py --root /workspace/scratch/1e92cc46a545/issue-47-catalogue-capabilities --repetitions 2 --native-repetitions 5 --client-dialect capabilities",
+      "conditions": [
+        "unshaped debug builds; timings have no CI threshold or performance gain claim",
+        "direct includes counted framed TCP hop; relay adds an opaque raw TCP forwarding hop",
+        "fixture plaintext tokens; no production authentication, encryption, session or weak-link claim",
+        "wire total includes length prefixes/tokens, manifest descriptors and opaque payload; protocol overhead excludes both manifest and opaque payload bytes",
+        "wire timer includes process start, connections and receiver commit; excludes producer churn and fresh-process verification",
+        "native seed620 includes file create/migrate/open and620 separate WAL/FULL upserts; update/delete include process/open/one commit",
+        "legacy active resume skips initial head; capability resume rechecks metadata before returning a pass; explicit unchanged_recheck is measured separately",
+        "fresh SQLite connections compare every cached entry/key/revision/deletion/payload against source, plus saved progress"
+      ],
+      "native_cases": [
+        {
+          "phase": "seed620",
+          "repetition": 1,
+          "elapsed_ms": 51.717,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 1,
+          "elapsed_ms": 2.534,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 1,
+          "elapsed_ms": 6.22,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 2,
+          "elapsed_ms": 78.646,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 2,
+          "elapsed_ms": 10.409,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 2,
+          "elapsed_ms": 4.343,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 3,
+          "elapsed_ms": 86.982,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 3,
+          "elapsed_ms": 2.894,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 3,
+          "elapsed_ms": 3.083,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 4,
+          "elapsed_ms": 67.877,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 4,
+          "elapsed_ms": 2.7,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 4,
+          "elapsed_ms": 2.172,
+          "head": 622,
+          "entries": 620
+        },
+        {
+          "phase": "seed620",
+          "repetition": 5,
+          "elapsed_ms": 64.207,
+          "head": 620,
+          "entries": 620
+        },
+        {
+          "phase": "upsert",
+          "repetition": 5,
+          "elapsed_ms": 3.322,
+          "head": 621,
+          "entries": 620
+        },
+        {
+          "phase": "delete",
+          "repetition": 5,
+          "elapsed_ms": 2.51,
+          "head": 622,
+          "entries": 620
+        }
+      ],
+      "native_summary": [
+        {
+          "phase": "delete",
+          "n": 5,
+          "elapsed_ms_min": 2.172,
+          "elapsed_ms_median": 3.083,
+          "elapsed_ms_max": 6.22
+        },
+        {
+          "phase": "seed620",
+          "n": 5,
+          "elapsed_ms_min": 51.717,
+          "elapsed_ms_median": 67.877,
+          "elapsed_ms_max": 86.982
+        },
+        {
+          "phase": "upsert",
+          "n": 5,
+          "elapsed_ms_min": 2.534,
+          "elapsed_ms_median": 2.894,
+          "elapsed_ms_max": 10.409
+        }
+      ],
+      "wire_cases": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 899.989,
+          "exchanges": 637,
+          "observed_operations": {
+            "17": 1,
+            "18": 16,
+            "19": 620
+          },
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 61.024,
+          "exchanges": 42,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 40
+          },
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 843.515,
+          "exchanges": 596,
+          "observed_operations": {
+            "17": 1,
+            "18": 15,
+            "19": 580
+          },
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 8.682,
+          "exchanges": 4,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 2
+          },
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 3.475,
+          "exchanges": 1,
+          "observed_operations": {
+            "17": 1
+          },
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 1,
+          "elapsed_ms": 1395.391,
+          "exchanges": 637,
+          "observed_operations": {
+            "17": 1,
+            "18": 16,
+            "19": 620
+          },
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 1,
+          "elapsed_ms": 83.574,
+          "exchanges": 42,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 40
+          },
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 1,
+          "elapsed_ms": 1240.499,
+          "exchanges": 596,
+          "observed_operations": {
+            "17": 1,
+            "18": 15,
+            "19": 580
+          },
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 1,
+          "elapsed_ms": 10.116,
+          "exchanges": 4,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 2
+          },
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 1,
+          "elapsed_ms": 3.942,
+          "exchanges": 1,
+          "observed_operations": {
+            "17": 1
+          },
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 938.082,
+          "exchanges": 637,
+          "observed_operations": {
+            "17": 1,
+            "18": 16,
+            "19": 620
+          },
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 155.649,
+          "exchanges": 42,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 40
+          },
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 878.767,
+          "exchanges": 596,
+          "observed_operations": {
+            "17": 1,
+            "18": 15,
+            "19": 580
+          },
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 10.396,
+          "exchanges": 4,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 2
+          },
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 4.607,
+          "exchanges": 1,
+          "observed_operations": {
+            "17": 1
+          },
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "repetition": 2,
+          "elapsed_ms": 1322.885,
+          "exchanges": 637,
+          "observed_operations": {
+            "17": 1,
+            "18": 16,
+            "19": 620
+          },
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "repetition": 2,
+          "elapsed_ms": 82.962,
+          "exchanges": 42,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 40
+          },
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720,
+          "cache_entries": 40,
+          "completed": 0,
+          "active_boundary": 620,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "repetition": 2,
+          "elapsed_ms": 1206.484,
+          "exchanges": 596,
+          "observed_operations": {
+            "17": 1,
+            "18": 15,
+            "19": 580
+          },
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440,
+          "cache_entries": 620,
+          "completed": 620,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "repetition": 2,
+          "elapsed_ms": 12.169,
+          "exchanges": 4,
+          "observed_operations": {
+            "17": 1,
+            "18": 1,
+            "19": 2
+          },
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "repetition": 2,
+          "elapsed_ms": 5.533,
+          "exchanges": 1,
+          "observed_operations": {
+            "17": 1
+          },
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0,
+          "cache_entries": 620,
+          "completed": 622,
+          "active_boundary": null,
+          "fresh_process_rows_match": true
+        }
+      ],
+      "wire_summary": [
+        {
+          "path": "direct",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 899.989,
+          "elapsed_ms_median": 919.035,
+          "elapsed_ms_max": 938.082,
+          "exchanges": 637,
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "direct",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 8.682,
+          "elapsed_ms_median": 9.539,
+          "elapsed_ms_max": 10.396,
+          "exchanges": 4,
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "direct",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 61.024,
+          "elapsed_ms_median": 108.337,
+          "elapsed_ms_max": 155.649,
+          "exchanges": 42,
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "direct",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 843.515,
+          "elapsed_ms_median": 861.141,
+          "elapsed_ms_max": 878.767,
+          "exchanges": 596,
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "direct",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 3.475,
+          "elapsed_ms_median": 4.041,
+          "elapsed_ms_max": 4.607,
+          "exchanges": 1,
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        },
+        {
+          "path": "relay",
+          "phase": "bootstrap",
+          "n": 2,
+          "elapsed_ms_min": 1322.885,
+          "elapsed_ms_median": 1359.138,
+          "elapsed_ms_max": 1395.391,
+          "exchanges": 637,
+          "wire_total_bytes": 242568,
+          "protocol_overhead_bytes": 214668,
+          "manifest_bytes": 16740,
+          "opaque_payload_bytes": 11160
+        },
+        {
+          "path": "relay",
+          "phase": "churn",
+          "n": 2,
+          "elapsed_ms_min": 10.116,
+          "elapsed_ms_median": 11.143,
+          "elapsed_ms_max": 12.169,
+          "exchanges": 4,
+          "wire_total_bytes": 1100,
+          "protocol_overhead_bytes": 1039,
+          "manifest_bytes": 54,
+          "opaque_payload_bytes": 7
+        },
+        {
+          "path": "relay",
+          "phase": "partial",
+          "n": 2,
+          "elapsed_ms_min": 82.962,
+          "elapsed_ms_median": 83.268,
+          "elapsed_ms_max": 83.574,
+          "exchanges": 42,
+          "wire_total_bytes": 14353,
+          "protocol_overhead_bytes": 12553,
+          "manifest_bytes": 1080,
+          "opaque_payload_bytes": 720
+        },
+        {
+          "path": "relay",
+          "phase": "restart_resume",
+          "n": 2,
+          "elapsed_ms_min": 1206.484,
+          "elapsed_ms_median": 1223.492,
+          "elapsed_ms_max": 1240.499,
+          "exchanges": 596,
+          "wire_total_bytes": 228397,
+          "protocol_overhead_bytes": 202297,
+          "manifest_bytes": 15660,
+          "opaque_payload_bytes": 10440
+        },
+        {
+          "path": "relay",
+          "phase": "unchanged_recheck",
+          "n": 2,
+          "elapsed_ms_min": 3.942,
+          "elapsed_ms_median": 4.738,
+          "elapsed_ms_max": 5.533,
+          "exchanges": 1,
+          "wire_total_bytes": 182,
+          "protocol_overhead_bytes": 182,
+          "manifest_bytes": 0,
+          "opaque_payload_bytes": 0
+        }
+      ],
+      "full_issue47_ready": false
+    }
+  },
+  "refusal_process_lab": {
+    "scope": "version1 catalogue operations on development loopback real direct/opaque-relay TCP",
+    "full_issue47_ready": false,
+    "source_commit": "26779b914452c64f7e64434d5fe8773e5169c68f",
+    "source_sha256": {
+      "Cargo.lock": "380ced6a09bda8f82ae2eea4f6302dcda0908c4f3f38ceff238374e03e57fe79",
+      "Cargo.toml": "7762ea7a09e25a40881b87f739ab450c3dab48c2e2eb6fac03d725cb80083d39",
+      "examples/catalogue_apps.rs": "14d2ae64c08f917df22e8f523ac6da340ff14a8d9c5b946db94394131b965deb",
+      "examples/catalogue_network.rs": "0aa6a73359aa160187231b4b0bb11894e79944357741c7cd08b1bd27ff295267",
+      "scripts/measure-catalogue-publication.py": "55b80436dfa67639c0c1e54bf9ca8274077ef361135d9e30ae46276279db4672",
+      "scripts/verify-catalogue-capabilities.py": "a299c685bac5328fd7d6c6a76dc79b7871f453828188c7af8a36ab21581edff6",
+      "scripts/verify-session-e2e.py": "146f343a062bfdb511af6f089a230217fbf51e1aa5fd6bcf1910343fa9830f8b",
+      "src/lib.rs": "dbddf89e4758ee01b10ba2a3664ab29ad56ff60c29dd13f76a0adb5ea9ae35c1",
+      "src/replication/application/follower.rs": "4698ff55658752c26d66fb05f6c68886d69b13f7ae69c67658d9dba9e07404c2",
+      "src/replication/application/mod.rs": "fce3e9aa00012d9c2c11c860dc7fd9e6af386133fac719029b4a40a4af47af5e",
+      "src/replication/artifacts/mod.rs": "dcfafe5da1322a34ee6f8057e90276d7b1dc2aa6eb6d826184ac42eb132f80a1",
+      "src/replication/artifacts/transfer.rs": "b6803eae84aacd567f469b45544ddcbdbbf942289f08f717f7310e9362be61fc",
+      "src/replication/catalogue/application.rs": "13889d847cd8c60fc4e965b24df1c934131d5f99aa264bae9146c246c6f0bebb",
+      "src/replication/catalogue/domain/progress.rs": "97a74cefa8e20be5a9d32ba8380446787ee2221a87211d031803d9e0445148e2",
+      "src/replication/catalogue/domain.rs": "732f7bd2ff818bbfb4340526bb0a30b6d4a1dc6a4402bd68a98ca0c842e4851f",
+      "src/replication/catalogue/mod.rs": "b84ea883d3d6c397582a36d3007d4b2dc8afba3b5efe95e2f776337f704b1960",
+      "src/replication/domain/mod.rs": "96ba4cd08fc9d7b292423483fe63537a5403c6685bbfcf97ae1e836a1926422d",
+      "src/replication/domain/records.rs": "2d26eced74efdfeafe71217c625ef6ca4c185e0fdcf6155985c59a3023036b7b",
+      "src/replication/domain/source_head.rs": "81c675aa95d88becf88c586cf87ce21dcec137acd3584ae574a0f2869617f709",
+      "src/replication/history/application.rs": "871c55eebad1a6d1f60b455c69f7524ccd0735c8e28ca5326a4265489ace2fa3",
+      "src/replication/history/domain.rs": "95d6fb2ce289ed5680fdfa4c9612f37fef2aedc33f79c23f78782bc0ba6d6d32",
+      "src/replication/history/mod.rs": "c59d61a3d1d9ecd4ab0aee437ec39901055f910f8f7bd7876eb779e72b748a4e",
+      "src/replication/infrastructure/loopback/catalogue_capabilities.rs": "c759f1a3e737f7c8335184bc8c49d71c57f709dbf7f4b127ca66984884babbec",
+      "src/replication/infrastructure/loopback/record_server.rs": "1653381a5bd9bdc8634b58e8a38105a2ed2db3d642363cf47f2f7141b8d7f363",
+      "src/replication/infrastructure/loopback.rs": "d73bb1e4d200420edf703315cdf8d40f7a7e8530607b764263037e2df22e6cee",
+      "src/replication/infrastructure/memory.rs": "05d21fe372bfc609f85d08edef3ca9dc9474ebf8add29c0e37555b1b2a577b8f",
+      "src/replication/infrastructure/mod.rs": "adc3d49827f51050b2496f86de5a8e5035534ebbec90b89b4abad79a6e273a41",
+      "src/replication/infrastructure/session/authorization.rs": "80f5e67581d528058e4a53eb29739b124f1b02c68557b8c58fb9e28c1d6bce0f",
+      "src/replication/infrastructure/session/channel.rs": "b88ef11165565001dff1abce4a90c2194343c75533eb59603a38592eef6249df",
+      "src/replication/infrastructure/session/lifecycle.rs": "be0273f54d4f2cbae0fcc4fe2d4a9e4fe57f3c7321f2980130ec8d766deca2d6",
+      "src/replication/infrastructure/session/records/capabilities.rs": "50ccfd46a84d23dd90501ab38847a036f75aedf4d888e8ef2a6077bff4fa58ce",
+      "src/replication/infrastructure/session/records/follow.rs": "b07f662ffd0c8f2c5fb2ed06e30c42ef102f61f09c9c4912a44c6747289ca3f8",
+      "src/replication/infrastructure/session/records.rs": "cc84081006e501d637df6bddd7f344107173a5d1b7f081047d3d21d6c8b804dd",
+      "src/replication/infrastructure/session.rs": "4b17606e6c8ec5baf3eae0d685f5a3635171f775090d4538da96e885a7609061",
+      "src/replication/infrastructure/sqlite/artifact.rs": "8e1570442824acdf01881779469333b6991fbb0045dbbbaec94a8c5f773681f2",
+      "src/replication/infrastructure/sqlite/catalogue/publication.rs": "f3da9dbe6ca3252aafe2d470995d51ff603c647f07026ce5b2b18dd571f67977",
+      "src/replication/infrastructure/sqlite/catalogue.rs": "eea0e2275463a5597bed26872e844ce412b6302cdb2f2efe8e14fcc21be7fb0e",
+      "src/replication/infrastructure/sqlite/connection.rs": "8cf9615bed4371514ba4bcb1992ddb30413416add63d530c93279c6636e58505",
+      "src/replication/infrastructure/sqlite/mod.rs": "a4c3ed204368a963f2fb2bd98d6de6d348da6e8d8a6fa9f90994bd05d3e5176d",
+      "src/replication/infrastructure/sqlite/record_rows.rs": "aa2c57c08cf82a26f4e748b0d641a86344afa69f841d3faf1fbd8faf36773f4f",
+      "src/replication/infrastructure/sqlite/replica.rs": "f0d706274c367df007adb972bb3e2a22b17407321f5db96335bd7034baeb1a99",
+      "src/replication/infrastructure/sqlite/source/publication.rs": "24a7249d1242c11ad3a03c706a5d84cc67fa811d20477ff9f7c19e96e48c3732",
+      "src/replication/infrastructure/sqlite/source.rs": "04533c48c7827bf1a6b09fc0aae9f3649008644447d940fb4e412b754af1e7ec",
+      "src/replication/infrastructure/sqlite/source_metadata.rs": "fc6c53c0f2a09bee3d4319d24d5f7197d9ed855e1356b69fbe11336bfc407943",
+      "src/replication/mod.rs": "21abc46aed6117da74e1c2529b3ed8d460c246655add9c4cbdccd4d1a9462aa7"
+    },
+    "command": "python3 scripts/verify-catalogue-capabilities.py",
+    "conditions": [
+      "owned plaintext fixture tokens, no session/production-security qualification",
+      "620 entries, active40-entry cursor; writer-only read completes620, reader requirement then changes0\u21921 monotonically",
+      "ordinary explicit retry after disconnect; no implicit downgrade/retry in client",
+      "refusal timings are unshaped debug single samples, not performance statistics or CI thresholds"
+    ],
+    "cases": [
+      {
+        "path": "direct",
+        "phase": "resumed",
+        "elapsed_ms": 4.566,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      },
+      {
+        "path": "direct",
+        "phase": "completed",
+        "elapsed_ms": 4.931,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      },
+      {
+        "path": "direct",
+        "phase": "cold",
+        "elapsed_ms": 4.032,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      },
+      {
+        "path": "relay",
+        "phase": "resumed",
+        "elapsed_ms": 6.69,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      },
+      {
+        "path": "relay",
+        "phase": "completed",
+        "elapsed_ms": 7.026,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      },
+      {
+        "path": "relay",
+        "phase": "cold",
+        "elapsed_ms": 5.819,
+        "wire_total_bytes": 110,
+        "protocol_bytes": 110,
+        "opaque_payload_bytes": 0,
+        "exchanges": 1,
+        "observed_operations": {
+          "17": 1
+        },
+        "observed_status_operation_frame_bytes": {
+          "8:17:25": 1
+        },
+        "cache_and_progress_unchanged_after_reopen": true
+      }
+    ],
+    "disconnect_recovery": [
+      {
+        "path": "direct",
+        "fault": "drop",
+        "failed_call_preserved_exact_active_cache": true,
+        "explicit_retry_fresh_admission_recovered620": true
+      },
+      {
+        "path": "direct",
+        "fault": "truncate",
+        "failed_call_preserved_exact_active_cache": true,
+        "explicit_retry_fresh_admission_recovered620": true
+      },
+      {
+        "path": "relay",
+        "fault": "drop",
+        "failed_call_preserved_exact_active_cache": true,
+        "explicit_retry_fresh_admission_recovered620": true
+      },
+      {
+        "path": "relay",
+        "fault": "truncate",
+        "failed_call_preserved_exact_active_cache": true,
+        "explicit_retry_fresh_admission_recovered620": true
+      }
+    ]
+  },
+  "qualification": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/ci",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.133,
+      "log": "qualification-00.log",
+      "log_sha256": "b29b03a2697317e5be70cdf9183e300a501a69cf666f2c048f47e1af086d26ee"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.421,
+      "log": "qualification-01.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "clippy",
+        "--locked",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 1.276,
+      "log": "qualification-02.log",
+      "log_sha256": "06b366516266bc6bd063ea9030781d4cd46ea62148d8c14d36afc0eafc3b5b50"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.137,
+      "log": "qualification-03.log",
+      "log_sha256": "cd0ea54ed4e0b807e64f94aac753e3ac812ca3c4e09c0704988d0f7108bc1b25"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.654,
+      "log": "qualification-04.log",
+      "log_sha256": "1a0ecadf9b828529a7e74a5df6354a737306b723173a4d0ade45536b9dc8980c"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 1.65,
+      "log": "qualification-05.log",
+      "log_sha256": "dac872fdeb319a5063e746c4eb0ecf7d187b5520a5a9f5076202be63178f76fc"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 11.237,
+      "log": "qualification-06.log",
+      "log_sha256": "0377e1e91226c22960709c122532f37280fc4d30ad5e577008d58ef8e9522d92"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "test",
+        "--locked",
+        "--all-features",
+        "--doc"
+      ],
+      "exit_code": 0,
+      "seconds": 0.371,
+      "log": "qualification-07.log",
+      "log_sha256": "011785badf32b21377ca7da90d339ab12aa6175bf30b3929a5a9e87306c23170"
+    },
+    {
+      "command": [
+        "./scripts/verify-slice-1"
+      ],
+      "exit_code": 0,
+      "seconds": 0.11,
+      "log": "qualification-08.log",
+      "log_sha256": "096617b51c17f09a3fba7109ce7e2154d934d4817bf69c8c106b2d3acfbad0d7"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-2.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.135,
+      "log": "qualification-09.log",
+      "log_sha256": "ea45dc730013de71113432dba36c7a306b80949c684bd1b7aa42aa4630ca9f63"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-3.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.783,
+      "log": "qualification-10.log",
+      "log_sha256": "6f1fc71f58d682eda43e0ddc6936a20efccb5193e987abe877f35712d9816aa4"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-4.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.742,
+      "log": "qualification-11.log",
+      "log_sha256": "a230d85d0baf85dea817c0bdd2f4e886eff6f3624f3e811923a2a73b9ca45a5d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-5.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.527,
+      "log": "qualification-12.log",
+      "log_sha256": "6f7bec16f6fbf8b391236f55d242599544aa8dd52b3bf2381faef115444ff524"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-6.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.421,
+      "log": "qualification-13.log",
+      "log_sha256": "98081ec6312c8dae5c2c3642e1bca08ad4744a4a5ec066bb61268ff3aee42c34"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-slice-7.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.933,
+      "log": "qualification-14.log",
+      "log_sha256": "705dae8e15370a7bd4009ec3ecd3920118fa064e7b747298d7a55b91f5a7cee2"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-record-server.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.292,
+      "log": "qualification-15.log",
+      "log_sha256": "78b81f99c8b0cb0e6a23a242474a052cbd59067e87e1067fdd51295a91c0c47d"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--example",
+        "artifact_contract"
+      ],
+      "exit_code": 0,
+      "seconds": 0.026,
+      "log": "qualification-16.log",
+      "log_sha256": "fd6a3a86af61624c0399d38c38e1747963046d505b59844366f704a1186c22b8"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-artifact-transfer.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.584,
+      "log": "qualification-17.log",
+      "log_sha256": "65665974315bade7bbc2af98de75ff634e7d5a29077155bdedbecb4dd4e1f773"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-wire-contract.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.065,
+      "log": "qualification-18.log",
+      "log_sha256": "9a68fdd8a779945c79d64d02954d6685031758179d5cc760e4830d97a67734a4"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-control.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.173,
+      "log": "qualification-19.log",
+      "log_sha256": "91c47262de352c57ea4553c0f231b893534a587c0af4bf2910c76ae407637aa0"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-lifecycle.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.158,
+      "log": "qualification-20.log",
+      "log_sha256": "9d5f26b19ea63f37c8a42dc3d2668e6f85d081769a947b6469212b7761e5723e"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-authorization.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.217,
+      "log": "qualification-21.log",
+      "log_sha256": "24e8ee65c756c272334c96c462fb89a9302645e74ece70476eb40a66929eb2e5"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-e2e.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.211,
+      "log": "qualification-22.log",
+      "log_sha256": "bf90f829cfd319c4786f64277d5fcd222bd3d6e4eeb0d842e9c094f39be586dd"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-follow.py"
+      ],
+      "exit_code": 0,
+      "seconds": 25.611,
+      "log": "qualification-23.log",
+      "log_sha256": "6e7f57d7cd8594fdcc4f417cb21da7ebe904e309086d4893e4b085b7fb854ed1"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-head.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.163,
+      "log": "qualification-24.log",
+      "log_sha256": "82a93497f0135f038efddbabc1e1a5dc4cf6e1bf118b02553414422c3c89258d"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-session-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.908,
+      "log": "qualification-25.log",
+      "log_sha256": "43c6e19b54d9aaa944996006e17d0e1e6ffc265ca2a9fc1a1744f72720faddc3"
+    },
+    {
+      "command": [
+        "cargo",
+        "+stable",
+        "doc",
+        "--locked",
+        "--all-features",
+        "--no-deps"
+      ],
+      "exit_code": 0,
+      "seconds": 0.84,
+      "log": "qualification-26.log",
+      "log_sha256": "d1cf670ea240a34a5f2cfefec77c1dde8a2fc45814b0049ae415eb818dc573c5"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.177,
+      "log": "qualification-27.log",
+      "log_sha256": "f0788aa36d1c86b6ccdfb7f4042a5574102d82061c046422a2d42e008a1e4710"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.673,
+      "log": "qualification-28.log",
+      "log_sha256": "47adfec945bdf02e5c2fc47eeb0e39530da3dacc07aa9b09f01549491a21d900"
+    },
+    {
+      "command": [
+        "cargo",
+        "+1.85.0",
+        "check",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 0.73,
+      "log": "qualification-29.log",
+      "log_sha256": "c6ca1980fb6b4f808ebd795a8bcf61b5bea24e18beac984b4c12f18512a02e76"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-source-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.179,
+      "log": "qualification-30.log",
+      "log_sha256": "56836df478d11a35b2fbebf37237fbbc8b5963623114b1f1f9614c02d6184e15"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-publication.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.266,
+      "log": "qualification-31.log",
+      "log_sha256": "640dc1710e0cbee0cd5a6fc3400361be74b6d3dda70d0f34cee1c676ebd014e1"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 5.518,
+      "log": "qualification-32.log",
+      "log_sha256": "635a04a1a15f2aa03b3b4328ac5ca07d3f39a8da54a1fb0a25b62e439eb4b837"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/verify-catalogue-capabilities.py"
+      ],
+      "exit_code": 0,
+      "seconds": 11.757,
+      "log": "qualification-33.log",
+      "log_sha256": "9987774027ec0025dfac0f0c6055c337f5df3f3aeeddf25762185aecc53a62d0"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/measure-catalogue-publication.py",
+        "--client-dialect",
+        "capabilities",
+        "--native-repetitions",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 5.664,
+      "log": "qualification-34.log",
+      "log_sha256": "b7afe9d7150ed4b3373422490d92a7bd1f254f5748864c7a552e84d2a74a4f5d"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.014,
+      "log": "qualification-35.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "all_features_tests_passed": 275,
+  "doctests_passed": 6,
+  "reversions": [
+    {
+      "guard": "source-manifest-support",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-source-manifest-support.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades' (555) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:1098:13:\nassertion `left == right` failed\n  left: Ok(CatalogueManifestRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 3, reader_required: 1, writer_required: 0 }, page: ManifestPage { request: ManifestRequest { pass: CataloguePass { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, completed: 0, boundary: 3, cursor: None, generation: 1 }, max_entries: 3 }, entries: [ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 1, deleted: false }, ManifestEntry { key: EntryKey { creation: 2, id: Id(\"b\") }, revision: 2, deleted: false }, ManifestEntry { key: EntryKey { creation: 3, id: Id(\"c\") }, revision: 3, deleted: false }], has_more: false } })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "4104d1efadc9e4af15144761c17eec2baf4ff2c45a0403db8d1784b13bf3578f"
+    },
+    {
+      "guard": "source-value-support",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-source-value-support.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades' (843) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:1112:13:\nassertion `left == right` failed\n  left: Ok(CatalogueValueRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 3, reader_required: 1, writer_required: 0 }, value: ResolvedEntry { manifest: ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 1, deleted: false }, payload: [111, 108, 100] } })\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "487ec2651b6350b12793221ed1ce7d060b3ecb0494f9ac47b36d81e52390c334"
+    },
+    {
+      "guard": "source-boundary-cover",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-source-boundary-cover.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::native_snapshot_support_gate_precedes_payload_and_legacy_route_never_downgrades' (1131) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:1092:13:\nassertion `left == right` failed\n  left: Ok(CatalogueValueRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 3, reader_required: 0, writer_required: 0 }, value: ResolvedEntry { manifest: ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 1, deleted: false }, payload: [111, 108, 100] } })\n right: Err(IdentityChanged)",
+      "log_sha256": "759bc942369d35697fe76023c3f16bcebd7e30d4711d9a2406b11cabb93ff894"
+    },
+    {
+      "guard": "snapshot-provenance",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "writer_only_reads_and_each_newer_value_echo_its_own_publication"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-snapshot-provenance.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::writer_only_reads_and_each_newer_value_echo_its_own_publication stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::tcp::writer_only_reads_and_each_newer_value_echo_its_own_publication' (1419) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:976:18:\ncalled `Result::unwrap()` on an `Err` value: InvalidRequest",
+      "log_sha256": "a8aed7de1b19c6f43e8e49fb2d289bf1bb7cc69f7035f923525720870aaebf7d"
+    },
+    {
+      "guard": "client-metadata-before-opaque",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "capability_metadata_precedes_opaque_decoding_and_writer_only_continues"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-client-metadata-before-opaque.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::capability_metadata_precedes_opaque_decoding_and_writer_only_continues stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::capability_metadata_precedes_opaque_decoding_and_writer_only_continues' (1708) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:542:9:\nassertion `left == right` failed\n  left: Err(InvalidRequest)\n right: Err(Incompatible(MissingReader(1)))",
+      "log_sha256": "561ee69c1ba333685c8e816963f555869b2b8cf91d31bebbff1d82c199ad669a"
+    },
+    {
+      "guard": "client-boundary-cover",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "current_publication_must_cover_the_captured_boundary_even_for_an_older_value"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-client-boundary-cover.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::current_publication_must_cover_the_captured_boundary_even_for_an_older_value stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::current_publication_must_cover_the_captured_boundary_even_for_an_older_value' (1996) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:644:9:\nassertion `left == right` failed\n  left: Ok(CatalogueValueRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }, value: ResolvedEntry { manifest: ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 1, deleted: false }, payload: [118] } })\n right: Err(InvalidRequest)",
+      "log_sha256": "f668978dd60af4632c96334e1e4af1edf27b0bf7930497bc7e99cf8404ca338a"
+    },
+    {
+      "guard": "client-manifest-revision-cover",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "manifest_revision_cover_and_canonical_resources_precede_return"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-client-manifest-revision-cover.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::manifest_revision_cover_and_canonical_resources_precede_return stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::manifest_revision_cover_and_canonical_resources_precede_return' (2284) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:671:9:\nassertion `left == right` failed\n  left: Ok(CatalogueManifestRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }, page: ManifestPage { request: ManifestRequest { pass: CataloguePass { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, completed: 0, boundary: 1, cursor: None, generation: 1 }, max_entries: 1 }, entries: [ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 2, deleted: false }], has_more: false } })\n right: Err(InvalidRequest)",
+      "log_sha256": "38a59168e6ed0b7a6a2f9342798de08b2aa3cbdad6b40030ed670b13a418f704"
+    },
+    {
+      "guard": "client-value-revision-cover",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-client-value-revision-cover.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required' (2572) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:604:9:\nassertion `left == right` failed\n  left: Ok(CatalogueValueRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }, value: ResolvedEntry { manifest: ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 2, deleted: false }, payload: [118] } })\n right: Err(InvalidRequest)",
+      "log_sha256": "363c73fc5652e5cf5ec82b8bbbe7e0c9781c65e38c6b3129f1d2df81735e5358"
+    },
+    {
+      "guard": "operation-echo",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-operation-echo.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required' (2860) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:568:13:\nassertion failed: decode_value(&changed, &pass(), &id(\"a\"), 100,\n        CapabilitySupport::current()).is_err()",
+      "log_sha256": "dc983683e3ad44b7cea59370b3248b414fd44708b655ca8809738512ffa310f3"
+    },
+    {
+      "guard": "support-echo",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-support-echo.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required' (3148) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:568:13:\nassertion failed: decode_value(&changed, &pass(), &id(\"a\"), 100,\n        CapabilitySupport::current()).is_err()",
+      "log_sha256": "4e7f1a252736814989af2f33b6ed0ee9fa6a299cd72cce22014bc366d303ccc8"
+    },
+    {
+      "guard": "budget-echo",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-budget-echo.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::exact_operation_support_scope_generation_id_budget_and_revision_cover_are_required' (3436) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:600:9:\nassertion `left == right` failed\n  left: Ok(CatalogueValueRead { head: SourceHead { scope: Scope { receiver: Id(\"phone\"), origin: Id(\"gateway\"), stream: Id(\"transcript-index\"), incarnation: Id(\"first\"), schema: Id(\"opaque-v1\"), access_epoch: Id(\"epoch-1\") }, version: 1, position: 1, reader_required: 0, writer_required: 0 }, value: ResolvedEntry { manifest: ManifestEntry { key: EntryKey { creation: 1, id: Id(\"a\") }, revision: 1, deleted: false }, payload: [118] } })\n right: Err(InvalidRequest)",
+      "log_sha256": "b4888fbd330c3ac395c5c58a5004f10630fc1fe286f614c950e3d954ab20ce3f"
+    },
+    {
+      "guard": "unknown-status-fatal",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "bounded_known_refusals_and_unknown_codes_never_become_retryable"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-unknown-status-fatal.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::bounded_known_refusals_and_unknown_codes_never_become_retryable stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::bounded_known_refusals_and_unknown_codes_never_become_retryable' (3724) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:703:13:\nassertion `left == right` failed\n  left: Err(Unavailable)\n right: Err(InvalidRequest)",
+      "log_sha256": "7cd76e0fd4b251535b44e9fd435fe8babeaff367a7fb721ef43f28deb3264cb7"
+    },
+    {
+      "guard": "bounded-error-detail",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "bounded_known_refusals_and_unknown_codes_never_become_retryable"
+      ],
+      "reverted_exit": 101,
+      "log": "reversion-bounded-error-detail.log",
+      "failure_excerpt": "failures:\n\n---- replication::infrastructure::loopback::catalogue_capabilities::tests::bounded_known_refusals_and_unknown_codes_never_become_retryable stdout ----\n\nthread 'replication::infrastructure::loopback::catalogue_capabilities::tests::bounded_known_refusals_and_unknown_codes_never_become_retryable' (4012) panicked at src/replication/infrastructure/loopback/catalogue_capabilities.rs:696:13:\nassertion `left == right` failed\n  left: Err(Incompatible(MissingReader(1)))\n right: Err(InvalidRequest)",
+      "log_sha256": "9400c1f96337d4ec1b0f0512f4f1aa860e528e98762dc77975eea3e1c0bc624d"
+    }
+  ],
+  "restoration": {
+    "focused_tests_passed": 11,
+    "tracked_tree_clean": true
+  },
+  "independent_review": {
+    "reviewer": "authority_gate_review",
+    "head": "26779b914452c64f7e64434d5fe8773e5169c68f",
+    "round": 1,
+    "substantive_findings": 0,
+    "reviewer_reran_checks": false
+  },
+  "limits": [
+    "known masks0; no undefined feature publication or nonzero rollout approval",
+    "development plaintext one-request loopback route, not session catalogue or production secure channel",
+    "unshaped debug timings; no weak-link or speedup claim; fresh resume admission adds one RPC",
+    "compatible owned DTO can finish later; not instantaneous publication-versus-apply fencing",
+    "already-open old writers need host fencing; no power-loss/restore/cross-gateway guarantees",
+    "wire128-entry/512KiB budgets retained separately from larger native limits",
+    "native controls use ordinary unchanged source mutation APIs; no wire-dialect effect on native write algorithm"
+  ]
+}

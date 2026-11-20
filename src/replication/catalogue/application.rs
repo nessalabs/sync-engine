@@ -113,6 +113,44 @@ pub trait CatalogueHeadSource: CatalogueSource {
     fn source_head(&mut self, scope: &Scope) -> Result<SourceHead, CatalogueSourceError>;
 }
 
+/// Owned manifest and exact source publication from one read snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogueManifestRead {
+    /// Publication describing the returned descriptors, never receiver progress.
+    pub head: SourceHead,
+    /// Exact canonical manifest response.
+    pub page: ManifestPage,
+}
+/// Owned current value and exact publication from the same payload snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogueValueRead {
+    /// Publication covering this current value's revision, possibly beyond the pass boundary.
+    pub head: SourceHead,
+    /// Exact current value or retained deletion marker.
+    pub value: ResolvedEntry,
+}
+/// Explicit per-read compatibility port. Implementations validate consumer support
+/// before data acquisition and return publication/data from one coherent snapshot.
+/// Initial head admission alone supplies no blanket implementation or read proof.
+/// Authorization is separate; owned results release source reads before network I/O.
+pub trait CatalogueReadSource: CatalogueHeadSource {
+    /// Validate support before descriptors and capture publication with the manifest.
+    fn manifest_with_head(
+        &mut self,
+        request: &ManifestRequest,
+        supported: CapabilitySupport,
+    ) -> Result<CatalogueManifestRead, CatalogueSourceError>;
+    /// Validate support before payload acquisition; capture requirements/head with
+    /// the current descriptor and bytes, including newer-than-boundary resolutions.
+    fn resolve_with_head(
+        &mut self,
+        pass: &CataloguePass,
+        id: &Id,
+        max_payload_bytes: usize,
+        supported: CapabilitySupport,
+    ) -> Result<CatalogueValueRead, CatalogueSourceError>;
+}
+
 /// Atomic receiver progress and latest-value store.
 pub trait CatalogueStore {
     /// Returns saved progress for the exact receiver and catalogue name.
