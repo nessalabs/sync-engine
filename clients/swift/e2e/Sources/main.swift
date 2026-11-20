@@ -134,4 +134,12 @@ private struct Report: TextOutputStream {
         FileHandle.standardError.write(Data(string.utf8))
     }
 }
+#if os(macOS)
+if CommandLine.arguments.dropFirst().first == "tls-fixture" {
+    try runTLSFixture(Array(CommandLine.arguments.dropFirst(2)))
+} else {
+    try read()
+}
+#else
 try read()
+#endif

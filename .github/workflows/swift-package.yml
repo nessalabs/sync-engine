@@ -8,6 +8,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'tests/session_tls.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'examples/session_records.rs'
+      - 'tests/session_tls.rs'
       - 'src/**'
       - '.github/workflows/swift-package.yml'
   workflow_dispatch:
@@ -41,3 +43,9 @@ jobs:
       - run: swift test
       - name: Headless Swift to Rust Sync Engine over TCP
         run: python3 clients/swift/e2e/run-head.py
+      - name: Headless Swift to Rust over mutual TLS
+        run: |
+          if ! brew list --versions openssl@3 >/dev/null; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          fi
+          sh clients/swift/e2e/run-tls.sh
