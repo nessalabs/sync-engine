@@ -602,3 +602,113 @@ struct RecordTailTests {
         #expect(interrupted.closed == 1)
     }
 }
+
+private func olderBody(echo: UInt64 = 3, generation: UInt64 = 9, head: UInt64 = 4,
+    first: UInt64 = 1, floor: UInt64 = 1, ids: [String] = ["a", "b"],
+    rowBytes: Int = 1500, scope: [UInt8] = pageScopeBytes, rowScope: [UInt8] = pageScopeBytes
+) -> [UInt8] {
+    let tail = tailBody(head: head, first: first, floor: floor, generation: generation,
+        ids: ids, rowBytes: rowBytes, echoScope: scope, rowScope: rowScope)
+    let fieldsEnd = scope.count + 32
+    let metadataEnd = fieldsEnd + 26
+    var older = Array(tail.prefix(fieldsEnd))
+    older.append(contentsOf: be(echo))
+    older.append(contentsOf: tail[fieldsEnd..<metadataEnd])
+    older.append(contentsOf: tail[(metadataEnd + 8)...])
+    return older
+}
+
+private func olderFrames(_ payload: [UInt8]) -> [UInt8] {
+    var result: [UInt8] = []
+    for offset in stride(from: 0, to: payload.count, by: 2004) {
+        let fragment = payload[offset..<min(offset + 2004, payload.count)]
+        result.append(contentsOf: pageFrame(fragment, total: payload.count, offset: offset, kind: 0x89))
+    }
+    return result
+}
+
+private func olderRequest(_ scope: RecordScopeIdentity, generation: UInt64 = 9,
+    before: UInt64 = 3, count: Int = 2, payload: Int = 3000, record: Int = 1500
+) -> RecordOlderRequest {
+    .init(scope: scope, historyGeneration: generation, before: before, maxRecords: count,
+        maxPayloadBytes: payload, maxRecordBytes: record)
+}
+
+struct RecordOlderTests {
+    @Test func olderChecksExclusiveBoundaryAndReturnsNoLiveCheckpoint() throws {
+        let body = olderBody()
+        let first = pageFrame(body.prefix(2004), total: body.count, offset: 0, kind: 0x89)
+        let last = pageFrame(body[2004...], total: body.count, offset: 2004, kind: 0x89)
+        let channel = FixtureChannel()
+        channel.input = welcome() + bound() + first + recordHint(50) + last
+        let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+        let request = olderRequest(owner.boundScope)
+        let page = try owner.readOlder(request)
+        #expect(page.request == request)
+        #expect(page.firstPosition == 1)
+        #expect(page.oldestAvailable == 1)
+        #expect(page.records.map(\.position) == [1, 2])
+        #expect(page.records.map(\.idBytes) == [[97], [98]])
+        let frame = try #require(channel.output.last)
+        #expect(frame[10] == 9)
+        let fields = Array(frame[58...])
+        var expected: [UInt8] = []
+        for value in [UInt64(9), 2, 3000, 1500, 3] { expected.append(contentsOf: be(value)) }
+        #expect(fields == expected)
+        #expect(try owner.waitForHint() == 50)
+    }
+
+    @Test func olderRejectsWrongLocalScopeAndLimitsBeforeSending() throws {
+        let channel = FixtureChannel()
+        channel.input = welcome() + bound()
+        let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+        let scope = owner.boundScope
+        let other = try pageClient(FixtureChannel(), fields: Array(fixtureScope.dropLast()) + ["other"]).boundScope
+        for request in [
+            olderRequest(other), olderRequest(scope, generation: 0), olderRequest(scope, before: 0),
+            olderRequest(scope, before: 1), olderRequest(scope, count: 65),
+            olderRequest(scope, payload: 0), olderRequest(scope, record: 524_289),
+        ] {
+            #expect(throws: RecordHeadReadError.invalidOlderRequest) { try owner.readOlder(request) }
+        }
+        #expect(channel.output.count == 1)
+        #expect(channel.closed == 0)
+    }
+
+    @Test func olderRejectsMalformedCoverageAndRefusesPartialReceipts() throws {
+        var other = pageScopeBytes
+        other[1] ^= 1
+        let invalid = [
+            olderBody(echo: 2), olderBody(generation: 8), olderBody(head: 1), olderBody(floor: 2),
+            olderBody(first: 2), olderBody(ids: []), olderBody(ids: ["a", "a"]),
+            olderBody(rowBytes: 1501), olderBody(scope: other), olderBody(rowScope: other),
+            olderBody() + [0],
+        ]
+        for body in invalid {
+            let channel = FixtureChannel()
+            channel.input = welcome() + bound() + olderFrames(body)
+            let owner = try RecordFollowClient.open(channel: channel, scopeFields: fixtureScope)
+            #expect(throws: RecordHeadReadError.malformedReply) {
+                try owner.readOlder(olderRequest(owner.boundScope))
+            }
+            #expect(channel.closed == 1)
+        }
+
+        let body = olderBody()
+        let partial = pageFrame(body.prefix(2004), total: body.count, offset: 0, kind: 0x89)
+        let denied = pageFrame([], total: 0, offset: 0, status: 1, kind: 0x89)
+        let denial = FixtureChannel()
+        denial.input = welcome() + bound() + partial + denied
+        let deniedOwner = try RecordFollowClient.open(channel: denial, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.source(.denied)) {
+            try deniedOwner.readOlder(olderRequest(deniedOwner.boundScope))
+        }
+        let interrupted = FixtureChannel()
+        interrupted.input = welcome() + bound() + partial
+        let interruptedOwner = try RecordFollowClient.open(channel: interrupted, scopeFields: fixtureScope)
+        #expect(throws: RecordHeadReadError.unavailableChannel) {
+            try interruptedOwner.readOlder(olderRequest(interruptedOwner.boundScope))
+        }
+        #expect(interrupted.closed == 1)
+    }
+}

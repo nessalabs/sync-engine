@@ -245,56 +245,74 @@ def follow_once(port, swift, state, initial):
                 child.stderr.close()
 
 
-def run_tail(rust, swift, episodes):
+def history_process(rust, swift, root, database, fields, state, mode):
+    log = root / "history.log"
+    with log.open("wb") as output:
+        with subprocess.Popen(
+            [rust, "serve", database], stdout=subprocess.DEVNULL, stderr=output,
+        ) as server:
+            try:
+                port = wait_port(server, log, b"")
+                with socket.create_connection(("127.0.0.1", port), timeout=3) as data:
+                    token = b"history-test"
+                    data.sendall(bytes([len(token)]) + token)
+                    require(exact(data, 1) == b"\0", "history fixture authentication")
+                    data.setblocking(True)
+                    child = subprocess.run(
+                        [swift, *fields, mode, state], stdin=data, stdout=data,
+                        stderr=subprocess.PIPE, timeout=8,
+                    )
+            finally:
+                if server.poll() is None:
+                    server.terminate()
+                try:
+                    server.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
+    require(child.returncode == 0, child.stderr)
+    return child.stderr
+
+
+def verify_history(state, scope, first):
+    saved = json.loads(state.read_bytes())
+    require(base64.b64decode(saved["scope"]) == scope, "history exact scope")
+    coverage = (saved["historyGeneration"], saved["watermark"], saved["first"], saved["floor"])
+    require(coverage == (1, 4, first, 1), "exact installed coverage and unchanged live watermark")
+    rows = saved["rows"]
+    require(len(rows) == 5 - first, "history exact row count")
+    for index, row in enumerate(rows, start=first):
+        require(row["position"] == index and row["id"] == f"event-{index}", "history exact row")
+        require(base64.b64decode(row["payload"]) == bytes([index]) * 1500, "history exact payload")
+
+
+def run_history(rust, swift, episodes):
     fields = ["device-a", "example-origin", "transcript", "first", "text-v1", "local-epoch-1"]
     scope = b"".join(bytes([len(f)]) + f.encode() for f in fields)
-    with tempfile.TemporaryDirectory(prefix="swift-tail-e2e-") as temp:
+    with tempfile.TemporaryDirectory(prefix="swift-history-e2e-") as temp:
         root = Path(temp)
         database = root / "source.sqlite"
         subprocess.run([rust, "seed", database], check=True, timeout=8)
-        cases = ("tail-interrupt", "tail") * episodes
-        for episode, mode in enumerate(cases):
+        for episode in range(episodes):
             state = root / f"{episode}.json"
+
+            def run(mode, marker):
+                report = history_process(rust, swift, root, database, fields, state, mode)
+                require(report == marker, report)
+
             state.write_bytes(b"uninstalled")
-            log = root / f"{episode}.log"
-            with log.open("wb") as output:
-                with subprocess.Popen(
-                    [rust, "serve", database], stdout=subprocess.DEVNULL, stderr=output,
-                ) as server:
-                    try:
-                        port = wait_port(server, log, b"")
-                        with socket.create_connection(("127.0.0.1", port), timeout=3) as data:
-                            token = b"history-test"
-                            data.sendall(bytes([len(token)]) + token)
-                            require(exact(data, 1) == b"\0", "history fixture authentication")
-                            data.setblocking(True)
-                            child = subprocess.run(
-                                [swift, *fields, mode, state], stdin=data, stdout=data,
-                                stderr=subprocess.PIPE, timeout=8,
-                            )
-                    finally:
-                        if server.poll() is None:
-                            server.terminate()
-                        try:
-                            server.wait(timeout=3)
-                        except subprocess.TimeoutExpired:
-                            server.kill()
-                            server.wait()
-            require(child.returncode == 0, child.stderr)
-            if mode == "tail-interrupt":
-                require(child.stderr == b"tail-interrupted\n", child.stderr)
-                require(state.read_bytes() == b"uninstalled", "partial Tail produced receipt")
-                continue
-            require(child.stderr == b"tail:4:3:1:3000\n", child.stderr)
-            saved = json.loads(state.read_bytes())
-            require(base64.b64decode(saved["scope"]) == scope, "tail exact scope")
-            coverage = (saved["historyGeneration"], saved["watermark"], saved["first"], saved["floor"])
-            require(coverage == (1, 4, 3, 1), "tail exact installed coverage")
-            rows = saved["rows"]
-            require(len(rows) == 2, "tail exact row count")
-            for index, row in enumerate(rows, start=3):
-                require(row["position"] == index and row["id"] == f"event-{index}", "tail exact row")
-                require(base64.b64decode(row["payload"]) == bytes([index]) * 1500, "tail exact payload")
+            run("tail-interrupt", b"tail-interrupted\n")
+            require(state.read_bytes() == b"uninstalled", "partial Tail produced receipt")
+            run("tail", b"tail:4:3:1:3000\n")
+            verify_history(state, scope, 3)
+            checkpoint = state.read_bytes()
+            run("older-interrupt", b"older-interrupted\n")
+            require(state.read_bytes() == checkpoint, "partial Older changed installed coverage")
+            run("older-restart", b"older:4:1:1:3000\n")
+            verify_history(state, scope, 1)
+            state.write_bytes(b"uninstalled")
+            run("tail-older", b"older:4:1:1:3000\n")
+            verify_history(state, scope, 1)
 
 
 def build_rust_example(name):
@@ -338,7 +356,7 @@ def main():
     run_pages(rust, swift, args.repetitions)
     run_overlap(rust, swift, args.overlap_clients)
     run_follow(args.rust_follow_bin.resolve(), swift)
-    run_tail(args.rust_history_bin.resolve(), swift, args.tail_episodes)
+    run_history(args.rust_history_bin.resolve(), swift, args.tail_episodes)
     print(json.dumps({
         "peer": "rust-session_records-capability-v1",
         "connections": 3 * args.repetitions,
@@ -357,10 +375,15 @@ def main():
         "follow_head_operations": 1,
         "follow_page_operations": 1,
         "follow_exact_records": 1,
-        "tail_successes": args.tail_episodes,
+        "tail_successes": 2 * args.tail_episodes,
         "tail_interruptions": args.tail_episodes,
-        "tail_exact_records": 2 * args.tail_episodes,
-        "tail_exact_payload_bytes": 3000 * args.tail_episodes,
+        "tail_exact_records": 4 * args.tail_episodes,
+        "tail_exact_payload_bytes": 6000 * args.tail_episodes,
+        "older_same_connection_successes": args.tail_episodes,
+        "older_restart_successes": args.tail_episodes,
+        "older_interruptions": args.tail_episodes,
+        "older_exact_records": 4 * args.tail_episodes,
+        "older_exact_payload_bytes": 6000 * args.tail_episodes,
         "elapsed_seconds": round(time.monotonic() - start, 3),
     }))
 
