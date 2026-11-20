@@ -16,3 +16,5 @@ pub mod domain;
 pub mod history;
 /// In-memory reference adapters for tests and the two-device lab.
 pub mod infrastructure;
+/// Host writer-authority identity and monotone epoch values.
+pub mod origin_epoch;
