@@ -61,7 +61,7 @@ def main():
                     start=time.perf_counter();r=subprocess.run([str(root/'target/debug/examples/catalogue_apps'),'transcript',str(path),str(Path(folder)/'unused.db'),'seed','0'],text=True,capture_output=True,check=True,timeout=30);elapsed=(time.perf_counter()-start)*1000
                     assert json.loads(r.stdout)=={'seeded':0}
                     actual,after=snapshot(path);assert actual==rows
-                    assert after['file_version'] in (2,3)
+                    assert after['file_version'] in (2,3,4)
                     cases.append({'input_version':version,'repetition':n+1,'phase':phase,'elapsed_ms':round(elapsed,6),'before':prior,'after':after,'exact_identity_revision_deletion_payload_preserved':True})
                     prior=after
         for n in range(a.repetitions):

@@ -15,6 +15,10 @@ use crate::replication::catalogue::{
     ManifestEntry, ManifestPage, ManifestRequest, ResolvedEntry, MAX_CATALOGUE_ENTRIES,
     MAX_CATALOGUE_PAYLOAD_BYTES,
 };
+use crate::replication::catalogue::{
+    CatalogueHorizonHead, CatalogueHorizonSource, CatalogueHorizonStore, CatalogueReadKind,
+    HorizonManifestRead, HorizonValueRead,
+};
 use crate::replication::domain::{validate_capabilities, CapabilitySupport, Id, Scope, SourceHead};
 
 use super::{
@@ -22,6 +26,7 @@ use super::{
     CATALOGUE_SOURCE_APPLICATION_ID,
 };
 
+mod horizon;
 mod publication;
 mod recovery;
 pub use publication::CataloguePublicationError;
@@ -199,7 +204,13 @@ impl CatalogueSource for SqliteCatalogueSource {
         if !self.matches(scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
-        let value = publication::read(&self.conn).map_err(|_| CatalogueSourceError::Unavailable)?;
+        let (value, horizon) = publication::read_snapshot(&self.conn)
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        horizon::admit(
+            None,
+            0,
+            &CatalogueHorizonHead::new(value.head(scope), horizon),
+        )?;
         value.reader().map_err(CatalogueSourceError::Incompatible)?;
         self.head_reads += 1;
         Ok(value.position)
@@ -228,12 +239,13 @@ impl CatalogueSource for SqliteCatalogueSource {
     }
 }
 
-impl CatalogueReadSource for SqliteCatalogueSource {
-    fn manifest_with_head(
+impl SqliteCatalogueSource {
+    fn manifest_snapshot(
         &mut self,
         request: &ManifestRequest,
         supported: CapabilitySupport,
-    ) -> Result<CatalogueManifestRead, CatalogueSourceError> {
+        kind: Option<CatalogueReadKind>,
+    ) -> Result<HorizonManifestRead, CatalogueSourceError> {
         if !self.matches(&request.pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
@@ -257,10 +269,16 @@ impl CatalogueReadSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
-        let publication = publication::read(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
+        let (publication, horizon) =
+            publication::read_snapshot(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
         let snapshot_head = publication.head(&request.pass.scope);
         validate_capabilities(&snapshot_head, supported)
             .map_err(CatalogueSourceError::Incompatible)?;
+        horizon::admit(
+            kind,
+            request.pass.completed,
+            &CatalogueHorizonHead::new(snapshot_head.clone(), horizon),
+        )?;
         let head: i64 = tx
             .query_row(
                 "SELECT head FROM catalogue_source_meta WHERE singleton = 1",
@@ -311,8 +329,8 @@ impl CatalogueReadSource for SqliteCatalogueSource {
         {
             return Err(CatalogueSourceError::Unavailable);
         }
-        Ok(CatalogueManifestRead {
-            head: snapshot_head,
+        Ok(HorizonManifestRead {
+            head: CatalogueHorizonHead::new(snapshot_head, horizon),
             page: ManifestPage {
                 request: request.clone(),
                 entries,
@@ -321,13 +339,14 @@ impl CatalogueReadSource for SqliteCatalogueSource {
         })
     }
 
-    fn resolve_with_head(
+    fn value_snapshot(
         &mut self,
         pass: &CataloguePass,
         entry_id: &Id,
         max_payload_bytes: usize,
         supported: CapabilitySupport,
-    ) -> Result<CatalogueValueRead, CatalogueSourceError> {
+        kind: Option<CatalogueReadKind>,
+    ) -> Result<HorizonValueRead, CatalogueSourceError> {
         if !self.matches(&pass.scope) {
             return Err(CatalogueSourceError::IdentityChanged);
         }
@@ -339,10 +358,16 @@ impl CatalogueReadSource for SqliteCatalogueSource {
             .conn
             .transaction()
             .map_err(|_| CatalogueSourceError::Unavailable)?;
-        let publication = publication::read(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
+        let (publication, horizon) =
+            publication::read_snapshot(&tx).map_err(|_| CatalogueSourceError::Unavailable)?;
         let snapshot_head = publication.head(&pass.scope);
         validate_capabilities(&snapshot_head, supported)
             .map_err(CatalogueSourceError::Incompatible)?;
+        horizon::admit(
+            kind,
+            pass.completed,
+            &CatalogueHorizonHead::new(snapshot_head.clone(), horizon),
+        )?;
         if snapshot_head.position() < pass.boundary {
             return Err(CatalogueSourceError::IdentityChanged);
         }
@@ -371,8 +396,8 @@ impl CatalogueReadSource for SqliteCatalogueSource {
         tx.commit().map_err(|_| CatalogueSourceError::Unavailable)?;
         self.resolve_reads += 1;
         self.payload_bytes = self.payload_bytes.saturating_add(payload.len() as u64);
-        Ok(CatalogueValueRead {
-            head: snapshot_head,
+        Ok(HorizonValueRead {
+            head: CatalogueHorizonHead::new(snapshot_head, horizon),
             value: ResolvedEntry {
                 manifest: ManifestEntry {
                     key: EntryKey {
@@ -397,8 +422,8 @@ pub struct SqliteCatalogueStore {
 
 impl SqliteCatalogueStore {
     /// Opens an isolated receiver file without replacing unrelated user data.
-    /// Version1 receivers migrate atomically to version2 recovery metadata;
-    /// populated cache/progress survive. Stop old binaries before upgrading.
+    /// Version1/2 receivers migrate atomically to version3 recovery/coverage
+    /// metadata; populated cache/progress survive. Stop old binaries before upgrading.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
         recovery::initialize(&mut conn)?;
@@ -555,6 +580,7 @@ impl CatalogueStore for SqliteCatalogueStore {
         if current != expected {
             return Err(CatalogueStoreError::Stale);
         }
+        horizon::check_completion(&tx, scope, current.as_ref().map_or(0, |p| p.completed))?;
         let progress = catalogue_progress_after_begin(scope, current.as_ref(), boundary)
             .map_err(CatalogueStoreError::from)?;
         let active_boundary = progress
@@ -606,6 +632,7 @@ impl CatalogueStore for SqliteCatalogueStore {
             return Err(CatalogueStoreError::Stale);
         }
         let scope = &plan.pass.scope;
+        horizon::check_completion(&tx, scope, plan.pass.completed)?;
         write_values(&tx, scope, &plan.entries, &plan.unchanged)?;
         let cursor = progress
             .active
@@ -740,8 +767,13 @@ impl CatalogueHeadSource for SqliteCatalogueSource {
             return Err(CatalogueSourceError::IdentityChanged);
         }
         self.head_reads += 1;
-        publication::read(&self.conn)
-            .map(|value| value.head(scope))
-            .map_err(|_| CatalogueSourceError::Unavailable)
+        let (value, horizon) = publication::read_snapshot(&self.conn)
+            .map_err(|_| CatalogueSourceError::Unavailable)?;
+        horizon::admit(
+            None,
+            0,
+            &CatalogueHorizonHead::new(value.head(scope), horizon),
+        )?;
+        Ok(value.head(scope))
     }
 }

@@ -30,3 +30,6 @@ pub use domain::*;
 
 mod recovery;
 pub use recovery::*;
+
+mod horizon;
+pub use horizon::*;

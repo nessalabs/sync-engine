@@ -3,7 +3,7 @@
 
 use std::num::NonZeroU64;
 
-use super::domain::Id;
+use super::domain::{CommitPlan, Id, Scope, SourceHead};
 
 /// Host-chosen, stable identity of a single writer authority.
 ///
@@ -51,4 +51,55 @@ impl OriginEpoch {
     pub fn successor(self) -> Option<Self> {
         self.get().checked_add(1).and_then(Self::new)
     }
+}
+
+/// One host-admitted operation with its exact trusted binding, scope and epoch.
+///
+/// The constructor is for the injected host admission implementation. This
+/// value does not authenticate untrusted metadata on its own.
+#[derive(Debug)]
+pub struct AdmittedEpochRead<T> {
+    key: OriginAuthorityKey,
+    scope: Scope,
+    epoch: OriginEpoch,
+    value: T,
+}
+
+impl<T> AdmittedEpochRead<T> {
+    /// Package the exact result after checking its trusted source, current
+    /// scope and operation correlation. Do not stamp an independent value.
+    pub fn new(key: OriginAuthorityKey, scope: Scope, epoch: OriginEpoch, value: T) -> Self {
+        Self {
+            key,
+            scope,
+            epoch,
+            value,
+        }
+    }
+
+    /// Recover the already-admitted binding, scope, epoch and exact result.
+    pub fn into_parts(self) -> (OriginAuthorityKey, Scope, OriginEpoch, T) {
+        (self.key, self.scope, self.epoch, self.value)
+    }
+}
+
+/// Trusted host port for current, exact native record-read admission.
+///
+/// The protected adapter takes this port on open. The host implementation
+/// must authenticate the authority-to-source binding, recheck current scope
+/// and correlate the actual result, not manufacture a stamp for arbitrary
+/// caller data. Head and plan evidence are independent operation types.
+pub trait NativeEpochAdmission {
+    /// Host-defined input evidence for one head result.
+    type HeadEvidence;
+    /// Host-defined input evidence for one validated page plan.
+    type PlanEvidence;
+
+    /// Verify the exact head result under the current host binding.
+    fn admit_head(&mut self, evidence: Self::HeadEvidence)
+        -> Option<AdmittedEpochRead<SourceHead>>;
+
+    /// Verify one exact record plan under the current host binding.
+    fn admit_plan(&mut self, evidence: Self::PlanEvidence)
+        -> Option<AdmittedEpochRead<CommitPlan>>;
 }

@@ -7,6 +7,7 @@ let package = Package(
     products: [.library(name: "NessaSync", targets: ["NessaSync"])],
     targets: [
         .target(name: "NessaSync", path: "clients/swift/Sources/NessaSync"),
+        .executableTarget(name: "SwiftHeadFixture", dependencies: ["NessaSync"], path: "clients/swift/e2e/Sources"),
         .testTarget(
             name: "NessaSyncTests",
             dependencies: ["NessaSync"],
