@@ -8,8 +8,8 @@ use nessa_sync::replication::{
         CapabilityError, CapabilitySupport, Id, Limits, Page, PageRequest, Scope, SourceHead,
     },
     infrastructure::session::{
-        serve_capability_record_session, serve_record_session, CapabilityRecordSession,
-        RecordSession, SessionLimits, TcpSessionIo,
+        serve_capability_record_session, serve_record_session, serve_unary_head_session,
+        CapabilityRecordSession, RecordSession, SessionLimits, TcpSessionIo, UnaryHeadSession,
     },
     infrastructure::{SqliteReferenceSource, SqliteReplicaStore},
 };
@@ -151,6 +151,9 @@ fn tune(s: &TcpStream) {
 }
 impl Server {
     fn new(path: PathBuf, connections: usize, capable: bool) -> Self {
+        Self::new_mode(path, connections, if capable { 1 } else { 0 })
+    }
+    fn new_mode(path: PathBuf, connections: usize, endpoint_mode: u8) -> Self {
         drop(source(&path));
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let address = listener.local_addr().unwrap();
@@ -182,7 +185,15 @@ impl Server {
                         after_head: after.clone(),
                     })
                 };
-                if capable {
+                if endpoint_mode == 2 {
+                    let _ = serve_unary_head_session(
+                        &mut socket,
+                        n as u64,
+                        limits(),
+                        &mut policy,
+                        &mut factory,
+                    );
+                } else if endpoint_mode == 1 {
                     let _ = serve_capability_record_session(
                         &mut socket,
                         n as u64,
@@ -536,4 +547,121 @@ fn maximum_record_reassembles_with_metadata_and_post_pass_requirement_is_fresh()
         bytes
     );
     server.finish();
+}
+
+#[test]
+fn unary_head_selected_direct_and_relay_is_advisory_and_measured() {
+    use nessa_sync::replication::application::RecordHeadSource;
+    for relayed in [false, true] {
+        let f = Directory::new();
+        let src = f.path("source.db");
+        source(&src).append(&id("one"), b"value").unwrap();
+        let server = Server::new_mode(src, 2, 1);
+        let relay = relayed.then(|| Relay::new(server.address, 2));
+        let addr = relay.as_ref().map_or(server.address, |r| r.address);
+        let baseline = server.connect(addr);
+        let mut cache = SqliteReplicaStore::open(f.path("cache.db")).unwrap();
+        assert_eq!(catch_up(&baseline, &mut cache), 1);
+        let (mut auth, mut read) = baseline.parts();
+        assert!(matches!(auth.authorize(&scope()), Access::Allowed(_)));
+        let before = baseline.counters().unwrap();
+        assert_eq!(read.source_head(&scope()).unwrap().position(), 1);
+        let after = baseline.counters().unwrap();
+        let old_bytes = after.protocol_bytes - before.protocol_bytes;
+        assert_eq!(after.exchanges - before.exchanges, 1);
+        baseline.close().unwrap();
+        // The pilot selected against an ordinary capability endpoint cannot fall back.
+        let mut mismatch = UnaryHeadSession::connect(
+            server.dial(addr),
+            scope(),
+            limits(),
+            CapabilitySupport::current(),
+        )
+        .unwrap();
+        assert_eq!(
+            mismatch.source_head(&scope()),
+            Err(SourceError::Unavailable)
+        );
+        drop(mismatch);
+        server.finish();
+        if let Some(relay) = relay {
+            relay.finish();
+        }
+        let server = Server::new_mode(f.path("source.db"), 1, 2);
+        let relay = relayed.then(|| Relay::new(server.address, 1));
+        let addr = relay.as_ref().map_or(server.address, |r| r.address);
+        let mut pilot = UnaryHeadSession::connect(
+            server.dial(addr),
+            scope(),
+            limits(),
+            CapabilitySupport::current(),
+        )
+        .unwrap();
+        assert!(matches!(
+            pilot.authorizer().authorize(&scope()),
+            Access::Allowed(_)
+        ));
+        let before = pilot.counters().unwrap();
+        assert_eq!(pilot.source_head(&scope()).unwrap().position(), 1);
+        let after = pilot.counters().unwrap();
+        let new_bytes = after.protocol_bytes - before.protocol_bytes;
+        assert_eq!(after.exchanges - before.exchanges, 1);
+        assert_eq!(new_bytes + 8, old_bytes);
+        assert_eq!(after.payload_bytes, 0);
+        println!("relay={relayed} baseline_head_bytes={old_bytes} pilot_head_bytes={new_bytes} exchanges=1 payload=0");
+        pilot.close().unwrap();
+        drop(cache);
+        cache = SqliteReplicaStore::open(f.path("cache.db")).unwrap();
+        assert_eq!(cache.checkpoint(&scope()).unwrap().unwrap().position(), 1);
+        assert_eq!(cache.count(&scope()).unwrap(), 1);
+        server.finish();
+        if let Some(relay) = relay {
+            relay.finish();
+        }
+    }
+}
+
+#[test]
+fn unary_head_policy_withdrawal_wrong_scope_and_legacy_selection_fail_closed() {
+    use nessa_sync::replication::application::RecordHeadSource;
+    for case in 0..4 {
+        let f = Directory::new();
+        let path = f.path("source.db");
+        source(&path).append(&id("fact"), b"value").unwrap();
+        let server = Server::new_mode(path, 1, 2);
+        match case {
+            0 => server.after_head.store(1, Ordering::SeqCst),
+            1 => server.after_head.store(2, Ordering::SeqCst),
+            2 => server.requirements.lock().unwrap().wrong_scope = true,
+            _ => (),
+        }
+        if case == 3 {
+            let old = server.connect(server.address);
+            let (_, mut read) = old.parts();
+            assert!(read.source_head(&scope()).is_err());
+            drop(old);
+            drop(read);
+        } else {
+            let mut client = UnaryHeadSession::connect(
+                server.dial(server.address),
+                scope(),
+                limits(),
+                CapabilitySupport::current(),
+            )
+            .unwrap();
+            let error = client.source_head(&scope()).unwrap_err();
+            assert_eq!(
+                error,
+                match case {
+                    0 => SourceError::Denied,
+                    1 => SourceError::Unavailable,
+                    _ => SourceError::IdentityChanged,
+                }
+            );
+            assert_eq!(client.counters().unwrap().payload_bytes, 0);
+            drop(client);
+        }
+        assert_eq!(server.pages.load(Ordering::SeqCst), 0);
+        server.finish();
+    }
 }

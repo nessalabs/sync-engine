@@ -48,6 +48,7 @@ pub(super) mod epoch;
 pub(super) mod follow;
 mod history;
 pub(super) mod scope_pair;
+pub(super) mod unary_head;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable
 /// progress recovery; the adapter performs neither automatically.
@@ -413,7 +414,7 @@ impl<S: Read + Write> Wire<S> {
                 return Err(RecordSessionError::Protocol);
             }
             if p.status != 0 {
-                if p.status == 8 && capability_operation(kind) {
+                if p.status == 8 && (capability_operation(kind) || kind == unary_head::KIND) {
                     if !result.is_empty()
                         || p.offset != 0
                         || p.total != p.payload.len()
@@ -1200,7 +1201,8 @@ fn data_operation(kind: u8) -> bool {
     if artifact::operation(kind) {
         return true;
     }
-    matches!(kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE) || capability_operation(kind)
+    matches!(kind, AUTHORIZE | HEAD | PAGE | OPEN_PAGE | unary_head::KIND)
+        || capability_operation(kind)
 }
 fn capability_operation(kind: u8) -> bool {
     capabilities::operation(kind) || history::operation(kind)
@@ -1269,9 +1271,38 @@ fn serve_bound_with_hooks<S, A, F, R>(
     session: u64,
     supported: SessionLimits,
     policy: &mut A,
+    open_source: F,
+    hooks: BoundHooks<'_>,
+    routes: CapabilityRoutes<R>,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordSource,
+{
+    serve_bound_impl(
+        stream,
+        session,
+        supported,
+        policy,
+        open_source,
+        hooks,
+        routes,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serve_bound_impl<S, A, F, R>(
+    stream: &mut S,
+    session: u64,
+    supported: SessionLimits,
+    policy: &mut A,
     mut open_source: F,
     mut hooks: BoundHooks<'_>,
     routes: CapabilityRoutes<R>,
+    unary_head: bool,
 ) -> Result<(), RecordSessionError>
 where
     S: Read + Write,
@@ -1380,6 +1411,11 @@ where
         {
             return Err(RecordSessionError::Protocol);
         }
+        if (request.kind == unary_head::KIND && !unary_head)
+            || (unary_head && !matches!(request.kind, AUTHORIZE | unary_head::KIND))
+        {
+            return Err(RecordSessionError::Protocol);
+        }
         if request.kind == scope_pair::HEAD_BATCH {
             if !routes.pair_batch || (request.meta.handle, request.meta.generation) != (1, 1) {
                 return Err(RecordSessionError::Protocol);
@@ -1417,6 +1453,32 @@ where
             continue;
         }
         let current = access_code(policy.authorize(scope), scope);
+        if request.kind == unary_head::KIND {
+            if current != 0 {
+                respond(stream, &request, current, &[], scope, policy, limit)?;
+                continue;
+            }
+            let result = unary_head::server_response(
+                &request,
+                scope,
+                policy,
+                &mut open_source,
+                routes.head.ok_or(RecordSessionError::Protocol)?,
+            );
+            let (status, body) = match result {
+                Ok(body) => (0, body),
+                Err(RecordSessionError::Source(SourceError::Incompatible(error))) => {
+                    match capabilities::encode_incompatible(error) {
+                        Ok(body) => (8, body),
+                        Err(_) => (7, Vec::new()),
+                    }
+                }
+                Err(RecordSessionError::Source(error)) => (source_error_code(error), Vec::new()),
+                Err(_) => (7, Vec::new()),
+            };
+            respond(stream, &request, status, &body, scope, policy, limit)?;
+            continue;
+        }
         if capability_operation(request.kind) {
             let result = if current != 0 {
                 Err(RecordSessionError::Source(decode_source_error(current)))
