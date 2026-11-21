@@ -468,3 +468,72 @@ fn v6_migration_reindexes_eligible_rows_without_touching_proof() {
         .unwrap();
     assert!(sql.contains("length(payload)=0"), "{sql}");
 }
+
+#[test]
+fn v5_upgrade_builds_final_schema_once_and_rolls_back_on_conflict() {
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert; DROP INDEX catalogue_compaction_candidates; DROP TABLE catalogue_retired_proof; PRAGMA user_version=5;").unwrap();
+    let open = |origin: &str| {
+        SqliteCatalogueSource::open(&file, id(origin), id("catalogue"), id("v1"), id("schema"))
+    };
+    assert!(open("wrong").is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    db.pragma_update(None, "user_version", 8).unwrap();
+    assert!(open("origin").is_err());
+    db.pragma_update(None, "user_version", 5).unwrap();
+    db.execute_batch("CREATE TRIGGER catalogue_retired_no_insert BEFORE INSERT ON catalogue_source_entries BEGIN SELECT 1; END;").unwrap();
+    let before: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(open("origin").is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        db.query_row("PRAGMA schema_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        before
+    );
+    assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('catalogue_retired_proof','catalogue_compaction_candidates')", [], |r| r.get::<_,i64>(0)).unwrap(), 0);
+    assert_eq!(
+        db.query_row(
+            "SELECT creation,revision,deleted FROM catalogue_source_entries WHERE entry_id='a'",
+            [],
+            |r| Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?
+            ))
+        )
+        .unwrap(),
+        (1, 2, 1)
+    );
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert;")
+        .unwrap();
+    let before: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    drop(open("origin").unwrap());
+    let after: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    // One table, one index and one trigger; an intermediate index adds two DDL changes.
+    assert_eq!(after - before, 3);
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+}

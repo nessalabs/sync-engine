@@ -67,7 +67,11 @@ with tempfile.TemporaryDirectory(prefix='owned-compaction-large-') as folder:
     assert moved==11999
     with sqlite3.connect(compacted) as db:
         db.execute('attach database ? as original',(str(control),))
-        missing=db.execute("SELECT count(*) FROM original.catalogue_source_entries o LEFT JOIN (SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries UNION ALL SELECT entry_id,creation,revision,1,x'' FROM catalogue_retired_proof) n ON n.entry_id=o.entry_id AND n.creation=o.creation AND n.revision=o.revision AND n.deleted=o.deleted AND n.payload=o.payload WHERE n.entry_id IS NULL").fetchone()[0]
-        assert missing==0
+        combined="SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries UNION ALL SELECT entry_id,creation,revision,1,x'' FROM catalogue_retired_proof"
+        original="SELECT entry_id,creation,revision,deleted,payload FROM original.catalogue_source_entries"
+        for left,right in [(original,combined),(combined,original)]:
+            assert db.execute(f"SELECT count(*) FROM (SELECT * FROM ({left}) EXCEPT SELECT * FROM ({right}))").fetchone()==(0,)
+        assert db.execute('select count(*) from original.catalogue_source_entries').fetchone()==(20000,)
+        assert db.execute('select count(*) from catalogue_source_entries').fetchone()==(8001,)
         assert db.execute('select count(*) from catalogue_retired_proof').fetchone()==(11999,)
-    print(json.dumps({'base_commit':BASE,'workload':'20000 sequential IDs, 12000 retired, 8000 live 128-byte payloads, head/horizon 32000; 11999 eligible, one equal marker', 'evidence':'actual base API created one v5 source, SQLite backup created matched copies; no VACUUM', 'moved':moved,'compaction_process_ms':round(elapsed,3),'control_v5':snapshot(control),'migrated_v7':snapshot(migrated),'compacted_v7':snapshot(compacted),'all_original_values_match':True},indent=2))
+    print(json.dumps({'base_commit':BASE,'workload':'20000 sequential IDs, 12000 retired, 8000 live 128-byte payloads, head/horizon 32000; 11999 eligible, one equal marker', 'evidence':'actual base API created one v5 source, SQLite backup created matched copies; no VACUUM', 'moved':moved,'compaction_process_ms':round(elapsed,3),'control_v5':snapshot(control),'migrated_v7':snapshot(migrated),'compacted_v7':snapshot(compacted),'exact_bidirectional_values_and_counts':True},indent=2))

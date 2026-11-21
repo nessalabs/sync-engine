@@ -157,14 +157,15 @@ pub(super) fn initialize(
             revision INTEGER NOT NULL CHECK(revision>=creation)
         ) WITHOUT ROWID;
         CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id)
-            WHERE manifest_visible=0 AND deleted=1;
+            WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0;
         CREATE TRIGGER catalogue_retired_no_insert BEFORE INSERT ON catalogue_source_entries
         WHEN EXISTS(SELECT 1 FROM catalogue_retired_proof WHERE entry_id=NEW.entry_id)
         BEGIN SELECT RAISE(ABORT, 'retired identity'); END;",
         )?;
-        version = 6;
-    }
-    if version == 6 {
+        tx.pragma_update(None, "user_version", 7)?;
+    } else if version == 6 {
+        // Draft v6 was pushed and may have produced source files. Rebuild only
+        // that older index; v5 already creates the final index above.
         tx.execute_batch("DROP INDEX catalogue_compaction_candidates;
             CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id)
             WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0;")?;
