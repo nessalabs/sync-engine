@@ -10,7 +10,7 @@ use nessa_sync::replication::catalogue::{
 };
 use nessa_sync::replication::domain::{CapabilitySupport, Id, Scope};
 use nessa_sync::replication::infrastructure::{
-    MemoryAuthorizer, SqliteCatalogueSource, SqliteCatalogueStore,
+    MemoryAuthorizer, SqliteCatalogueMaintenance, SqliteCatalogueSource, SqliteCatalogueStore,
 };
 
 fn id(text: &str) -> Id {
@@ -51,6 +51,19 @@ fn main() {
     let source_path = PathBuf::from(&args[2]);
     let receiver_path = PathBuf::from(&args[3]);
     match args[4].as_str() {
+        "offline-upgrade" => {
+            drop(
+                SqliteCatalogueMaintenance::open(
+                    source_path,
+                    selected.origin().clone(),
+                    selected.stream().clone(),
+                    selected.incarnation().clone(),
+                    selected.schema().clone(),
+                )
+                .unwrap(),
+            );
+            println!("{{\"upgraded\":true}}");
+        }
         "seed" => {
             let count: usize = args[5].parse().unwrap();
             let mut source = source(source_path, &selected);

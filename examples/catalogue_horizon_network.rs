@@ -62,13 +62,6 @@ fn report(
 fn main() {
     let a = std::env::args().collect::<Vec<_>>();
     assert!(a.len()>=4,"owned v2 client: collect SOURCE H | retire SOURCE N | head PORT TOKEN | pass PORT CACHE RECEIVER TOKEN MAX_PAGES | reset-start/reset-step PORT CACHE RECEIVER TOKEN");
-    if a[1] == "compact" {
-        let moved = source(Path::new(&a[2]))
-            .compact_retired(a[3].parse().unwrap())
-            .unwrap();
-        println!("{{\"moved\":{moved}}}");
-        return;
-    }
     if a[1] == "assert-fenced" {
         assert_eq!(
             source(Path::new(&a[2])).upsert(&id(&a[3]), b"ordinary later value"),

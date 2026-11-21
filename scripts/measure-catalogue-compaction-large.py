@@ -22,6 +22,10 @@ fn main() {
  let scope=Scope::new(id("peer"),id("origin"),id("catalogue"),id("v1"),id("schema"),id("grant"));
  let h=s.horizon_head(&scope,CapabilitySupport::current()).unwrap();
  assert_eq!(s.compare_collect(&h,32000).unwrap().hidden_markers,11999);
+ println!("ready");
+ use std::io::Write;
+ std::io::stdout().flush().unwrap();
+ let mut line=String::new(); std::io::stdin().read_line(&mut line).unwrap();
 }
 '''
 def run(*args, **kwargs):
@@ -51,20 +55,40 @@ with tempfile.TemporaryDirectory(prefix='owned-compaction-large-') as folder:
     env=os.environ.copy(); env['CARGO_TARGET_DIR']=str(d/'target-base')
     run('cargo','build','--locked','--features','sqlite','--example','compaction_fixture',cwd=baseline,env=env,stdout=subprocess.DEVNULL)
     run('cargo','build','--locked','--features','sqlite','--example','catalogue_compaction',cwd=ROOT,stdout=subprocess.DEVNULL)
-    source=d/'source.db'; run(str(d/'target-base/debug/examples/compaction_fixture'),str(source))
-    with sqlite3.connect(source) as db:
-        assert db.execute('pragma user_version').fetchone()==(5,)
-        assert db.execute('select count(*),sum(deleted),sum(manifest_visible) from catalogue_source_entries').fetchone()==(20000,12000,8001)
-        assert db.execute('select head,horizon from catalogue_source_meta').fetchone()==(32000,32000)
+    source=d/'source.db'
+    binary=str(ROOT/'target/debug/examples/catalogue_compaction')
+    worker=subprocess.Popen([str(d/'target-base/debug/examples/compaction_fixture'),str(source)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert worker.stdout.readline().strip()=='ready' and worker.poll() is None
+        with sqlite3.connect(source) as db:
+            before=(db.execute('pragma user_version').fetchone(), db.execute('pragma schema_version').fetchone(),
+                    db.execute('select count(*),sum(deleted),sum(manifest_visible) from catalogue_source_entries').fetchone(),
+                    db.execute('select head,horizon from catalogue_source_meta').fetchone(),
+                    db.execute('select type,name,sql from sqlite_master order by type,name').fetchall())
+            assert before[:4]==((5,),before[1],(20000,12000,8001),(32000,32000))
+        refused=subprocess.run([binary,str(source),'open'],capture_output=True,text=True)
+        assert refused.returncode != 0 and 'OfflineUpgradeRequired' in refused.stderr
+        with sqlite3.connect(source) as db:
+            after=(db.execute('pragma user_version').fetchone(), db.execute('pragma schema_version').fetchone(),
+                   db.execute('select count(*),sum(deleted),sum(manifest_visible) from catalogue_source_entries').fetchone(),
+                   db.execute('select head,horizon from catalogue_source_meta').fetchone(),
+                   db.execute('select type,name,sql from sqlite_master order by type,name').fetchall())
+            assert after==before and worker.poll() is None
+        worker.stdin.write('stop\n'); worker.stdin.flush()
+        assert worker.wait(timeout=30)==0
+    finally:
+        if worker.poll() is None:
+            worker.terminate(); worker.wait(timeout=30)
     control=d/'control.db'; migrated=d/'migrated.db'; compacted=d/'compacted.db'
     for path in [control,migrated,compacted]: backup(source,path)
-    binary=str(ROOT/'target/debug/examples/catalogue_compaction')
-    run(binary,str(migrated),'open',stdout=subprocess.DEVNULL)
-    run(binary,str(compacted),'open',stdout=subprocess.DEVNULL)
+    run(binary,str(migrated),'migrate',stdout=subprocess.DEVNULL)
+    run(binary,str(compacted),'migrate',stdout=subprocess.DEVNULL)
     start=time.perf_counter()
     moved=int(subprocess.check_output([binary,str(compacted),'compact-all'],text=True))
     elapsed=(time.perf_counter()-start)*1000
     assert moved==11999
+    run(binary,str(compacted),'open',stdout=subprocess.DEVNULL)
+    run(binary,str(compacted),'fenced',stdout=subprocess.DEVNULL)
     with sqlite3.connect(compacted) as db:
         db.execute('attach database ? as original',(str(control),))
         combined="SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries UNION ALL SELECT entry_id,creation,revision,1,x'' FROM catalogue_retired_proof"
@@ -74,4 +98,4 @@ with tempfile.TemporaryDirectory(prefix='owned-compaction-large-') as folder:
         assert db.execute('select count(*) from original.catalogue_source_entries').fetchone()==(20000,)
         assert db.execute('select count(*) from catalogue_source_entries').fetchone()==(8001,)
         assert db.execute('select count(*) from catalogue_retired_proof').fetchone()==(11999,)
-    print(json.dumps({'base_commit':BASE,'workload':'20000 sequential IDs, 12000 retired, 8000 live 128-byte payloads, head/horizon 32000; 11999 eligible, one equal marker', 'evidence':'actual base API created one v5 source, SQLite backup created matched copies; no VACUUM', 'moved':moved,'compaction_process_ms':round(elapsed,3),'control_v5':snapshot(control),'migrated_v7':snapshot(migrated),'compacted_v7':snapshot(compacted),'exact_bidirectional_values_and_counts':True},indent=2))
+    print(json.dumps({'base_commit':BASE,'workload':'20000 sequential IDs, 12000 retired, 8000 live 128-byte payloads, head/horizon 32000; 11999 eligible, one equal marker', 'evidence':'actual base API created one v5 source, SQLite backup created matched copies; no VACUUM', 'moved':moved,'compaction_process_ms':round(elapsed,3),'control_v5':snapshot(control),'migrated_v7':snapshot(migrated),'compacted_v7':snapshot(compacted),'exact_bidirectional_values_and_counts':True,'legacy_worker_refused_without_schema_change_then_joined':True,'reopen_and_no_resurrection':True},indent=2))

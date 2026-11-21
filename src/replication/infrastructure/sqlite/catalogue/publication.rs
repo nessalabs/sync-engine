@@ -41,11 +41,16 @@ pub struct CatalogueCollection {
 pub(super) fn initialize(
     conn: &mut rusqlite::Connection,
     identity: [&Id; 4],
+    offline: bool,
 ) -> Result<(), SqliteOpenError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
     let mut version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if application == 0 && version == 0 {
+    let fresh = application == 0 && version == 0;
+    if fresh {
+        if offline {
+            return Err(SqliteOpenError::UnexpectedDatabase);
+        }
         let tables: i64 = tx.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
             [],
@@ -85,6 +90,9 @@ pub(super) fn initialize(
                 .all(|(a, b)| a.as_str() == b.as_str()) => {}
         Some(_) => return Err(SqliteOpenError::SourceIdentityMismatch),
         None => return Err(SqliteOpenError::UnexpectedDatabase),
+    }
+    if !fresh && !offline && version < 7 {
+        return Err(SqliteOpenError::OfflineUpgradeRequired);
     }
     let columns: Vec<String> = {
         let mut statement = tx.prepare("PRAGMA table_info(catalogue_source_meta)")?;

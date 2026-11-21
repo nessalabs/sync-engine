@@ -2,7 +2,9 @@
 use nessa_sync::replication::{
     catalogue::*,
     domain::{CapabilitySupport, Id, Scope},
-    infrastructure::{MemoryAuthorizer, SqliteCatalogueSource, SqliteCatalogueStore},
+    infrastructure::{
+        MemoryAuthorizer, SqliteCatalogueMaintenance, SqliteCatalogueSource, SqliteCatalogueStore,
+    },
 };
 use std::{
     path::PathBuf,
@@ -408,6 +410,16 @@ fn observation_failure_rolls_back_and_source_migration_keeps_populated_identity(
          PRAGMA user_version=3;",
     )
     .unwrap();
+    drop(
+        SqliteCatalogueMaintenance::open(
+            f.0.join("source"),
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+        )
+        .unwrap(),
+    );
     let mut s = f.source();
     assert_eq!(s.horizon_head(&scope(), support()).unwrap().horizon, 0);
     assert_eq!(s.head(&scope()).unwrap(), 3);

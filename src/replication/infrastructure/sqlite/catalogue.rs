@@ -32,6 +32,7 @@ mod publication;
 mod recovery;
 mod retention;
 mod source_connection;
+pub use compaction::SqliteCatalogueMaintenance;
 pub use publication::{CatalogueCollection, CataloguePublicationError};
 pub use retention::{CataloguePinReceipt, CatalogueRetentionError};
 
@@ -81,6 +82,12 @@ fn to_u64(value: i64) -> Result<u64, CatalogueStoreError> {
 
 /// Latest-value source with atomic revision assignment. A deleted ID cannot be
 /// resurrected; replacing the entire catalogue requires a new incarnation.
+/// Physical compaction is available only on the explicit offline owner:
+///
+/// ```compile_fail
+/// use nessa_sync::replication::infrastructure::SqliteCatalogueSource;
+/// fn compact(source: &mut SqliteCatalogueSource) { source.compact_retired(1); }
+/// ```
 pub struct SqliteCatalogueSource {
     conn: Connection,
     origin: Id,
@@ -96,9 +103,8 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Recognized files migrate atomically to v7 after identity validation.
-    /// Hosts must stop all older source readers and writers before migration and
-    /// keep them stopped; already-open older binaries are not version-fenced.
+    /// Existing older source files require explicit offline maintenance.
+    /// Existing v7 files are verified without schema migration.
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
@@ -107,7 +113,7 @@ impl SqliteCatalogueSource {
         schema: Id,
     ) -> Result<Self, SqliteOpenError> {
         let mut conn = open_connection(path)?;
-        publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema])?;
+        publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema], false)?;
         source_connection::configure(&conn)?;
         Ok(Self {
             conn,

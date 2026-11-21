@@ -147,7 +147,6 @@ def main():
      nested=[]
      def advance_observe():
       activation=invoke(source,'collect-retention',source,'780','10');assert activation=={'head':780,'horizon':780,'hidden':159}
-      assert invoke(source,'compact',source,'256')=={'moved':159}
       observed,_=lab.run(v2,'pass',hop.port,partial,'phone',READ,'0');assert observed['outcome']=='expired';nested.append(observed)
      before_bytes,before_ops=hop.stats();hop.head_hook=advance_observe;timer=time.perf_counter();outer,process_ms=lab.run(v2,'pass',hop.port,partial,'phone',READ,'0');assert outer['outcome']=='regressed' and snapshot(partial)==saved
      total,after_ops=hop.stats();ops={k:after_ops.get(k,0)-before_ops.get(k,0) for k in set(after_ops)|set(before_ops)};ops={k:v for k,v in ops.items() if v};assert ops=={'20':2} and len(nested)==1
@@ -187,7 +186,7 @@ def main():
       with hop.lock:refusals=hop.statuses-statuses_before
       assert dict(refusals)=={'4:0:5':1}
       end_bytes,_=hop.stats();cases.append({'phase':'old_'+command+'_positive_refusal','path':path,'repetition':rep+1,'outcome':'invalid','exchanges':1,'attempted_requests':1,'unanswered_requests':0,'wire_total_bytes':end_bytes-before_bytes,'protocol_bytes':end_bytes-before_bytes,'manifest_bytes':0,'payload_bytes':0,'incomplete_reply_bytes':0,'operations':{k:v for k,v in ops.items() if v},'process_ms':(time.perf_counter()-old_timer)*1000,'work_ms':None})
-     with sqlite3.connect(source) as c:assert c.execute('SELECT count(*),sum(deleted),sum(manifest_visible) FROM catalogue_source_entries').fetchone()==(461,1,461)
+     with sqlite3.connect(source) as c:assert c.execute('SELECT count(*),sum(deleted),sum(manifest_visible) FROM catalogue_source_entries').fetchone()==(620,160,461)
     finally:
      for h in reversed(owned):h.close()
      child.terminate();child.wait(timeout=5);child.stderr.close()

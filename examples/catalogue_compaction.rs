@@ -2,23 +2,23 @@
 use nessa_sync::replication::{
     catalogue::CatalogueHorizonSource,
     domain::{CapabilitySupport, Id, Scope},
-    infrastructure::SqliteCatalogueSource,
+    infrastructure::{SqliteCatalogueMaintenance, SqliteCatalogueSource},
 };
 fn id(s: &str) -> Id {
     Id::new(s).unwrap()
 }
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    let mut s = SqliteCatalogueSource::open(
-        &args[1],
-        id("origin"),
-        id("catalogue"),
-        id("v1"),
-        id("schema"),
-    )
-    .unwrap();
     match args[2].as_str() {
         "seed" => {
+            let mut s = SqliteCatalogueSource::open(
+                &args[1],
+                id("origin"),
+                id("catalogue"),
+                id("v1"),
+                id("schema"),
+            )
+            .unwrap();
             for i in 0..620 {
                 s.upsert(&id(&format!("entry-{i:04}")), b"payload").unwrap();
             }
@@ -38,9 +38,67 @@ fn main() {
                 .unwrap();
             assert_eq!(s.compare_collect(&head, 780).unwrap().hidden_markers, 159);
         }
-        "compact" => println!("{}", s.compact_retired(256).unwrap()),
-        "open" => println!("opened"),
+        "open" => {
+            drop(
+                SqliteCatalogueSource::open(
+                    &args[1],
+                    id("origin"),
+                    id("catalogue"),
+                    id("v1"),
+                    id("schema"),
+                )
+                .unwrap(),
+            );
+            println!("opened");
+        }
+        "fenced" => {
+            let mut s = SqliteCatalogueSource::open(
+                &args[1],
+                id("origin"),
+                id("catalogue"),
+                id("v1"),
+                id("schema"),
+            )
+            .unwrap();
+            assert_eq!(
+                s.upsert(&id("entry-000000"), b"again"),
+                Err(nessa_sync::replication::catalogue::CatalogueStoreError::Fenced)
+            );
+            println!("fenced");
+        }
+        "migrate" => {
+            drop(
+                SqliteCatalogueMaintenance::open(
+                    &args[1],
+                    id("origin"),
+                    id("catalogue"),
+                    id("v1"),
+                    id("schema"),
+                )
+                .unwrap(),
+            );
+            println!("migrated");
+        }
+        "compact" => {
+            let mut s = SqliteCatalogueMaintenance::open(
+                &args[1],
+                id("origin"),
+                id("catalogue"),
+                id("v1"),
+                id("schema"),
+            )
+            .unwrap();
+            println!("{}", s.compact_retired(256).unwrap());
+        }
         "compact-all" => {
+            let mut s = SqliteCatalogueMaintenance::open(
+                &args[1],
+                id("origin"),
+                id("catalogue"),
+                id("v1"),
+                id("schema"),
+            )
+            .unwrap();
             let mut moved = 0;
             loop {
                 let batch = s.compact_retired(256).unwrap();

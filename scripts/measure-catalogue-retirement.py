@@ -72,8 +72,9 @@ def main():
             for n in range(a.repetitions):
                 path=Path(folder)/f'v{version}-{n}.db';fixture(path,version);rows,prior=snapshot(path)
                 for phase in ['first_open','reopen']:
-                    start=time.perf_counter();r=subprocess.run([str(root/'target/debug/examples/catalogue_apps'),'transcript',str(path),str(Path(folder)/'unused.db'),'seed','0'],text=True,capture_output=True,check=True,timeout=30);elapsed=(time.perf_counter()-start)*1000
-                    assert json.loads(r.stdout)=={'seeded':0}
+                    command=['offline-upgrade'] if phase=='first_open' else ['seed','0']
+                    start=time.perf_counter();r=subprocess.run([str(root/'target/debug/examples/catalogue_apps'),'transcript',str(path),str(Path(folder)/'unused.db'),*command],text=True,capture_output=True,check=True,timeout=30);elapsed=(time.perf_counter()-start)*1000
+                    assert json.loads(r.stdout)==({'upgraded':True} if phase=='first_open' else {'seeded':0})
                     actual,after=snapshot(path);assert actual==rows
                     assert after['file_version'] in (2,3,4,5,6,7)
                     if phase=='reopen':assert after['file_version']==prior['file_version']
@@ -96,7 +97,7 @@ def main():
         for phase in ['first_open','reopen']:
             cs=[c for c in cases if c['input_version']==v and c['phase']==phase];ms=[c['elapsed_ms'] for c in cs]
             summaries.append({'input_version':v,'phase':phase,'n':len(ms),'elapsed_ms_min':min(ms),'elapsed_ms_median':statistics.median(ms),'elapsed_ms_max':max(ms),'before':cs[0]['before'],'after':cs[0]['after']})
-    report={'scope':'source membership storage prerequisite; all620 IDs remain in manifests,160 retired; no horizon or collection','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'source_sha256':before,'harness_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'conditions':['owned legacy v1/v2 databases;620 IDs,460 live/160 retired,head780','timing includes fresh debug process start,source identity validation,migration/open and WAL/FULL configuration; excludes fixture creation and inspection','first_open includes migration when needed; reopen uses another process; no local source data change','fresh_publication creates620 then deletes160 through public example operations; timing includes161 processes and all commits; separate from migration timer','SQLite dbstat index size is optional and null when unavailable; no hidden markers or storage saving is claimed','unshaped local disk/CPU, no timing CI threshold'],'cases':cases,'summary':summaries,'fresh_publication':fresh}
+    report={'scope':'source membership storage prerequisite; all620 IDs remain in manifests,160 retired; no horizon or collection','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'source_sha256':before,'harness_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'conditions':['owned legacy v1/v2 databases;620 IDs,460 live/160 retired,head780','timing includes fresh debug process start,source identity validation,migration/open and WAL/FULL configuration; excludes fixture creation and inspection','first_open explicitly performs offline migration; reopen uses another process; no local source data change','fresh_publication creates620 then deletes160 through public example operations; timing includes161 processes and all commits; separate from migration timer','SQLite dbstat index size is optional and null when unavailable; no hidden markers or storage saving is claimed','unshaped local disk/CPU, no timing CI threshold'],'cases':cases,'summary':summaries,'fresh_publication':fresh}
     if a.output:a.output.write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,separators=(',',':')))
 if __name__=='__main__':main()

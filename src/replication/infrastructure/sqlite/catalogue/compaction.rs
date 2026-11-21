@@ -27,12 +27,39 @@ pub(super) fn verify(conn: &Connection) -> Result<(), SqliteOpenError> {
     Ok(())
 }
 
-impl SqliteCatalogueSource {
+/// Explicit offline owner of catalogue schema upgrade and compaction.
+///
+/// Before opening, the host must stop all other readers and writers, prevent
+/// their restart, and hold exclusive source ownership until this handle is dropped.
+/// SQLite does not enforce that process-level condition.
+pub struct SqliteCatalogueMaintenance {
+    conn: Connection,
+}
+
+impl SqliteCatalogueMaintenance {
+    /// Open an existing source and atomically upgrade a recognized older schema.
+    /// The caller must establish and maintain exclusive offline ownership. No
+    /// source file is created, renamed, or replaced. After an uncertain result,
+    /// inspect the existing database and WAL before retrying.
+    pub fn open(
+        path: impl AsRef<Path>,
+        origin: Id,
+        stream: Id,
+        incarnation: Id,
+        schema: Id,
+    ) -> Result<Self, SqliteOpenError> {
+        let mut conn =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        publication::initialize(&mut conn, [&origin, &stream, &incarnation, &schema], true)?;
+        source_connection::configure(&conn)?;
+        Ok(Self { conn })
+    }
+
     /// Move at most 256 hidden retired entries below the committed horizon to
     /// exact durable proof in one transaction. This does not change the horizon
     /// or retention pins. Repeating after an uncertain commit requires inspection.
-    /// Hosts must stop all older source readers and writers before upgrading the
-    /// source file and keep them stopped.
+    /// Exclusive offline ownership must remain in force throughout this call.
     pub fn compact_retired(&mut self, limit: usize) -> Result<usize, CatalogueStoreError> {
         if limit == 0 || limit > MAX_BATCH {
             return Err(CatalogueStoreError::Failed);

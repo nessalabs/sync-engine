@@ -8,8 +8,8 @@ use nessa_sync::replication::{
     },
     domain::{CapabilityError, CapabilitySupport, Id, Scope, SourceHead},
     infrastructure::{
-        CataloguePublicationError, MemoryAuthorizer, SqliteCatalogueSource, SqliteCatalogueStore,
-        SqliteOpenError, SqliteReferenceSource,
+        CataloguePublicationError, MemoryAuthorizer, SqliteCatalogueMaintenance,
+        SqliteCatalogueSource, SqliteCatalogueStore, SqliteOpenError, SqliteReferenceSource,
     },
 };
 use rusqlite::{params, Connection};
@@ -64,6 +64,15 @@ fn source(p: &Path) -> SqliteCatalogueSource {
     )
     .unwrap()
 }
+fn migrate(p: &Path) -> Result<SqliteCatalogueMaintenance, SqliteOpenError> {
+    SqliteCatalogueMaintenance::open(
+        p,
+        id("origin"),
+        id("catalogue"),
+        id("incarnation"),
+        id("schema"),
+    )
+}
 fn head(s: &mut SqliteCatalogueSource) -> SourceHead {
     s.source_head(&scope()).unwrap()
 }
@@ -95,6 +104,7 @@ fn populated_migration_preserves_current_values_creation_deletion_and_reopen() {
     let d = Folder::new();
     let p = d.path("source.db");
     legacy(&p);
+    drop(migrate(&p).unwrap());
     let mut s = source(&p);
     assert_eq!(head(&mut s), SourceHead::new(scope(), 2, 0, 0));
     assert_eq!(s.upsert(&id("a"), b"a"), Ok(1));
@@ -652,6 +662,7 @@ fn membership_migration_preserves_rows_publication_and_every_served_marker() {
             db.prepare("SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY entry_id").unwrap().query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,Vec<u8>>(4)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
         };
         let before = rows(&db);
+        drop(migrate(&p).unwrap());
         let mut s = source(&p);
         assert_eq!(rows(&db), before);
         assert_eq!(head(&mut s), SourceHead::new(scope(), 2, 0, 0));
@@ -759,14 +770,7 @@ fn membership_migration_failure_rolls_back_schema_version_index_and_values() {
     // An ordinary incomplete old schema fails at index replacement, after ALTER.
     db.execute_batch("DROP INDEX catalogue_source_page")
         .unwrap();
-    assert!(SqliteCatalogueSource::open(
-        &p,
-        id("origin"),
-        id("catalogue"),
-        id("incarnation"),
-        id("schema")
-    )
-    .is_err());
+    assert!(migrate(&p).is_err());
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
@@ -785,7 +789,7 @@ fn membership_migration_failure_rolls_back_schema_version_index_and_values() {
         "CREATE INDEX catalogue_source_page ON catalogue_source_entries(creation,entry_id)",
     )
     .unwrap();
-    drop(source(&p));
+    drop(migrate(&p).unwrap());
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
@@ -799,21 +803,16 @@ fn membership_migration_failure_rolls_back_schema_version_index_and_values() {
         .pragma_update(None, "user_version", 3)
         .unwrap();
     assert!(matches!(
-        SqliteCatalogueSource::open(
-            &q,
-            id("origin"),
-            id("catalogue"),
-            id("incarnation"),
-            id("schema")
-        ),
+        migrate(&q),
         Err(SqliteOpenError::UnexpectedDatabase)
     ));
 }
 #[test]
-fn competing_openers_migrate_once_and_keep_one_identity_history() {
+fn competing_openers_after_offline_migration_keep_one_identity_history() {
     let d = Folder::new();
     let p = d.path("source.db");
     version_two(&p);
+    drop(migrate(&p).unwrap());
     let gate = Arc::new(Barrier::new(2));
     let handles = (0..2)
         .map(|_| {
