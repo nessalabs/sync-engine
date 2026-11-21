@@ -30,7 +30,7 @@ def snapshot(path):
     with sqlite3.connect(path) as db:
         rows=db.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY creation,entry_id').fetchall()
         version=db.execute('PRAGMA user_version').fetchone()[0]
-        assert version in (1,2,3,4,5,6)
+        assert version in (1,2,3,4,5,6,7)
         tables=[x[0] for x in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
         expected=['catalogue_source_entries','catalogue_source_meta']
         if version>=5:
@@ -75,7 +75,7 @@ def main():
                     start=time.perf_counter();r=subprocess.run([str(root/'target/debug/examples/catalogue_apps'),'transcript',str(path),str(Path(folder)/'unused.db'),'seed','0'],text=True,capture_output=True,check=True,timeout=30);elapsed=(time.perf_counter()-start)*1000
                     assert json.loads(r.stdout)=={'seeded':0}
                     actual,after=snapshot(path);assert actual==rows
-                    assert after['file_version'] in (2,3,4,5,6)
+                    assert after['file_version'] in (2,3,4,5,6,7)
                     if phase=='reopen':assert after['file_version']==prior['file_version']
                     cases.append({'input_version':version,'repetition':n+1,'phase':phase,'elapsed_ms':round(elapsed,6),'before':prior,'after':after,'exact_identity_revision_deletion_payload_preserved':True})
                     prior=after

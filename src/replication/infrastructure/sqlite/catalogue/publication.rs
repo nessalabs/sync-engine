@@ -66,7 +66,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", CATALOGUE_SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=6) {
+    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=7) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -162,7 +162,13 @@ pub(super) fn initialize(
         WHEN EXISTS(SELECT 1 FROM catalogue_retired_proof WHERE entry_id=NEW.entry_id)
         BEGIN SELECT RAISE(ABORT, 'retired identity'); END;",
         )?;
-        tx.pragma_update(None, "user_version", 6)?;
+        version = 6;
+    }
+    if version == 6 {
+        tx.execute_batch("DROP INDEX catalogue_compaction_candidates;
+            CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id)
+            WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0;")?;
+        tx.pragma_update(None, "user_version", 7)?;
     }
     compaction::verify(&tx)?;
     retention::verify(&tx)?;

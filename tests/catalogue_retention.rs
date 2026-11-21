@@ -308,7 +308,7 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
     drop(migrated);
     db.execute_batch("DROP TABLE catalogue_retention_pins")
@@ -344,11 +344,28 @@ fn v5_compaction_preserves_proof_and_rolls_back_atomically() {
     assert_eq!(head(&mut s, &scope).horizon, 4);
     assert_eq!(s.compact_retired(0), Err(CatalogueStoreError::Failed));
     assert_eq!(s.compact_retired(257), Err(CatalogueStoreError::Failed));
-    let plan: String = db.query_row("EXPLAIN QUERY PLAN SELECT entry_id FROM catalogue_source_entries INDEXED BY catalogue_compaction_candidates WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0 AND revision<4 ORDER BY revision,entry_id LIMIT 1", [], |r| r.get(3)).unwrap();
-    assert!(plan.contains("catalogue_compaction_candidates"), "{plan}");
+    let mut statement = db.prepare("EXPLAIN QUERY PLAN SELECT entry_id FROM catalogue_source_entries INDEXED BY catalogue_compaction_candidates WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0 AND revision<?1 ORDER BY revision,entry_id LIMIT ?2").unwrap();
+    let plan: Vec<String> = statement
+        .query_map(rusqlite::params![4, 1], |r| r.get(3))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(plan.len(), 1, "unexpected scan or temporary sort: {plan:?}");
+    assert!(plan[0].contains("SEARCH catalogue_source_entries USING INDEX catalogue_compaction_candidates (revision<?)"), "{plan:?}");
     // Exercise the compactor boundary even for a pre-existing hidden equality row.
     db.execute(
         "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE entry_id='b'",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE catalogue_source_entries SET payload=x'01' WHERE entry_id='a'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(s.compact_retired(1), Ok(0));
+    db.execute(
+        "UPDATE catalogue_source_entries SET payload=x'' WHERE entry_id='a'",
         [],
     )
     .unwrap();
@@ -415,4 +432,39 @@ fn v5_compaction_preserves_proof_and_rolls_back_atomically() {
         .unwrap(),
         (1, 2)
     );
+}
+
+#[test]
+fn v6_migration_reindexes_eligible_rows_without_touching_proof() {
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let sc = scope("peer", "v1", "grant");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    s.upsert(&id("b"), b"b").unwrap();
+    let h = head(&mut s, &sc);
+    s.compare_collect(&h, 3).unwrap();
+    assert_eq!(s.compact_retired(1), Ok(1));
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    db.execute_batch("DROP INDEX catalogue_compaction_candidates; CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id) WHERE manifest_visible=0 AND deleted=1; PRAGMA user_version=6;").unwrap();
+    let mut s = source(&file);
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(nessa_sync::replication::catalogue::CatalogueStoreError::Fenced)
+    );
+    let sql: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='catalogue_compaction_candidates'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(sql.contains("length(payload)=0"), "{sql}");
 }

@@ -31,7 +31,8 @@ impl SqliteCatalogueSource {
     /// Move at most 256 hidden retired entries below the committed horizon to
     /// exact durable proof in one transaction. This does not change the horizon
     /// or retention pins. Repeating after an uncertain commit requires inspection.
-    /// Hosts must stop older readers and writers before upgrading the source file.
+    /// Hosts must stop all older source readers and writers before upgrading the
+    /// source file and keep them stopped.
     pub fn compact_retired(&mut self, limit: usize) -> Result<usize, CatalogueStoreError> {
         if limit == 0 || limit > MAX_BATCH {
             return Err(CatalogueStoreError::Failed);

@@ -1,10 +1,10 @@
 # Physical catalogue compaction
 
-Source schema v6 migrates v5 atomically under the same source identity. The
+Source schema v7 migrates v5 and draft v6 atomically under the same source identity. The
 `compact_retired` maintenance operation moves at most 256 previously hidden
 retired rows, strictly below the already committed horizon, into a WITHOUT ROWID
 exact proof table. Each proof retains the ID, creation revision and deletion
-revision. Equality stays in the serving table. Selection uses a partial index,
+revision. Equality stays in the serving table. Selection uses a partial index that includes the empty-payload condition,
 and insertion and removal commit in one immediate transaction. Maintenance
 neither advances the horizon nor changes retention pins. Proof remains unbounded
 in the number and size of retired IDs.

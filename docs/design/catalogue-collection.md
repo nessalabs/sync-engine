@@ -4,7 +4,7 @@
 source-owner mutation, alongside existing source publication. It is not a receiver
 access grant or a retention-pin policy. The native source has one durable truth:
 its singleton metadata and permanent per-ID evidence. Collection was introduced
-with source v4 and receiver v3; source v6 adds physical proof compaction.
+with source v4 and receiver v3; source v7 includes physical proof compaction.
 
 Physical movement of hidden rows into exact proof is described in [physical compaction](catalogue-physical-compaction.md); the retention and admission rules below remain in force.
 

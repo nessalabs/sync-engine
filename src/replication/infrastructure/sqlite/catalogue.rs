@@ -96,8 +96,9 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Recognized files migrate atomically to v6 after identity validation.
-    /// Hosts must stop old writers; already-open old binaries are not fenced.
+    /// Recognized files migrate atomically to v7 after identity validation.
+    /// Hosts must stop all older source readers and writers before migration and
+    /// keep them stopped; already-open older binaries are not version-fenced.
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,
