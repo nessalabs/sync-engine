@@ -1,0 +1,143 @@
+{
+  "pre_fix_characterization": {
+    "base": "a1ea83ef5cb5e2488355ebc82adf976f198eee4e",
+    "log_sha256": "f7b6a34e0f0808d55738729fba056ea95481e74d3353450ba96fc634e6c87012",
+    "outcome": "binding and hint refusals returned while retained stop token left peer open"
+  },
+  "regressions": {
+    "binding": {
+      "failure_excerpt": [
+        "called `Result::unwrap()` on an `Err` value: Timeout"
+      ],
+      "log_sha256": "08405747734e64472876997608915a49e30c761a7582a5f436466c1e1ab7f14a",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_keeps_commit_wake_during_binding"
+    },
+    "checkpoint": {
+      "failure_excerpt": [
+        "assertion `left == right` failed"
+      ],
+      "log_sha256": "e94545fd9d12966635fd7eead73dffbe0eb79fe8b4875f462571e71d2a4e5fd8",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_hints_are_advisory_and_reconnect_fetches_durable_checkpoint"
+    },
+    "cleanup_error": {
+      "failure_excerpt": [
+        "assertion failed: matches!((Terminal { stop: &stop, armed: true }).finish(Ok(())),"
+      ],
+      "log_sha256": "5f7057fbfe8ecb71ace71585dc6b8b7e5b919047471cec3a7f8ec8c2df26dbfa",
+      "outcome": "targeted test failed",
+      "test_filter": "terminal_preserves_primary_error_and_allows_interrupt_retry"
+    },
+    "correlation": {
+      "failure_excerpt": [
+        "called `Result::unwrap_err()` on an `Ok` value: 3"
+      ],
+      "log_sha256": "2b1f2bc6bdc41e21c92bad3dea7acfc35efca0670c4102a97025738cc8372a71",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_rejects_malformed_stale_and_eof_on_authenticated_fixture"
+    },
+    "egress": {
+      "failure_excerpt": [
+        "assertion `left == right` failed"
+      ],
+      "log_sha256": "5fc09caa9b0bcdd55cd1419346dcc7d97ad9fbcd1b03422698141b18dbffc929",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_rechecks_policy_after_capturing_head_before_egress"
+    },
+    "frame_admission": {
+      "failure_excerpt": [
+        "assertion failed: matches!(result, Err(RecordSessionError::Io(_)))",
+        "assertion failed: matches!(result, Err(RecordSessionError::Io(_)))"
+      ],
+      "log_sha256": "ad5696a0ae4e0f95d3cbf7354104add6997fe33506c30a838285c4f904aef599",
+      "outcome": "targeted test failed",
+      "test_filter": "stop_during_final_"
+    },
+    "idle_lease": {
+      "failure_excerpt": [],
+      "log_sha256": "797842c8b90a08d305fd9c9c985265f6a18c0b8f6738693aaef4bdb558661fe4",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_finite_lease_closes_idle_retained_connection_direct_and_relay"
+    },
+    "lease_priority": {
+      "failure_excerpt": [
+        "assertion `left == right` failed"
+      ],
+      "log_sha256": "ebbe1a2b166b1ae6a29a5f8cc42e50ca5e86bb5458c0b898a4a65774128db39d",
+      "outcome": "targeted test failed",
+      "test_filter": "expired_lease_does_not_admit_pending_wake"
+    },
+    "primary_error": {
+      "failure_excerpt": [
+        "assertion failed: matches!(terminal.finish(Err(RecordSessionError::Source(SourceError::Denied))),"
+      ],
+      "log_sha256": "609f1b68cf49916ffb7c28a4d61d28c576a9a823bcfd99aae5bbcf8b7fbd3ce7",
+      "outcome": "targeted test failed",
+      "test_filter": "terminal_preserves_primary_error_and_allows_interrupt_retry"
+    },
+    "stale": {
+      "failure_excerpt": [
+        "called `Result::unwrap_err()` on an `Ok` value: 3"
+      ],
+      "log_sha256": "8a5d287a21222ac9a69a6676f5d067f1933c0443b8fda61f92d74c8e489b32af",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_rejects_malformed_stale_and_eof_on_authenticated_fixture"
+    },
+    "stop_factory": {
+      "failure_excerpt": [
+        "assertion `left == right` failed"
+      ],
+      "log_sha256": "b3a673d459a7f5a0bf353737e1e4b811ad7b2aeb412127deadb8a4f7ab6bdfd2",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_stop_during_binding_prevents_later_source_acquisition"
+    },
+    "stop_handle": {
+      "failure_excerpt": [
+        "called `Result::unwrap()` on an `Err` value: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }",
+        "assertion failed: matches!(result, Err(RecordSessionError::Protocol))"
+      ],
+      "log_sha256": "20a049ff45e56099ff4ff4c318a0b854546183e858314fafc07c4b5e45e69bbf",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_stop_handle_is_bound_to_its_original_tls_connection"
+    },
+    "stop_policy": {
+      "failure_excerpt": [
+        "assertion `left == right` failed"
+      ],
+      "log_sha256": "9d86365e667fa3245833a6b825c77ab6834c3e6737ac1022c0b5ee1623084419",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_stop_during_binding_prevents_later_source_acquisition"
+    },
+    "stop_wake": {
+      "failure_excerpt": [],
+      "log_sha256": "6585468ad7d94f8d14ab61561035f00863ca237c65b4d25197f2b2823ad09b5e",
+      "outcome": "timed out after 10s and stopped",
+      "test_filter": "secure_follow_denial_and_idle_stop_fence_the_connection"
+    },
+    "terminal_cleanup": {
+      "failure_excerpt": [
+        "server returned while peer remains open with retained token",
+        "server returned while peer remains open with retained token",
+        "assertion failed: !matches!(&terminal, Err(e) if"
+      ],
+      "log_sha256": "86d0d9704a0716f15424cbe611877920f93be7e19220cc68fb059d888d289e17",
+      "outcome": "targeted test failed",
+      "test_filter": "secure_follow_terminal_"
+    }
+  },
+  "restored_runner": "python3 scripts/verify-secure-follow.py",
+  "restored_source_sha256": {
+    "Cargo.lock": "fd4c0fd6387c9b4e42efe98a8b0608a54cf4262b056e23cf3a3bd14391ef275f",
+    "scripts/verify-secure-follow.py": "c24f6cc04966a1dbbdbbac1528e1907afbf8b0eb7a9d1aeec93377fc25d2c046",
+    "src/replication/application/follower.rs": "66c319352f47f804da353a1f85c51f9655049a9dfbd8d2b02930089c8528fb7a",
+    "src/replication/infrastructure/session/channel/tls.rs": "80d38c6ac7657e92ea2f932aea70b1f51b05adbe81bf8dcf1b08accccd9caab0",
+    "src/replication/infrastructure/session/records.rs": "15f329d870cfe90237c0937504186923e7ee67b90d75289b2bee4cdc8e02539a",
+    "src/replication/infrastructure/session/records/follow.rs": "9cfdf99f1988193659d4ae80c978685489c502735d3bb4aea31879d3dc839d37",
+    "src/replication/infrastructure/session/records/secure_follow.rs": "912da4b79601c4b6f50d732a8316ed8a1f873f3d338b1d301915357e4be6f4a5",
+    "src/replication/infrastructure/sqlite/replica.rs": "685f180d30b0b9d5f12fda94510fa47ffd449d7ace0fbc5fd16a63968d225417",
+    "src/replication/infrastructure/sqlite/source.rs": "c84454af247443ce9714dc315b4155ed7705f56334c9a8f7ec8653a69182e913",
+    "tests/session_tls.rs": "4350a328b4f06297a22418da1b33de36d58b3296f156036b51be806ab2b123b5"
+  },
+  "scope": "isolated guard removals in owned TLS fixtures; original source restored before final runner; no-op interrupt used for frame-admission tests so socket shutdown cannot mask the missing guard"
+}

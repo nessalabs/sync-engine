@@ -42,6 +42,10 @@ current per-operation authorization. Its real direct/opaque-relay TCP/SQLite lab
 compares push with explicit polling and verifies lost-hint fallback, coalescing
 and reopened-cache correctness. This one-scope slice does not close the remaining
 secure-channel, route, multiplexing or outage qualification gaps.
+The opt-in [dedicated secure Follow](design/session-secure-follow.md) uses a
+separate pinned-TLS hint connection and existing authenticated record reads. It
+uses an explicit finite wait lease and requires host-owned fallback and joining;
+it does not close #54.
 The opt-in [secure artifact manifest](design/session-artifact-manifest.md) now
 reuses the verified serialized TLS record session for read-only metadata under
 a separate current exact-artifact grant. Content transfer and product permissions

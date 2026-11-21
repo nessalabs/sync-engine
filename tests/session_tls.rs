@@ -1,12 +1,16 @@
 #![cfg(all(feature = "tls", feature = "sqlite"))]
 
 use nessa_sync::replication::{
-    application::{begin_pass, finish_pass, Access, ScopeAuthorizer, SourceError},
+    application::{
+        begin_pass, finish_pass, Access, ScopeAuthorizer, SourceError, MAX_RECORD_BYTES,
+    },
     domain::{Id, Limits, Scope},
     infrastructure::{
         session::{
-            serve_record_session, InterruptibleSessionIo, RecordSession, RecordSessionError,
-            SessionLimits, TcpSessionIo, TlsIdentity, TlsPeer, TlsSessionIo,
+            read_control, serve_record_session, serve_secure_follow, write_control,
+            BindingMetadata, ControlFrame, Correlation, FollowError, HintSignal,
+            InterruptibleSessionIo, RecordSession, RecordSessionError, SecureFollow,
+            SecureFollowStop, SessionLimits, TcpSessionIo, TlsIdentity, TlsPeer, TlsSessionIo,
         },
         SqliteReferenceSource, SqliteReplicaStore,
     },
@@ -1251,5 +1255,1176 @@ fn swift_tls_open_head_page_against_rust() {
             "Swift TLS fixture: {mode}; policy calls {}; source acquisitions {}",
             observed.1, observed.2
         );
+    }
+}
+
+#[test]
+fn secure_follow_hints_are_advisory_and_reconnect_fetches_durable_checkpoint() {
+    for relayed in [false, true] {
+        let f = Fixture::new();
+        let source_path = f.0.join("secure-follow-source.db");
+        source(&source_path).append(&id("one"), b"one").unwrap();
+        let cache_path = f.0.join("secure-follow-cache.db");
+        let mut cache = SqliteReplicaStore::open(&cache_path).unwrap();
+        let mut fetch_counts = Vec::new();
+        let mut hint_counts = Vec::new();
+        for round in 0..3 {
+            if round > 0 {
+                let listener = endpoint();
+                let (addr, relay_worker) = if relayed {
+                    let (a, r) = relay(listener.local_addr().unwrap());
+                    (a, Some(r))
+                } else {
+                    (listener.local_addr().unwrap(), None)
+                };
+                let server_identity = f.identity("server");
+                let server_peer = f.peer("client");
+                let signal = HintSignal::new();
+                let server_signal = signal.clone();
+                let server_path = source_path.clone();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let worker = thread::spawn(move || {
+                    let (socket, _) = listener.accept().unwrap();
+                    let io = TlsSessionIo::accept(
+                        tcp(socket),
+                        server_identity,
+                        server_peer,
+                        Instant::now() + DEADLINE,
+                    )
+                    .unwrap();
+                    let stop = Arc::new(SecureFollowStop::new(&io, server_signal));
+                    sender.send(stop.clone()).unwrap();
+                    let result = serve_secure_follow(
+                        io,
+                        10 + round,
+                        LIMITS,
+                        Policy,
+                        move |_| Ok(source(&server_path)),
+                        &stop,
+                        Duration::from_secs(30),
+                    );
+                    assert!(result.is_ok() || matches!(result, Err(RecordSessionError::Io(_))));
+                });
+                let io = TlsSessionIo::connect(
+                    tcp(TcpStream::connect(addr).unwrap()),
+                    ServerName::try_from("server.fixture.test").unwrap(),
+                    f.identity("client"),
+                    f.peer("server"),
+                    Instant::now() + DEADLINE,
+                )
+                .unwrap();
+                let mut hints = SecureFollow::connect(io, scope(), LIMITS).unwrap();
+                let stop = receiver.recv_timeout(DEADLINE).unwrap();
+                let record_name = if round == 1 { "two" } else { "six" };
+                source(&source_path)
+                    .append(&id(record_name), b"new")
+                    .unwrap();
+                signal.notify().unwrap();
+                assert_eq!(hints.next_hint().unwrap(), round + 1);
+                assert_eq!(
+                    cache.checkpoint(&scope()).unwrap().unwrap().position(),
+                    round
+                );
+                let stats = hints.counters().unwrap();
+                hint_counts.push((stats.exchanges, stats.protocol_bytes, stats.payload_bytes));
+                hints.close().unwrap();
+                stop.stop().unwrap();
+                worker.join().unwrap();
+                if let Some(r) = relay_worker {
+                    let _ = r.join().unwrap();
+                }
+            }
+            let listener = endpoint();
+            let (addr, relay_worker) = if relayed {
+                let (a, r) = relay(listener.local_addr().unwrap());
+                (a, Some(r))
+            } else {
+                (listener.local_addr().unwrap(), None)
+            };
+            let local = f.identity("server");
+            let peer = f.peer("client");
+            let path = source_path.clone();
+            let worker = thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                let mut io =
+                    TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE)
+                        .unwrap();
+                let _ = serve_record_session(&mut io, 30 + round, LIMITS, &mut Policy, move |_| {
+                    Ok(source(&path))
+                });
+            });
+            let io = TlsSessionIo::connect(
+                tcp(TcpStream::connect(addr).unwrap()),
+                ServerName::try_from("server.fixture.test").unwrap(),
+                f.identity("client"),
+                f.peer("server"),
+                Instant::now() + DEADLINE,
+            )
+            .unwrap();
+            let records = RecordSession::connect_open_interruptible(io, scope(), LIMITS).unwrap();
+            let (mut auth, mut read) = records.parts();
+            let mut pass = begin_pass(&scope(), &mut auth, &mut read, &mut cache).unwrap();
+            assert_eq!(pass.position(), round);
+            finish_pass(
+                &mut pass,
+                Limits::new(3, 3000, 1000).unwrap(),
+                &mut auth,
+                &mut read,
+                &mut cache,
+            )
+            .unwrap();
+            assert_eq!(pass.position(), round + 1);
+            let stats = records.counters().unwrap();
+            fetch_counts.push((stats.exchanges, stats.protocol_bytes, stats.payload_bytes));
+            records.close().unwrap();
+            drop(read);
+            drop(auth);
+            drop(records);
+            worker.join().unwrap();
+            if let Some(r) = relay_worker {
+                let _ = r.join().unwrap();
+            }
+            drop(cache);
+            cache = SqliteReplicaStore::open(&cache_path).unwrap();
+            assert_eq!(
+                cache.checkpoint(&scope()).unwrap().unwrap().position(),
+                round + 1
+            );
+            assert_eq!(cache.count(&scope()).unwrap(), round + 1);
+            let records = cache.read_after(&scope(), 0, 3, 3000).unwrap();
+            let expected = [
+                ("one", b"one".as_slice()),
+                ("two", b"new".as_slice()),
+                ("six", b"new".as_slice()),
+            ];
+            for (index, record) in records.iter().enumerate() {
+                assert_eq!(record.position, index as u64 + 1);
+                assert_eq!(record.id, id(expected[index].0));
+                assert_eq!(record.payload, expected[index].1);
+            }
+        }
+        assert_eq!(fetch_counts[0], fetch_counts[1]);
+        assert_eq!(fetch_counts[1], fetch_counts[2]);
+        assert_eq!(hint_counts[0], hint_counts[1]);
+        eprintln!("secure-follow relay={relayed} fetch={fetch_counts:?} hint_setup_and_one_hint={hint_counts:?}");
+    }
+}
+
+#[test]
+fn secure_follow_rejects_malformed_stale_and_eof_on_authenticated_fixture() {
+    let f = Fixture::new();
+    for case in 0..13 {
+        let listener = endpoint();
+        let address = listener.local_addr().unwrap();
+        let local = f.identity("server");
+        let peer = f.peer("client");
+        let worker = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut io =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            let ControlFrame::FollowOpen { scope, request, .. } =
+                read_control(&mut io, 2048).unwrap()
+            else {
+                panic!("expected FollowOpen")
+            };
+            write_control(
+                &mut io,
+                &ControlFrame::Welcome {
+                    session: 41,
+                    limits: LIMITS,
+                    record_bytes: MAX_RECORD_BYTES as u32,
+                },
+                2048,
+            )
+            .unwrap();
+            write_control(
+                &mut io,
+                &ControlFrame::Bound {
+                    correlation: Correlation {
+                        session: 41,
+                        request,
+                    },
+                    binding: BindingMetadata {
+                        handle: 1,
+                        generation: 1,
+                        scope,
+                        head: 0,
+                    },
+                },
+                2048,
+            )
+            .unwrap();
+            io.flush().unwrap();
+            if case == 6 {
+                return;
+            }
+            if case == 10 {
+                io.write_all(&2049_u32.to_be_bytes()).unwrap();
+                io.flush().unwrap();
+                return;
+            }
+            if case == 11 {
+                io.write_all(&[0, 0]).unwrap();
+                io.flush().unwrap();
+                return;
+            }
+            let mut body = Vec::new();
+            body.extend_from_slice(b"NSR1");
+            body.extend_from_slice(&1_u16.to_be_bytes());
+            body.push(if case == 4 { 2 } else { 64 });
+            body.push(if case == 5 {
+                255
+            } else if case == 12 {
+                1
+            } else {
+                0
+            });
+            body.extend_from_slice(&(if case == 0 { 42_u64 } else { 41 }).to_be_bytes());
+            body.extend_from_slice(&(if case == 1 { 2_u64 } else { request }).to_be_bytes());
+            body.extend_from_slice(&(if case == 2 { 2_u32 } else { 1 }).to_be_bytes());
+            body.extend_from_slice(&(if case == 3 { 2_u64 } else { 1 }).to_be_bytes());
+            body.extend_from_slice(&(if case == 9 { 9_u32 } else { 8 }).to_be_bytes());
+            body.extend_from_slice(&(if case == 8 { 1_u32 } else { 0 }).to_be_bytes());
+            body.extend_from_slice(&3_u64.to_be_bytes());
+            io.write_all(&(body.len() as u32).to_be_bytes()).unwrap();
+            io.write_all(&body).unwrap();
+            io.flush().unwrap();
+            if case == 7 {
+                io.write_all(&(body.len() as u32).to_be_bytes()).unwrap();
+                io.write_all(&body).unwrap();
+                io.flush().unwrap();
+            }
+        });
+        let io = TlsSessionIo::connect(
+            tcp(TcpStream::connect(address).unwrap()),
+            ServerName::try_from("server.fixture.test").unwrap(),
+            f.identity("client"),
+            f.peer("server"),
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let mut hints = SecureFollow::connect(io, scope(), LIMITS).unwrap();
+        if case == 7 {
+            assert_eq!(hints.next_hint().unwrap(), 3);
+        }
+        let error = hints.next_hint().unwrap_err();
+        if case == 6 || case == 11 {
+            assert!(matches!(
+                error,
+                FollowError::Closed | FollowError::Unavailable
+            ));
+        } else {
+            assert_eq!(error, FollowError::Protocol, "case {case}");
+        }
+        assert!(hints.next_hint().is_err());
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn secure_follow_denial_and_idle_stop_fence_the_connection() {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    struct SwitchPolicy(Arc<AtomicU8>);
+    impl ScopeAuthorizer for SwitchPolicy {
+        fn authorize(&mut self, scope: &Scope) -> Access {
+            if self.0.load(Ordering::SeqCst) == 0 {
+                Access::Allowed(scope.clone())
+            } else {
+                Access::Denied
+            }
+        }
+    }
+    let f = Fixture::new();
+    for denied in [true, false] {
+        let path = f.0.join("fenced-source.db");
+        drop(source(&path));
+        let listener = endpoint();
+        let addr = listener.local_addr().unwrap();
+        let local = f.identity("server");
+        let peer = f.peer("client");
+        let signal = HintSignal::new();
+        let signal_for_server = signal.clone();
+        let state = Arc::new(AtomicU8::new(0));
+        let server_state = state.clone();
+        let calls = Arc::new(AtomicU64::new(0));
+        let server_calls = calls.clone();
+        let (send, recv) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let io =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            let stop = Arc::new(SecureFollowStop::new(&io, signal_for_server));
+            send.send(stop.clone()).unwrap();
+            serve_secure_follow(
+                io,
+                50,
+                LIMITS,
+                SwitchPolicy(server_state),
+                move |_| {
+                    server_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(source(&path))
+                },
+                &stop,
+                Duration::from_secs(30),
+            )
+        });
+        let io = TlsSessionIo::connect(
+            tcp(TcpStream::connect(addr).unwrap()),
+            ServerName::try_from("server.fixture.test").unwrap(),
+            f.identity("client"),
+            f.peer("server"),
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let mut client = SecureFollow::connect(io, scope(), LIMITS).unwrap();
+        let stop = recv.recv_timeout(DEADLINE).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        if denied {
+            state.store(1, Ordering::SeqCst);
+            signal.notify().unwrap();
+            assert_eq!(
+                client.next_hint(),
+                Err(FollowError::Refused(SourceError::Denied))
+            );
+            assert!(client.next_hint().is_err());
+            assert!(matches!(
+                server.join().unwrap(),
+                Err(RecordSessionError::Source(SourceError::Denied))
+            ));
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        } else {
+            stop.stop().unwrap();
+            assert!(client.next_hint().is_err());
+            let shutdown = server.join().unwrap();
+            assert!(shutdown.is_ok() || matches!(shutdown, Err(RecordSessionError::Io(_))));
+        }
+    }
+}
+
+#[test]
+fn secure_follow_tls_peer_mismatch_never_invokes_policy_or_factory() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct CountPolicy(Arc<AtomicUsize>);
+    impl ScopeAuthorizer for CountPolicy {
+        fn authorize(&mut self, scope: &Scope) -> Access {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Access::Allowed(scope.clone())
+        }
+    }
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let expected = f.peer("client");
+    let policies = Arc::new(AtomicUsize::new(0));
+    let p = policies.clone();
+    let factories = Arc::new(AtomicUsize::new(0));
+    let count = factories.clone();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        if let Ok(io) =
+            TlsSessionIo::accept(tcp(socket), local, expected, Instant::now() + DEADLINE)
+        {
+            let stop = SecureFollowStop::new(&io, HintSignal::new());
+            let _ = serve_secure_follow(
+                io,
+                2,
+                LIMITS,
+                CountPolicy(p),
+                move |_| -> Result<SqliteReferenceSource, SourceError> {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    Err(SourceError::Unavailable)
+                },
+                &stop,
+                Duration::from_secs(30),
+            );
+            false
+        } else {
+            true
+        }
+    });
+    let io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("sibling"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    );
+    if let Ok(io) = io {
+        assert!(SecureFollow::connect(io, scope(), LIMITS).is_err());
+    }
+    assert!(worker.join().unwrap());
+    assert_eq!(policies.load(Ordering::SeqCst), 0);
+    assert_eq!(factories.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn secure_follow_rechecks_policy_after_capturing_head_before_egress() {
+    use nessa_sync::replication::{
+        application::RecordSource,
+        domain::{Page, PageRequest},
+    };
+    use std::sync::atomic::{AtomicU8, Ordering};
+    struct SwitchingPolicy(Arc<AtomicU8>);
+    impl ScopeAuthorizer for SwitchingPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            if self.0.load(Ordering::SeqCst) == 0 {
+                Access::Allowed(s.clone())
+            } else {
+                Access::Denied
+            }
+        }
+    }
+    struct SwitchingSource {
+        state: Arc<AtomicU8>,
+        revoke: bool,
+    }
+    impl RecordSource for SwitchingSource {
+        fn head(&mut self, _: &Scope) -> Result<u64, SourceError> {
+            if self.revoke {
+                self.state.store(1, Ordering::SeqCst);
+            }
+            Ok(42)
+        }
+        fn page(&mut self, _: &PageRequest) -> Result<Page, SourceError> {
+            panic!("no page")
+        }
+    }
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let state = Arc::new(AtomicU8::new(0));
+    let server_state = state.clone();
+    let signal = HintSignal::new();
+    let server_signal = signal.clone();
+    let server = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = SecureFollowStop::new(&io, server_signal);
+        let mut opens = 0;
+        let factory_state = server_state.clone();
+        serve_secure_follow(
+            io,
+            71,
+            LIMITS,
+            SwitchingPolicy(server_state),
+            move |_| {
+                opens += 1;
+                Ok(SwitchingSource {
+                    state: factory_state.clone(),
+                    revoke: opens > 1,
+                })
+            },
+            &stop,
+            Duration::from_secs(30),
+        )
+    });
+    let io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    let mut client = SecureFollow::connect(io, scope(), LIMITS).unwrap();
+    signal.notify().unwrap();
+    assert_eq!(
+        client.next_hint(),
+        Err(FollowError::Refused(SourceError::Denied))
+    );
+    assert!(matches!(
+        server.join().unwrap(),
+        Err(RecordSessionError::Source(SourceError::Denied))
+    ));
+}
+
+#[test]
+fn secure_follow_stop_handle_is_bound_to_its_original_tls_connection() {
+    struct CountPolicy(Arc<AtomicU64>);
+    impl ScopeAuthorizer for CountPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Access::Allowed(s.clone())
+        }
+    }
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let first_local = f.identity("server");
+    let first_peer = f.peer("client");
+    let second_local = f.identity("server");
+    let second_peer = f.peer("client");
+    let calls = Arc::new(AtomicU64::new(0));
+    let p = calls.clone();
+    let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let (first, _) = listener.accept().unwrap();
+        let mut first = TlsSessionIo::accept(
+            tcp(first),
+            first_local,
+            first_peer,
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let stop = SecureFollowStop::new(&first, HintSignal::new());
+        let (second, _) = listener.accept().unwrap();
+        let second = TlsSessionIo::accept(
+            tcp(second),
+            second_local,
+            second_peer,
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let result = serve_secure_follow(
+            second,
+            1,
+            LIMITS,
+            CountPolicy(p),
+            |_| -> Result<SqliteReferenceSource, SourceError> {
+                panic!("mismatched stop must not acquire a source")
+            },
+            &stop,
+            Duration::from_secs(30),
+        );
+        assert!(matches!(result, Err(RecordSessionError::Protocol)));
+        first.write_all(b"still-open").unwrap();
+        first.flush().unwrap();
+        ack_rx.recv_timeout(DEADLINE).unwrap();
+        stop.stop().unwrap();
+    });
+    let mut first = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    let second = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    let mut proof = [0; 10];
+    first.read_exact(&mut proof).unwrap();
+    assert_eq!(&proof, b"still-open");
+    ack_tx.send(()).unwrap();
+    worker.join().unwrap();
+    drop(first);
+    drop(second);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn secure_follow_keeps_commit_wake_during_binding() {
+    use nessa_sync::replication::{
+        application::RecordSource,
+        domain::{Page, PageRequest},
+    };
+    use std::sync::atomic::AtomicBool;
+    struct DuringBinding {
+        signal: HintSignal,
+        fired: Arc<AtomicBool>,
+    }
+    impl RecordSource for DuringBinding {
+        fn head(&mut self, _: &Scope) -> Result<u64, SourceError> {
+            if !self.fired.swap(true, Ordering::SeqCst) {
+                self.signal.notify().unwrap();
+            }
+            Ok(42)
+        }
+        fn page(&mut self, _: &PageRequest) -> Result<Page, SourceError> {
+            panic!("no page")
+        }
+    }
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let signal = HintSignal::new();
+    let server_signal = signal.clone();
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = Arc::new(SecureFollowStop::new(&io, server_signal.clone()));
+        stop_tx.send(stop.clone()).unwrap();
+        let fired = Arc::new(AtomicBool::new(false));
+        serve_secure_follow(
+            io,
+            91,
+            LIMITS,
+            Policy,
+            move |_| {
+                Ok(DuringBinding {
+                    signal: server_signal.clone(),
+                    fired: fired.clone(),
+                })
+            },
+            &stop,
+            Duration::from_secs(30),
+        )
+    });
+    let io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    let interrupt = io.interrupt_handle();
+    let mut client = SecureFollow::connect(io, scope(), LIMITS).unwrap();
+    let stop = stop_rx.recv_timeout(DEADLINE).unwrap();
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    let reader = thread::spawn(move || {
+        let _ = reply_tx.send(client.next_hint());
+    });
+    let result = reply_rx.recv_timeout(Duration::from_secs(2));
+    stop.stop().unwrap();
+    interrupt.interrupt().unwrap();
+    reader.join().unwrap();
+    assert_eq!(result.unwrap(), Ok(42));
+    let shutdown = worker.join().unwrap();
+    assert!(shutdown.is_ok() || matches!(shutdown, Err(RecordSessionError::Io(_))));
+}
+
+#[test]
+fn secure_follow_denied_scope_never_acquires_source() {
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let calls = Arc::new(AtomicU64::new(0));
+    let count = calls.clone();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = SecureFollowStop::new(&io, HintSignal::new());
+        serve_secure_follow(
+            io,
+            77,
+            LIMITS,
+            Policy,
+            move |_| -> Result<SqliteReferenceSource, SourceError> {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err(SourceError::Unavailable)
+            },
+            &stop,
+            Duration::from_secs(30),
+        )
+    });
+    let io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    let wrong = Scope::new(
+        id("peer"),
+        id("origin"),
+        id("other"),
+        id("first"),
+        id("text"),
+        id("epoch"),
+    );
+    assert!(matches!(
+        SecureFollow::connect(io, wrong, LIMITS),
+        Err(RecordSessionError::Source(SourceError::Denied))
+    ));
+    assert!(worker.join().unwrap().is_ok());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn secure_follow_zero_session_is_protocol_error_before_policy() {
+    struct CountPolicy(Arc<AtomicU64>);
+    impl ScopeAuthorizer for CountPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Access::Allowed(s.clone())
+        }
+    }
+    let f = Fixture::new();
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let calls = Arc::new(AtomicU64::new(0));
+    let p = calls.clone();
+    let server = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = SecureFollowStop::new(&io, HintSignal::new());
+        assert!(matches!(
+            serve_secure_follow(
+                io,
+                0,
+                LIMITS,
+                CountPolicy(p),
+                |_| -> Result<SqliteReferenceSource, SourceError> {
+                    panic!("invalid session must not acquire a source")
+                },
+                &stop,
+                Duration::from_secs(30)
+            ),
+            Err(RecordSessionError::Protocol)
+        ));
+    });
+    let client = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    server.join().unwrap();
+    drop(client);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn secure_follow_stop_during_binding_prevents_later_source_acquisition() {
+    struct StopPolicy(Arc<SecureFollowStop>, Arc<AtomicU64>);
+    impl ScopeAuthorizer for StopPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            self.0.stop().unwrap();
+            Access::Allowed(s.clone())
+        }
+    }
+    let f = Fixture::new();
+    let path = f.0.join("stopped-binding-source.db");
+    drop(source(&path));
+    let listener = endpoint();
+    let address = listener.local_addr().unwrap();
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let calls = Arc::new(AtomicU64::new(0));
+    let count = calls.clone();
+    let policy_calls = Arc::new(AtomicU64::new(0));
+    let policy_count = policy_calls.clone();
+    let server = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = Arc::new(SecureFollowStop::new(&io, HintSignal::new()));
+        let _ = serve_secure_follow(
+            io,
+            81,
+            LIMITS,
+            StopPolicy(stop.clone(), policy_count),
+            move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(source(&path))
+            },
+            &stop,
+            Duration::from_secs(30),
+        );
+    });
+    let io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    assert!(SecureFollow::connect(io, scope(), LIMITS).is_err());
+    server.join().unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(policy_calls.load(Ordering::SeqCst), 1);
+}
+
+fn secure_follow_terminal_close_with_retained_token(relayed: bool, deny_binding: bool) {
+    use std::sync::atomic::AtomicBool;
+    struct DynamicPolicy(Arc<AtomicBool>);
+    impl ScopeAuthorizer for DynamicPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            if self.0.load(Ordering::SeqCst) {
+                Access::Denied
+            } else {
+                Access::Allowed(s.clone())
+            }
+        }
+    }
+    let f = Fixture::new();
+    let path = f.0.join("terminal-source.db");
+    drop(source(&path));
+    let listener = endpoint();
+    let (address, relay_worker) = if relayed {
+        let (address, worker) = relay(listener.local_addr().unwrap());
+        (address, Some(worker))
+    } else {
+        (listener.local_addr().unwrap(), None)
+    };
+    let local = f.identity("server");
+    let peer = f.peer("client");
+    let state = Arc::new(AtomicBool::new(deny_binding));
+    let server_state = state.clone();
+    let signal = HintSignal::new();
+    let server_signal = signal.clone();
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+    let server = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+        let stop = Arc::new(SecureFollowStop::new(&io, server_signal));
+        stop_tx.send(stop.clone()).unwrap();
+        serve_secure_follow(
+            io,
+            81,
+            LIMITS,
+            DynamicPolicy(server_state),
+            move |_| Ok(source(&path)),
+            &stop,
+            Duration::from_secs(30),
+        )
+    });
+    let mut io = TlsSessionIo::connect(
+        tcp(TcpStream::connect(address).unwrap()),
+        ServerName::try_from("server.fixture.test").unwrap(),
+        f.identity("client"),
+        f.peer("server"),
+        Instant::now() + DEADLINE,
+    )
+    .unwrap();
+    write_control(
+        &mut io,
+        &ControlFrame::FollowOpen {
+            limits: LIMITS,
+            request: 1,
+            scope: scope(),
+        },
+        2048,
+    )
+    .unwrap();
+    io.flush().unwrap();
+    let retained_stop = stop_rx.recv_timeout(DEADLINE).unwrap();
+    assert!(matches!(
+        read_control(&mut io, 2048).unwrap(),
+        ControlFrame::Welcome { .. }
+    ));
+    let binding = read_control(&mut io, 2048).unwrap();
+    if deny_binding {
+        assert!(matches!(
+            binding,
+            ControlFrame::Refused {
+                reason: SourceError::Denied,
+                ..
+            }
+        ));
+        assert!(server.join().unwrap().is_ok());
+    } else {
+        assert!(matches!(binding, ControlFrame::Bound { .. }));
+        state.store(true, Ordering::SeqCst);
+        signal.notify().unwrap();
+        let mut prefix = [0_u8; 4];
+        io.read_exact(&mut prefix).unwrap();
+        let mut frame = vec![0_u8; u32::from_be_bytes(prefix) as usize];
+        io.read_exact(&mut frame).unwrap();
+        assert_eq!(frame.len(), 44);
+        assert_eq!(frame[6], 64);
+        assert_eq!(frame[7], 1);
+        assert!(matches!(
+            server.join().unwrap(),
+            Err(RecordSessionError::Source(SourceError::Denied))
+        ));
+    }
+    let mut byte = [0_u8; 1];
+    let terminal = io.read(&mut byte);
+    assert!(
+        !matches!(&terminal, Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)),
+        "server returned while peer remains open with retained token"
+    );
+    assert!(!matches!(terminal, Ok(n) if n > 0));
+    drop(retained_stop);
+    drop(io);
+    if let Some(worker) = relay_worker {
+        let _ = worker.join().unwrap();
+    }
+}
+#[test]
+fn secure_follow_terminal_binding_refusal_closes_retained_socket() {
+    for relayed in [false, true] {
+        secure_follow_terminal_close_with_retained_token(relayed, true);
+    }
+}
+#[test]
+fn secure_follow_terminal_hint_refusal_closes_retained_socket() {
+    for relayed in [false, true] {
+        secure_follow_terminal_close_with_retained_token(relayed, false);
+    }
+}
+
+#[test]
+fn secure_follow_stop_during_final_policy_blocks_output_direct_and_relay() {
+    struct GatedPolicy {
+        calls: usize,
+        target: usize,
+        entered: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+    impl ScopeAuthorizer for GatedPolicy {
+        fn authorize(&mut self, s: &Scope) -> Access {
+            self.calls += 1;
+            if self.calls == self.target {
+                self.entered.send(()).unwrap();
+                self.release.recv_timeout(DEADLINE).unwrap();
+            }
+            Access::Allowed(s.clone())
+        }
+    }
+    for relayed in [false, true] {
+        for bind in [true, false] {
+            let f = Fixture::new();
+            let path = f.0.join("gated-policy-source.db");
+            drop(source(&path));
+            let listener = endpoint();
+            let (address, relay_worker) = if relayed {
+                let (address, worker) = relay(listener.local_addr().unwrap());
+                (address, Some(worker))
+            } else {
+                (listener.local_addr().unwrap(), None)
+            };
+            let local = f.identity("server");
+            let peer = f.peer("client");
+            let signal = HintSignal::new();
+            let server_signal = signal.clone();
+            let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let server = thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                let io = TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE)
+                    .unwrap();
+                let stop = Arc::new(SecureFollowStop::new(&io, server_signal));
+                stop_tx.send(stop.clone()).unwrap();
+                serve_secure_follow(
+                    io,
+                    93,
+                    LIMITS,
+                    GatedPolicy {
+                        calls: 0,
+                        target: if bind { 2 } else { 4 },
+                        entered: entered_tx,
+                        release: release_rx,
+                    },
+                    move |_| Ok(source(&path)),
+                    &stop,
+                    Duration::from_secs(30),
+                )
+            });
+            let mut io = TlsSessionIo::connect(
+                tcp(TcpStream::connect(address).unwrap()),
+                ServerName::try_from("server.fixture.test").unwrap(),
+                f.identity("client"),
+                f.peer("server"),
+                Instant::now() + DEADLINE,
+            )
+            .unwrap();
+            write_control(
+                &mut io,
+                &ControlFrame::FollowOpen {
+                    limits: LIMITS,
+                    request: 1,
+                    scope: scope(),
+                },
+                2048,
+            )
+            .unwrap();
+            io.flush().unwrap();
+            let stop = stop_rx.recv_timeout(DEADLINE).unwrap();
+            assert!(matches!(
+                read_control(&mut io, 2048).unwrap(),
+                ControlFrame::Welcome { .. }
+            ));
+            if !bind {
+                assert!(matches!(
+                    read_control(&mut io, 2048).unwrap(),
+                    ControlFrame::Bound { .. }
+                ));
+                signal.notify().unwrap();
+            }
+            entered_rx.recv_timeout(DEADLINE).unwrap();
+            let stop_clone = stop.clone();
+            let (result_tx, result_rx) = std::sync::mpsc::channel();
+            let stopper = thread::spawn(move || {
+                let _ = result_tx.send(stop_clone.stop());
+            });
+            let stopped = result_rx.recv_timeout(Duration::from_secs(2));
+            release_tx.send(()).unwrap();
+            stopper.join().unwrap();
+            assert!(
+                stopped.unwrap().is_ok(),
+                "stop must not wait on host policy"
+            );
+            if bind {
+                assert!(read_control(&mut io, 2048).is_err());
+            } else {
+                let mut byte = [0];
+                assert!(!matches!(io.read(&mut byte), Ok(n) if n > 0));
+            }
+            assert!(matches!(
+                server.join().unwrap(),
+                Err(RecordSessionError::Io(_))
+            ));
+            drop(stop);
+            drop(io);
+            if let Some(worker) = relay_worker {
+                let _ = worker.join().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn secure_follow_finite_lease_closes_idle_retained_connection_direct_and_relay() {
+    for relayed in [false, true] {
+        let f = Fixture::new();
+        let path = f.0.join("lease-source.db");
+        drop(source(&path));
+        let listener = endpoint();
+        let (address, relay_worker) = if relayed {
+            let (address, worker) = relay(listener.local_addr().unwrap());
+            (address, Some(worker))
+        } else {
+            (listener.local_addr().unwrap(), None)
+        };
+        let local = f.identity("server");
+        let peer = f.peer("client");
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let io =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            let stop = Arc::new(SecureFollowStop::new(&io, HintSignal::new()));
+            stop_tx.send(stop.clone()).unwrap();
+            serve_secure_follow(
+                io,
+                94,
+                LIMITS,
+                Policy,
+                move |_| Ok(source(&path)),
+                &stop,
+                Duration::from_millis(200),
+            )
+        });
+        let mut io = TlsSessionIo::connect(
+            tcp(TcpStream::connect(address).unwrap()),
+            ServerName::try_from("server.fixture.test").unwrap(),
+            f.identity("client"),
+            f.peer("server"),
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        write_control(
+            &mut io,
+            &ControlFrame::FollowOpen {
+                limits: LIMITS,
+                request: 1,
+                scope: scope(),
+            },
+            2048,
+        )
+        .unwrap();
+        io.flush().unwrap();
+        let retained = stop_rx.recv_timeout(DEADLINE).unwrap();
+        assert!(matches!(
+            read_control(&mut io, 2048).unwrap(),
+            ControlFrame::Welcome { .. }
+        ));
+        assert!(matches!(
+            read_control(&mut io, 2048).unwrap(),
+            ControlFrame::Bound { .. }
+        ));
+        let mut byte = [0];
+        let terminal = io.read(&mut byte);
+        let timed_out = matches!(&terminal, Err(e) if matches!(e.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock));
+        if timed_out {
+            let _ = retained.stop();
+        }
+        let result = server.join().unwrap();
+        drop(retained);
+        drop(io);
+        if let Some(worker) = relay_worker {
+            let _ = worker.join().unwrap();
+        }
+        assert!(
+            !timed_out,
+            "lease must release an idle peer even while token is retained"
+        );
+        assert!(!matches!(terminal, Ok(n) if n > 0));
+        assert!(result.is_ok());
+    }
+}
+
+#[test]
+fn secure_follow_terminal_invalid_setup_closes_retained_socket() {
+    for relayed in [false, true] {
+        let f = Fixture::new();
+        let listener = endpoint();
+        let (address, relay_worker) = if relayed {
+            let (address, worker) = relay(listener.local_addr().unwrap());
+            (address, Some(worker))
+        } else {
+            (listener.local_addr().unwrap(), None)
+        };
+        let local = f.identity("server");
+        let peer = f.peer("client");
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let io =
+                TlsSessionIo::accept(tcp(socket), local, peer, Instant::now() + DEADLINE).unwrap();
+            let stop = Arc::new(SecureFollowStop::new(&io, HintSignal::new()));
+            stop_tx.send(stop.clone()).unwrap();
+            serve_secure_follow(
+                io,
+                95,
+                LIMITS,
+                Policy,
+                |_| -> Result<SqliteReferenceSource, SourceError> {
+                    panic!("invalid setup must not reach source")
+                },
+                &stop,
+                Duration::from_secs(30),
+            )
+        });
+        let mut io = TlsSessionIo::connect(
+            tcp(TcpStream::connect(address).unwrap()),
+            ServerName::try_from("server.fixture.test").unwrap(),
+            f.identity("client"),
+            f.peer("server"),
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let retained = stop_rx.recv_timeout(DEADLINE).unwrap();
+        write_control(&mut io, &ControlFrame::Hello(LIMITS), 2048).unwrap();
+        io.flush().unwrap();
+        assert!(matches!(
+            worker.join().unwrap(),
+            Err(RecordSessionError::Protocol)
+        ));
+        let mut byte = [0];
+        let terminal = io.read(&mut byte);
+        assert!(
+            !matches!(&terminal, Err(e) if matches!(e.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock))
+        );
+        assert!(!matches!(terminal, Ok(n) if n > 0));
+        drop(retained);
+        drop(io);
+        if let Some(worker) = relay_worker {
+            let _ = worker.join().unwrap();
+        }
     }
 }

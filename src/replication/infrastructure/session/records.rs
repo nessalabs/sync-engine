@@ -48,6 +48,8 @@ pub(super) mod epoch;
 pub(super) mod follow;
 mod history;
 pub(super) mod scope_pair;
+#[cfg(feature = "tls")]
+pub(super) mod secure_follow;
 pub(super) mod unary_head;
 
 /// Session connection/read refusal. Callers own retry/reconnect and durable

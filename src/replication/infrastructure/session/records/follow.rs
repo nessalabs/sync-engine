@@ -589,26 +589,7 @@ fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: imp
                 let packet = read_packet(&mut frame.as_slice(), limit)
                     .map_err(FollowError::from)?
                     .ok_or(FollowError::Protocol)?;
-                let result = if packet.status == 0 {
-                    if packet.total != 8 || packet.offset != 0 || packet.payload.len() != 8 {
-                        return Err(FollowError::Protocol);
-                    }
-                    Ok(u64::from_be_bytes(
-                        packet
-                            .payload
-                            .try_into()
-                            .map_err(|_| FollowError::Protocol)?,
-                    ))
-                } else {
-                    if !(1..=6).contains(&packet.status)
-                        || packet.total != 0
-                        || packet.offset != 0
-                        || !packet.payload.is_empty()
-                    {
-                        return Err(FollowError::Protocol);
-                    }
-                    Err(decode_source_error(packet.status))
-                };
+                let result = decode_hint(&packet)?;
                 shared.hint(Pending {
                     meta: packet.meta,
                     result,
@@ -663,6 +644,31 @@ fn reader_frames<R: Read>(inner: R, shared: Arc<Shared>, mut before_publish: imp
     })();
     if let Err(e) = result {
         let _ = shared.fail(e);
+    }
+}
+// Decode the common hint vocabulary; the session owner separately checks exact
+// session/request/handle/generation before publishing the advisory result.
+pub(super) fn decode_hint(packet: &Packet) -> Result<Result<u64, SourceError>, FollowError> {
+    if packet.status == 0 {
+        if packet.total != 8 || packet.offset != 0 || packet.payload.len() != 8 {
+            return Err(FollowError::Protocol);
+        }
+        Ok(Ok(u64::from_be_bytes(
+            packet
+                .payload
+                .as_slice()
+                .try_into()
+                .map_err(|_| FollowError::Protocol)?,
+        )))
+    } else {
+        if !(1..=6).contains(&packet.status)
+            || packet.total != 0
+            || packet.offset != 0
+            || !packet.payload.is_empty()
+        {
+            return Err(FollowError::Protocol);
+        }
+        Ok(Err(decode_source_error(packet.status)))
     }
 }
 /// Independent advisory receiver. Waiting/consuming never loads or applies data.
@@ -1075,18 +1081,58 @@ impl HintSignal {
             Ok(())
         }
     }
-    fn version(&self) -> Result<u64, RecordSessionError> {
+    pub(super) fn version(&self) -> Result<u64, RecordSessionError> {
         self.inner
             .0
             .lock()
             .map(|s| s.0)
             .map_err(|_| RecordSessionError::Closed)
     }
-    fn wake(&self) {
+    pub(super) fn wake(&self) {
         let _held = self.inner.0.lock();
         self.inner.1.notify_all();
     }
-    fn wait(&self, last: u64, stop: &AtomicBool) -> Result<Option<u64>, RecordSessionError> {
+    // Dedicated secure Follow has a host-selected finite lifetime. This does
+    // not change the existing unbounded Follow signal wait or its owner.
+    #[cfg(feature = "tls")]
+    pub(super) fn wait_until(
+        &self,
+        last: u64,
+        stop: &AtomicBool,
+        deadline: Instant,
+    ) -> Result<Option<u64>, RecordSessionError> {
+        let mut state = self
+            .inner
+            .0
+            .lock()
+            .map_err(|_| RecordSessionError::Closed)?;
+        loop {
+            if stop.load(Ordering::Acquire) {
+                return Ok(None);
+            }
+            if state.1 {
+                return Err(RecordSessionError::Closed);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(None);
+            }
+            if state.0 != last {
+                return Ok(Some(state.0));
+            }
+            state = self
+                .inner
+                .1
+                .wait_timeout(state, remaining)
+                .map_err(|_| RecordSessionError::Closed)?
+                .0;
+        }
+    }
+    pub(super) fn wait(
+        &self,
+        last: u64,
+        stop: &AtomicBool,
+    ) -> Result<Option<u64>, RecordSessionError> {
         let mut s = self
             .inner
             .0
@@ -1108,9 +1154,9 @@ impl HintSignal {
         }
     }
 }
-struct Backend<A, F> {
-    policy: A,
-    factory: F,
+pub(super) struct Backend<A, F> {
+    pub(super) policy: A,
+    pub(super) factory: F,
 }
 struct Policy<A, F>(Arc<Mutex<Backend<A, F>>>);
 impl<A: ScopeAuthorizer, F> ScopeAuthorizer for Policy<A, F> {
@@ -1236,7 +1282,7 @@ impl<R, W: Write> Write for ServerIo<R, W> {
         Ok(())
     }
 }
-fn emit<A, F, R, W>(
+pub(super) fn emit<A, F, R, W>(
     backend: &Arc<Mutex<Backend<A, F>>>,
     writer: &Arc<Mutex<W>>,
     stop: &AtomicBool,
