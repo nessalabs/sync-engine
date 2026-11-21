@@ -3,8 +3,10 @@
 `SqliteCatalogueSource::compare_collect(expected_v2, requested)` is an explicit
 source-owner mutation, alongside existing source publication. It is not a receiver
 access grant or a retention-pin policy. The native source has one durable truth:
-its existing singleton metadata and permanent per-ID rows. No schema bump is
-needed (source v4, receiver v3); source startup/WAL configuration is unchanged.
+its singleton metadata and permanent per-ID evidence. Collection was introduced
+with source v4 and receiver v3; source v6 adds physical proof compaction.
+
+Physical movement of hidden rows into exact proof is described in [physical compaction](catalogue-physical-compaction.md); the retention and admission rules below remain in force.
 
 The source validates its four immutable identity components, current writer
 support and the complete expected v2 publication, including horizon, before any

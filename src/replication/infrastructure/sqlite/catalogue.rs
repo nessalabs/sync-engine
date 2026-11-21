@@ -26,6 +26,7 @@ use super::{
     CATALOGUE_SOURCE_APPLICATION_ID,
 };
 
+mod compaction;
 mod horizon;
 mod publication;
 mod recovery;
@@ -95,7 +96,7 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Recognized files migrate atomically to v5 after identity validation.
+    /// Recognized files migrate atomically to v6 after identity validation.
     /// Hosts must stop old writers; already-open old binaries are not fenced.
     pub fn open(
         path: impl AsRef<Path>,
@@ -151,7 +152,20 @@ impl SqliteCatalogueSource {
             .optional()
             .map_err(|_| CatalogueStoreError::Failed)?;
         match existing {
-            None => return Err(CatalogueStoreError::Failed),
+            None => {
+                let retired: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM catalogue_retired_proof WHERE entry_id=?1)",
+                        [entry_id.as_str()],
+                        |r| r.get(0),
+                    )
+                    .map_err(|_| CatalogueStoreError::Failed)?;
+                return Err(if retired {
+                    CatalogueStoreError::Fenced
+                } else {
+                    CatalogueStoreError::Failed
+                });
+            }
             Some(1) => return Err(CatalogueStoreError::Fenced),
             Some(_) => {}
         }
@@ -378,7 +392,7 @@ impl SqliteCatalogueSource {
             return Err(CatalogueSourceError::IdentityChanged);
         }
         let metadata: Option<(i64, i64, i64, i64)> = tx.query_row(
-            "SELECT creation, revision, deleted, length(payload) FROM catalogue_source_entries WHERE entry_id = ?1", [entry_id.as_str()],
+            "SELECT creation, revision, deleted, length(payload) FROM catalogue_source_entries WHERE entry_id = ?1 UNION ALL SELECT creation, revision, 1, 0 FROM catalogue_retired_proof WHERE entry_id = ?1", [entry_id.as_str()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         ).optional().map_err(|_| CatalogueSourceError::Unavailable)?;
         let (creation, revision, deleted, len) =
@@ -394,7 +408,7 @@ impl SqliteCatalogueSource {
         }
         let payload: Vec<u8> = tx
             .query_row(
-                "SELECT payload FROM catalogue_source_entries WHERE entry_id = ?1",
+                "SELECT payload FROM catalogue_source_entries WHERE entry_id = ?1 UNION ALL SELECT x'' FROM catalogue_retired_proof WHERE entry_id = ?1",
                 [entry_id.as_str()],
                 |row| row.get(0),
             )

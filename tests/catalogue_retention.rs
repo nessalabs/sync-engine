@@ -295,7 +295,10 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
     drop(s);
     let db = Connection::open(&file).unwrap();
     db.execute_batch(
-        "DROP TABLE catalogue_retention_pins;
+        "DROP TRIGGER catalogue_retired_no_insert;
+        DROP INDEX catalogue_compaction_candidates;
+        DROP TABLE catalogue_retired_proof;
+        DROP TABLE catalogue_retention_pins;
         ALTER TABLE catalogue_source_meta DROP COLUMN retention_now_ms;
         PRAGMA user_version=4",
     )
@@ -305,7 +308,7 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     drop(migrated);
     db.execute_batch("DROP TABLE catalogue_retention_pins")
@@ -318,4 +321,98 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
         id("schema")
     )
     .is_err());
+}
+
+#[test]
+fn v5_compaction_preserves_proof_and_rolls_back_atomically() {
+    use nessa_sync::replication::catalogue::CatalogueStoreError;
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let scope = scope("peer", "v1", "grant");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    s.upsert(&id("b"), b"b").unwrap();
+    s.delete(&id("b")).unwrap();
+    let h = head(&mut s, &scope);
+    s.compare_collect(&h, 4).unwrap();
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    // Recreate the exact v5 layout with populated retained rows.
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert; DROP INDEX catalogue_compaction_candidates; DROP TABLE catalogue_retired_proof; PRAGMA user_version=5;").unwrap();
+    let mut s = source(&file);
+    assert_eq!(head(&mut s, &scope).horizon, 4);
+    assert_eq!(s.compact_retired(0), Err(CatalogueStoreError::Failed));
+    assert_eq!(s.compact_retired(257), Err(CatalogueStoreError::Failed));
+    let plan: String = db.query_row("EXPLAIN QUERY PLAN SELECT entry_id FROM catalogue_source_entries INDEXED BY catalogue_compaction_candidates WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0 AND revision<4 ORDER BY revision,entry_id LIMIT 1", [], |r| r.get(3)).unwrap();
+    assert!(plan.contains("catalogue_compaction_candidates"), "{plan}");
+    // Exercise the compactor boundary even for a pre-existing hidden equality row.
+    db.execute(
+        "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE entry_id='b'",
+        [],
+    )
+    .unwrap();
+    db.execute_batch("CREATE TRIGGER fail_move BEFORE DELETE ON catalogue_source_entries BEGIN SELECT RAISE(ABORT, 'fault'); END;").unwrap();
+    assert_eq!(s.compact_retired(1), Err(CatalogueStoreError::Failed));
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM catalogue_retired_proof", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    db.execute_batch("DROP TRIGGER fail_move").unwrap();
+    assert_eq!(s.compact_retired(1), Ok(1));
+    assert_eq!(s.compact_retired(1), Ok(0));
+    let pass = nessa_sync::replication::catalogue::CataloguePass {
+        scope: scope.clone(),
+        completed: 0,
+        boundary: 4,
+        cursor: None,
+        generation: 1,
+    };
+    let proof = s
+        .horizon_value(&pass, &id("a"), 16, support(), CatalogueReadKind::FullReset)
+        .unwrap()
+        .value;
+    assert_eq!(
+        (
+            proof.manifest.key.creation,
+            proof.manifest.revision,
+            proof.manifest.deleted,
+            proof.payload
+        ),
+        (1, 2, true, vec![])
+    );
+    assert_eq!(
+        s.horizon_value(
+            &pass,
+            &id("unknown"),
+            16,
+            support(),
+            CatalogueReadKind::FullReset
+        ),
+        Err(CatalogueSourceError::Unavailable)
+    );
+    assert_eq!(
+        s.upsert(&id("a"), b"resurrect"),
+        Err(CatalogueStoreError::Fenced)
+    );
+    assert_eq!(s.delete(&id("a")), Err(CatalogueStoreError::Fenced));
+    assert!(db.execute("INSERT INTO catalogue_source_entries(entry_id,creation,revision,deleted,payload) VALUES('a',5,5,0,x'')", []).is_err());
+    assert_eq!(db.query_row("SELECT count(*) FROM catalogue_source_entries WHERE entry_id='b' AND revision=4 AND manifest_visible=0", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+    drop(s);
+    let mut s = source(&file);
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(CatalogueStoreError::Fenced)
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT creation,revision FROM catalogue_retired_proof WHERE entry_id='a'",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        )
+        .unwrap(),
+        (1, 2)
+    );
 }

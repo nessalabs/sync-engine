@@ -113,3 +113,7 @@ required-features = ["sqlite"]
 [[example]]
 name = "catalogue_horizon_network"
 required-features = ["transport", "sqlite"]
+
+[[example]]
+name = "catalogue_compaction"
+required-features = ["sqlite"]

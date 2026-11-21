@@ -13,7 +13,7 @@ def current_rows_match(source,cache):
   assert s.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY entry_id').fetchall()==d.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_entries ORDER BY entry_id').fetchall()
 def exact(source,cache):
  with sqlite3.connect(source) as s,sqlite3.connect(cache) as d:
-  assert s.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY entry_id').fetchall()==d.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_entries ORDER BY entry_id').fetchall()
+  assert s.execute("SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries UNION ALL SELECT entry_id,creation,revision,1,x'' FROM catalogue_retired_proof ORDER BY entry_id").fetchall()==d.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_entries ORDER BY entry_id').fetchall()
   assert d.execute('SELECT count(*),sum(deleted) FROM catalogue_entries').fetchone()==(620,160)
   assert d.execute('SELECT completed,active_boundary,reset_phase FROM catalogue_progress').fetchone()==(780,None,0)
   assert d.execute('SELECT count(*) FROM catalogue_candidates').fetchone()==(0,)
@@ -103,7 +103,7 @@ def main():
      for h in reversed(owned):h.close()
      child.terminate();child.wait(timeout=5);child.stderr.close()
     source=f/'source';full=f/'full';partial=f/'partial';producer(source,full,'seed','620');child,port=start(network,source);owned,hop=hops(port,path)
-    with sqlite3.connect(source) as db:assert db.execute('PRAGMA user_version').fetchone()==(5,)
+    with sqlite3.connect(source) as db:assert db.execute('PRAGMA user_version').fetchone()==(6,)
     try:
      with sqlite3.connect(source) as fresh,sqlite3.connect(f/'v1-partial') as previous:
       assert fresh.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_source_entries ORDER BY entry_id').fetchall()==previous.execute('SELECT entry_id,creation,revision,deleted,payload FROM catalogue_entries ORDER BY entry_id').fetchall()
@@ -147,6 +147,7 @@ def main():
      nested=[]
      def advance_observe():
       activation=invoke(source,'collect-retention',source,'780','10');assert activation=={'head':780,'horizon':780,'hidden':159}
+      assert invoke(source,'compact',source,'256')=={'moved':159}
       observed,_=lab.run(v2,'pass',hop.port,partial,'phone',READ,'0');assert observed['outcome']=='expired';nested.append(observed)
      before_bytes,before_ops=hop.stats();hop.head_hook=advance_observe;timer=time.perf_counter();outer,process_ms=lab.run(v2,'pass',hop.port,partial,'phone',READ,'0');assert outer['outcome']=='regressed' and snapshot(partial)==saved
      total,after_ops=hop.stats();ops={k:after_ops.get(k,0)-before_ops.get(k,0) for k in set(after_ops)|set(before_ops)};ops={k:v for k,v in ops.items() if v};assert ops=={'20':2} and len(nested)==1
@@ -186,7 +187,7 @@ def main():
       with hop.lock:refusals=hop.statuses-statuses_before
       assert dict(refusals)=={'4:0:5':1}
       end_bytes,_=hop.stats();cases.append({'phase':'old_'+command+'_positive_refusal','path':path,'repetition':rep+1,'outcome':'invalid','exchanges':1,'attempted_requests':1,'unanswered_requests':0,'wire_total_bytes':end_bytes-before_bytes,'protocol_bytes':end_bytes-before_bytes,'manifest_bytes':0,'payload_bytes':0,'incomplete_reply_bytes':0,'operations':{k:v for k,v in ops.items() if v},'process_ms':(time.perf_counter()-old_timer)*1000,'work_ms':None})
-     with sqlite3.connect(source) as c:assert c.execute('SELECT count(*),sum(deleted),sum(manifest_visible) FROM catalogue_source_entries').fetchone()==(620,160,461)
+     with sqlite3.connect(source) as c:assert c.execute('SELECT count(*),sum(deleted),sum(manifest_visible) FROM catalogue_source_entries').fetchone()==(461,1,461)
     finally:
      for h in reversed(owned):h.close()
      child.terminate();child.wait(timeout=5);child.stderr.close()
@@ -228,7 +229,7 @@ def main():
    if all(r[field] is not None for r in selected):summary[field]={'median':statistics.median(r[field] for r in selected),'min':min(r[field] for r in selected),'max':max(r[field] for r in selected)}
   for field in ['exchanges','attempted_requests','unanswered_requests','wire_total_bytes','protocol_bytes','manifest_bytes','payload_bytes']:summary[field]=sum(r[field] for r in selected)
   summaries.append(summary)
- report={'native_source_schema':5,'old_source_schema':4,'registered_pin_fixture':'actual C620/H780 journal pin clamps preferred780 to620; manual collector refuses; explicit protected collection at expiry10 advances780 without deleting ledger','runtime_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'old_server_baseline':BASE,'old_server_source_sha256':baseline_fingerprints,'source_sha256':fingerprint,'harness_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'conditions':['real TCP owned plaintext fixture route; direct counted framed hop,relay adds opaque raw hop; no secure production catalogue/session claim','620-entry fixtures; current native API publishes all cutoffs and membership; no raw cutoff/membership injection; ordinary future reader/writer requirements are owned compatibility fixtures','pass reports finite durable completion; explicit unchanged/reset fresh checks are separate','expired operation retains cache/progress/fences; validated passive observations may persist separately','protocol/request bytes counted on attempted exchange even when old peer sends no reply; exchanges count complete replies','unshaped debug timing; no threshold or performance gain claim; value-floor/delayed-head races include producer/observer work; MemoryAuthorizer is an owned always-allowed host fixture; token tests qualify server route refusal only','each cache operation reopens its store; head-only requests have no local cache access; warm recovery matches620 source identities/160 fences; cold recovery has461 served rows/one fence; partial/refused phases preserve their stated snapshot'],'cases':cases,'summary':summaries}
+ report={'native_source_schema':6,'old_source_schema':4,'registered_pin_fixture':'actual C620/H780 journal pin clamps preferred780 to620; manual collector refuses; explicit protected collection at expiry10 advances780 without deleting ledger','runtime_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'old_server_baseline':BASE,'old_server_source_sha256':baseline_fingerprints,'source_sha256':fingerprint,'harness_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'conditions':['real TCP owned plaintext fixture route; direct counted framed hop,relay adds opaque raw hop; no secure production catalogue/session claim','620-entry fixtures; current native API publishes all cutoffs and membership; no raw cutoff/membership injection; ordinary future reader/writer requirements are owned compatibility fixtures','pass reports finite durable completion; explicit unchanged/reset fresh checks are separate','expired operation retains cache/progress/fences; validated passive observations may persist separately','protocol/request bytes counted on attempted exchange even when old peer sends no reply; exchanges count complete replies','unshaped debug timing; no threshold or performance gain claim; value-floor/delayed-head races include producer/observer work; MemoryAuthorizer is an owned always-allowed host fixture; token tests qualify server route refusal only','each cache operation reopens its store; head-only requests have no local cache access; warm recovery matches620 source identities/160 fences; cold recovery has461 served rows/one fence; partial/refused phases preserve their stated snapshot'],'cases':cases,'summary':summaries}
  if a.output:a.output.write_text(json.dumps(report,indent=2)+'\n')
  print(json.dumps(report,separators=(',',':')))
 if __name__=='__main__':main()
