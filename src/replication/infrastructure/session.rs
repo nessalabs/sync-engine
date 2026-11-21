@@ -480,3 +480,6 @@ pub use records::artifact::{
 
 /// Explicit opt-in serialized SourceHead envelope pilot.
 pub use records::unary_head::{serve_unary_head_session, UnaryHeadSession};
+
+#[cfg(feature = "tls")]
+pub use records::secure_follow::{serve_secure_follow, SecureFollow, SecureFollowStop};
