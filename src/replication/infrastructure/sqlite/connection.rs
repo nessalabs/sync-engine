@@ -21,7 +21,9 @@ pub enum SqliteOpenError {
     Database(rusqlite::Error),
     /// The file has another application ID, version, or unmarked user tables.
     UnexpectedDatabase,
-    /// This catalogue source needs an explicit offline upgrade before runtime use.
+    /// A matching catalogue identity has a recognized legacy version marker.
+    /// Runtime open has not validated that legacy layout; explicit offline
+    /// maintenance can still reject a damaged or incomplete source.
     OfflineUpgradeRequired,
     /// An existing reference source has different immutable stream identity.
     SourceIdentityMismatch,

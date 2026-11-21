@@ -1,6 +1,6 @@
 # Physical catalogue compaction
 
-Explicit offline maintenance migrates older source schemas atomically under the same source identity; normal open refuses them. The
+Explicit offline maintenance can migrate valid older source schemas atomically under the same source identity; normal open refuses matching legacy markers without validating their layouts. The
 `SqliteCatalogueMaintenance::compact_retired` operation moves at most 256 previously hidden
 retired rows, strictly below the already committed horizon, into a WITHOUT ROWID
 exact proof table. Each proof retains the ID, creation revision and deletion

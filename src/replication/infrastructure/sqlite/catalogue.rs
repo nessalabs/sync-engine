@@ -103,8 +103,11 @@ pub struct SqliteCatalogueSource {
 
 impl SqliteCatalogueSource {
     /// Opens an existing matching source, or initializes a new isolated file.
-    /// Existing older source files require explicit offline maintenance.
-    /// Existing v7 files are verified without schema migration.
+    /// A matching identity with a v1–v6 marker returns
+    /// [`SqliteOpenError::OfflineUpgradeRequired`] before validating its legacy
+    /// layout; offline maintenance can still reject an incomplete file.
+    /// Existing v7 files are checked without schema DDL. SQLite may still
+    /// perform connection, journal, or lock handling.
     pub fn open(
         path: impl AsRef<Path>,
         origin: Id,

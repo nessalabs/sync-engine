@@ -37,7 +37,9 @@ pub struct SqliteCatalogueMaintenance {
 }
 
 impl SqliteCatalogueMaintenance {
-    /// Open an existing source and atomically upgrade a recognized older schema.
+    /// Open an existing source and atomically upgrade a valid older schema.
+    /// A recognized legacy marker does not guarantee its layout is valid;
+    /// damaged or incomplete files can be rejected without committing migration.
     /// The caller must establish and maintain exclusive offline ownership. No
     /// source file is created, renamed, or replaced. After an uncertain result,
     /// inspect the existing database and WAL before retrying.

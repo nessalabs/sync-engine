@@ -2,20 +2,25 @@
 
 ```text
 new file -- normal open / provision --> v7 runtime
-v1..v6 -- normal open --> OfflineUpgradeRequired (file unchanged)
-v1..v6 -- host stops all source users and prevents restart
-       -- explicit offline maintenance / migrate --> v7 maintenance
+matching identity + v1..v6 marker -- normal open --> OfflineUpgradeRequired (no schema DDL)
+matching legacy marker -- host stops all source users and prevents restart
+       -- explicit offline maintenance / valid migration --> v7 maintenance
 v7     -- host owns source exclusively -- explicit offline maintenance --> v7 maintenance
 v7 maintenance -- bounded compaction / close --> v7 file
 v7 file -- host resumes runtime -- normal open --> v7 runtime
-foreign, future, partial or wrong identity --> refusal
+foreign, future or wrong identity --> refusal
+partial/damaged legacy layout -- offline maintenance --> refusal and rollback
 ```
 
 The host owns shutdown, restart prevention and exclusive access throughout
 maintenance. SQLite locks do not establish that older processes have stopped.
 Runtime open never upgrades an existing source, and compaction belongs only to the
-explicit maintenance owner. Older file formats require an intentional offline
-upgrade; source migration tests, examples and benchmarking fixtures that used
+explicit maintenance owner. `OfflineUpgradeRequired` identifies a matching
+identity and recognized legacy version marker; runtime open has not validated the
+legacy layout. Offline maintenance validates it and may reject damaged or partial
+files transactionally. Valid v7 runtime open performs no schema DDL, but SQLite
+connection, journal, and lock handling may still occur. Older file formats require
+an intentional offline upgrade; source migration tests, examples and benchmarking fixtures that used
 implicit open must invoke the owner after establishing their fixture's exclusive
 ownership. Current runtime reads and writes use only the v7 schema.
 
