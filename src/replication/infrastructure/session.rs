@@ -477,3 +477,6 @@ pub use records::artifact::{
     ArtifactManifestAccess, ArtifactManifestSessionSource, ArtifactSessionAccess,
     ArtifactSessionOperation, ArtifactTransferSessionSource,
 };
+
+/// Explicit opt-in serialized SourceHead envelope pilot.
+pub use records::unary_head::{serve_unary_head_session, UnaryHeadSession};
