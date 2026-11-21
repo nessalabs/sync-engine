@@ -32,7 +32,7 @@ mod source_metadata;
 pub use artifact::{SqliteArtifactCache, SqliteArtifactSource};
 pub use catalogue::{
     CatalogueCollection, CataloguePinReceipt, CataloguePublicationError, CatalogueRetentionError,
-    SqliteCatalogueSource, SqliteCatalogueStore,
+    SqliteCatalogueMaintenance, SqliteCatalogueSource, SqliteCatalogueStore,
 };
 pub use connection::SqliteOpenError;
 use connection::{

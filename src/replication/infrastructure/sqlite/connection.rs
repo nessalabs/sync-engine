@@ -21,6 +21,10 @@ pub enum SqliteOpenError {
     Database(rusqlite::Error),
     /// The file has another application ID, version, or unmarked user tables.
     UnexpectedDatabase,
+    /// A matching catalogue identity has a recognized legacy version marker.
+    /// Runtime open has not validated that legacy layout; explicit offline
+    /// maintenance can still reject a damaged or incomplete source.
+    OfflineUpgradeRequired,
     /// An existing reference source has different immutable stream identity.
     SourceIdentityMismatch,
 }
@@ -30,6 +34,7 @@ impl std::fmt::Display for SqliteOpenError {
         match self {
             Self::Database(error) => write!(f, "SQLite: {error}"),
             Self::UnexpectedDatabase => write!(f, "unrecognized SQLite database or schema"),
+            Self::OfflineUpgradeRequired => write!(f, "catalogue source requires offline upgrade"),
             Self::SourceIdentityMismatch => write!(f, "source stream identity differs"),
         }
     }

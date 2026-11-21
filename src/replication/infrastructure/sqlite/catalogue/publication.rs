@@ -41,11 +41,16 @@ pub struct CatalogueCollection {
 pub(super) fn initialize(
     conn: &mut rusqlite::Connection,
     identity: [&Id; 4],
+    offline: bool,
 ) -> Result<(), SqliteOpenError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
     let mut version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if application == 0 && version == 0 {
+    let fresh = application == 0 && version == 0;
+    if fresh {
+        if offline {
+            return Err(SqliteOpenError::UnexpectedDatabase);
+        }
         let tables: i64 = tx.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
             [],
@@ -66,7 +71,7 @@ pub(super) fn initialize(
         )?;
         tx.pragma_update(None, "application_id", CATALOGUE_SOURCE_APPLICATION_ID)?;
         version = 1;
-    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=5) {
+    } else if application != CATALOGUE_SOURCE_APPLICATION_ID || !matches!(version, 1..=7) {
         return Err(SqliteOpenError::UnexpectedDatabase);
     }
     // Validate immutable ownership before migrating any existing file.
@@ -85,6 +90,9 @@ pub(super) fn initialize(
                 .all(|(a, b)| a.as_str() == b.as_str()) => {}
         Some(_) => return Err(SqliteOpenError::SourceIdentityMismatch),
         None => return Err(SqliteOpenError::UnexpectedDatabase),
+    }
+    if !fresh && !offline && version < 7 {
+        return Err(SqliteOpenError::OfflineUpgradeRequired);
     }
     let columns: Vec<String> = {
         let mut statement = tx.prepare("PRAGMA table_info(catalogue_source_meta)")?;
@@ -148,8 +156,30 @@ pub(super) fn initialize(
     }
     if version == 4 {
         retention::migrate(&tx)?;
-        tx.pragma_update(None, "user_version", 5)?;
+        version = 5;
     }
+    if version == 5 {
+        tx.execute_batch(
+            "CREATE TABLE catalogue_retired_proof (
+            entry_id TEXT PRIMARY KEY, creation INTEGER NOT NULL CHECK(creation>0),
+            revision INTEGER NOT NULL CHECK(revision>=creation)
+        ) WITHOUT ROWID;
+        CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id)
+            WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0;
+        CREATE TRIGGER catalogue_retired_no_insert BEFORE INSERT ON catalogue_source_entries
+        WHEN EXISTS(SELECT 1 FROM catalogue_retired_proof WHERE entry_id=NEW.entry_id)
+        BEGIN SELECT RAISE(ABORT, 'retired identity'); END;",
+        )?;
+        tx.pragma_update(None, "user_version", 7)?;
+    } else if version == 6 {
+        // Draft v6 was pushed and may have produced source files. Rebuild only
+        // that older index; v5 already creates the final index above.
+        tx.execute_batch("DROP INDEX catalogue_compaction_candidates;
+            CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id)
+            WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0;")?;
+        tx.pragma_update(None, "user_version", 7)?;
+    }
+    compaction::verify(&tx)?;
     retention::verify(&tx)?;
     read(&tx)?; // A malformed/missing/future partial row must never become zero.
     tx.commit()?;
@@ -233,6 +263,16 @@ impl SqliteCatalogueSource {
             (current.reader, current.writer)
         };
         let existing:Option<(i64,i64,i64,Vec<u8>)>=tx.query_row("SELECT creation,revision,deleted,payload FROM catalogue_source_entries WHERE entry_id=?1",[entry_id.as_str()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|_|Error::Store(CatalogueStoreError::Failed))?;
+        let retired: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM catalogue_retired_proof WHERE entry_id=?1)",
+                [entry_id.as_str()],
+                |r| r.get(0),
+            )
+            .map_err(|_| Error::Store(CatalogueStoreError::Failed))?;
+        if retired {
+            return Err(Error::Store(CatalogueStoreError::Fenced));
+        }
         if existing
             .as_ref()
             .is_some_and(|(_, _, deleted, _)| *deleted != 0)

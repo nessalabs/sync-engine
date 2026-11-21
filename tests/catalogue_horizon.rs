@@ -2,7 +2,9 @@
 use nessa_sync::replication::{
     catalogue::*,
     domain::{CapabilitySupport, Id, Scope},
-    infrastructure::{MemoryAuthorizer, SqliteCatalogueSource, SqliteCatalogueStore},
+    infrastructure::{
+        MemoryAuthorizer, SqliteCatalogueMaintenance, SqliteCatalogueSource, SqliteCatalogueStore,
+    },
 };
 use std::{
     path::PathBuf,
@@ -399,12 +401,25 @@ fn observation_failure_rolls_back_and_source_migration_keeps_populated_identity(
     drop(s);
     let raw = rusqlite::Connection::open(f.0.join("source")).unwrap();
     raw.execute_batch(
-        "DROP TABLE catalogue_retention_pins;
+        "DROP TRIGGER catalogue_retired_no_insert;
+         DROP INDEX catalogue_compaction_candidates;
+         DROP TABLE catalogue_retired_proof;
+         DROP TABLE catalogue_retention_pins;
          ALTER TABLE catalogue_source_meta DROP COLUMN retention_now_ms;
          ALTER TABLE catalogue_source_meta DROP COLUMN horizon;
          PRAGMA user_version=3;",
     )
     .unwrap();
+    drop(
+        SqliteCatalogueMaintenance::open(
+            f.0.join("source"),
+            id("origin"),
+            id("stream"),
+            id("incarnation"),
+            id("schema"),
+        )
+        .unwrap(),
+    );
     let mut s = f.source();
     assert_eq!(s.horizon_head(&scope(), support()).unwrap().horizon, 0);
     assert_eq!(s.head(&scope()).unwrap(), 3);

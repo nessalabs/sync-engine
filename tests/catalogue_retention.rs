@@ -9,7 +9,7 @@ use nessa_sync::replication::{
     domain::{CapabilitySupport, Id, RetentionError, RetentionPosition, Scope},
     infrastructure::{
         CataloguePublicationError, CatalogueRetentionError as E, MemoryAuthorizer,
-        SqliteCatalogueSource, SqliteCatalogueStore,
+        SqliteCatalogueMaintenance, SqliteCatalogueSource, SqliteCatalogueStore,
     },
 };
 use rusqlite::{types::Value, Connection};
@@ -57,6 +57,10 @@ fn scope(receiver: &str, incarnation: &str, grant: &str) -> Scope {
 }
 fn source(path: &Path) -> SqliteCatalogueSource {
     SqliteCatalogueSource::open(path, id("origin"), id("catalogue"), id("v1"), id("schema"))
+        .unwrap()
+}
+fn maintenance(path: &Path) -> SqliteCatalogueMaintenance {
+    SqliteCatalogueMaintenance::open(path, id("origin"), id("catalogue"), id("v1"), id("schema"))
         .unwrap()
 }
 fn head(s: &mut SqliteCatalogueSource, scope: &Scope) -> CatalogueHorizonHead {
@@ -295,17 +299,21 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
     drop(s);
     let db = Connection::open(&file).unwrap();
     db.execute_batch(
-        "DROP TABLE catalogue_retention_pins;
+        "DROP TRIGGER catalogue_retired_no_insert;
+        DROP INDEX catalogue_compaction_candidates;
+        DROP TABLE catalogue_retired_proof;
+        DROP TABLE catalogue_retention_pins;
         ALTER TABLE catalogue_source_meta DROP COLUMN retention_now_ms;
         PRAGMA user_version=4",
     )
     .unwrap();
+    drop(maintenance(&file));
     let mut migrated = source(&file);
     assert_eq!(head(&mut migrated, &scope), persisted);
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        7
     );
     drop(migrated);
     db.execute_batch("DROP TABLE catalogue_retention_pins")
@@ -318,4 +326,320 @@ fn v4_migration_preserves_existing_horizon_and_refuses_partial_v5() {
         id("schema")
     )
     .is_err());
+}
+
+#[test]
+fn v5_compaction_preserves_proof_and_rolls_back_atomically() {
+    use nessa_sync::replication::catalogue::CatalogueStoreError;
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let scope = scope("peer", "v1", "grant");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    s.upsert(&id("b"), b"b").unwrap();
+    s.delete(&id("b")).unwrap();
+    let h = head(&mut s, &scope);
+    s.compare_collect(&h, 4).unwrap();
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    // Recreate the exact v5 layout with populated retained rows.
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert; DROP INDEX catalogue_compaction_candidates; DROP TABLE catalogue_retired_proof; PRAGMA user_version=5;").unwrap();
+    assert!(matches!(
+        SqliteCatalogueSource::open(&file, id("origin"), id("catalogue"), id("v1"), id("schema")),
+        Err(nessa_sync::replication::infrastructure::SqliteOpenError::OfflineUpgradeRequired)
+    ));
+    let mut m = maintenance(&file);
+    assert_eq!(m.compact_retired(0), Err(CatalogueStoreError::Failed));
+    assert_eq!(m.compact_retired(257), Err(CatalogueStoreError::Failed));
+    let mut statement = db.prepare("EXPLAIN QUERY PLAN SELECT entry_id FROM catalogue_source_entries INDEXED BY catalogue_compaction_candidates WHERE manifest_visible=0 AND deleted=1 AND length(payload)=0 AND revision<?1 ORDER BY revision,entry_id LIMIT ?2").unwrap();
+    let plan: Vec<String> = statement
+        .query_map(rusqlite::params![4, 1], |r| r.get(3))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(plan.len(), 1, "unexpected scan or temporary sort: {plan:?}");
+    assert!(plan[0].contains("SEARCH catalogue_source_entries USING INDEX catalogue_compaction_candidates (revision<?)"), "{plan:?}");
+    // Exercise the compactor boundary even for a pre-existing hidden equality row.
+    db.execute(
+        "UPDATE catalogue_source_entries SET manifest_visible=0 WHERE entry_id='b'",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE catalogue_source_entries SET payload=x'01' WHERE entry_id='a'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(m.compact_retired(1), Ok(0));
+    db.execute(
+        "UPDATE catalogue_source_entries SET payload=x'' WHERE entry_id='a'",
+        [],
+    )
+    .unwrap();
+    db.execute_batch("CREATE TRIGGER fail_move BEFORE DELETE ON catalogue_source_entries BEGIN SELECT RAISE(ABORT, 'fault'); END;").unwrap();
+    assert_eq!(m.compact_retired(1), Err(CatalogueStoreError::Failed));
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM catalogue_retired_proof", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    db.execute_batch("DROP TRIGGER fail_move").unwrap();
+    assert_eq!(m.compact_retired(1), Ok(1));
+    assert_eq!(m.compact_retired(1), Ok(0));
+    drop(m);
+    let mut s = source(&file);
+    let pass = nessa_sync::replication::catalogue::CataloguePass {
+        scope: scope.clone(),
+        completed: 0,
+        boundary: 4,
+        cursor: None,
+        generation: 1,
+    };
+    let proof = s
+        .horizon_value(&pass, &id("a"), 16, support(), CatalogueReadKind::FullReset)
+        .unwrap()
+        .value;
+    assert_eq!(
+        (
+            proof.manifest.key.creation,
+            proof.manifest.revision,
+            proof.manifest.deleted,
+            proof.payload
+        ),
+        (1, 2, true, vec![])
+    );
+    assert_eq!(
+        s.horizon_value(
+            &pass,
+            &id("unknown"),
+            16,
+            support(),
+            CatalogueReadKind::FullReset
+        ),
+        Err(CatalogueSourceError::Unavailable)
+    );
+    assert_eq!(
+        s.upsert(&id("a"), b"resurrect"),
+        Err(CatalogueStoreError::Fenced)
+    );
+    assert_eq!(s.delete(&id("a")), Err(CatalogueStoreError::Fenced));
+    assert!(db.execute("INSERT INTO catalogue_source_entries(entry_id,creation,revision,deleted,payload) VALUES('a',5,5,0,x'')", []).is_err());
+    assert_eq!(db.query_row("SELECT count(*) FROM catalogue_source_entries WHERE entry_id='b' AND revision=4 AND manifest_visible=0", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+    drop(s);
+    let mut s = source(&file);
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(CatalogueStoreError::Fenced)
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT creation,revision FROM catalogue_retired_proof WHERE entry_id='a'",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        )
+        .unwrap(),
+        (1, 2)
+    );
+}
+
+#[test]
+fn v6_migration_reindexes_eligible_rows_without_touching_proof() {
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let sc = scope("peer", "v1", "grant");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    s.upsert(&id("b"), b"b").unwrap();
+    let h = head(&mut s, &sc);
+    s.compare_collect(&h, 3).unwrap();
+    drop(s);
+    let mut m = maintenance(&file);
+    assert_eq!(m.compact_retired(1), Ok(1));
+    drop(m);
+    let db = Connection::open(&file).unwrap();
+    db.execute_batch("DROP INDEX catalogue_compaction_candidates; CREATE INDEX catalogue_compaction_candidates ON catalogue_source_entries(revision, entry_id) WHERE manifest_visible=0 AND deleted=1; PRAGMA user_version=6;").unwrap();
+    drop(maintenance(&file));
+    let mut s = source(&file);
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(nessa_sync::replication::catalogue::CatalogueStoreError::Fenced)
+    );
+    let sql: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='catalogue_compaction_candidates'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(sql.contains("length(payload)=0"), "{sql}");
+}
+
+#[test]
+fn v5_upgrade_builds_final_schema_once_and_rolls_back_on_conflict() {
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert; DROP INDEX catalogue_compaction_candidates; DROP TABLE catalogue_retired_proof; PRAGMA user_version=5;").unwrap();
+    let open = |origin: &str| {
+        SqliteCatalogueMaintenance::open(&file, id(origin), id("catalogue"), id("v1"), id("schema"))
+    };
+    assert!(open("wrong").is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    db.pragma_update(None, "user_version", 8).unwrap();
+    assert!(open("origin").is_err());
+    db.pragma_update(None, "user_version", 5).unwrap();
+    db.execute_batch("CREATE TRIGGER catalogue_retired_no_insert BEFORE INSERT ON catalogue_source_entries BEGIN SELECT 1; END;").unwrap();
+    let before: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(open("origin").is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        db.query_row("PRAGMA schema_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        before
+    );
+    assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('catalogue_retired_proof','catalogue_compaction_candidates')", [], |r| r.get::<_,i64>(0)).unwrap(), 0);
+    assert_eq!(
+        db.query_row(
+            "SELECT creation,revision,deleted FROM catalogue_source_entries WHERE entry_id='a'",
+            [],
+            |r| Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?
+            ))
+        )
+        .unwrap(),
+        (1, 2, 1)
+    );
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert;")
+        .unwrap();
+    let before: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    drop(open("origin").unwrap());
+    let after: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    // One table, one index and one trigger; an intermediate index adds two DDL changes.
+    assert_eq!(after - before, 3);
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+}
+
+#[test]
+fn runtime_open_never_upgrades_a_legacy_source() {
+    use nessa_sync::replication::infrastructure::SqliteOpenError;
+    let tmp = Fixture::new();
+    let file = tmp.0.join("source");
+    let mut s = source(&file);
+    s.upsert(&id("a"), b"a").unwrap();
+    s.delete(&id("a")).unwrap();
+    drop(s);
+    let db = Connection::open(&file).unwrap();
+    let schema_before: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    drop(source(&file));
+    assert_eq!(
+        db.query_row("PRAGMA schema_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        schema_before
+    );
+    db.execute_batch("DROP TRIGGER catalogue_retired_no_insert; DROP INDEX catalogue_compaction_candidates; DROP TABLE catalogue_retired_proof; PRAGMA user_version=5;").unwrap();
+    let before = rows(
+        &db,
+        "SELECT type,name,sql FROM sqlite_master ORDER BY type,name",
+    );
+    let data = rows(&db, "SELECT entry_id,creation,revision,deleted,payload,manifest_visible FROM catalogue_source_entries");
+    let schema: i64 = db
+        .query_row("PRAGMA schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(matches!(
+        SqliteCatalogueSource::open(&file, id("origin"), id("catalogue"), id("v1"), id("schema")),
+        Err(SqliteOpenError::OfflineUpgradeRequired)
+    ));
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        db.query_row("PRAGMA schema_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        schema
+    );
+    assert_eq!(
+        rows(
+            &db,
+            "SELECT type,name,sql FROM sqlite_master ORDER BY type,name"
+        ),
+        before
+    );
+    assert_eq!(rows(&db, "SELECT entry_id,creation,revision,deleted,payload,manifest_visible FROM catalogue_source_entries"), data);
+    for version in 1..=6 {
+        db.pragma_update(None, "user_version", version).unwrap();
+        assert!(matches!(
+            SqliteCatalogueSource::open(
+                &file,
+                id("origin"),
+                id("catalogue"),
+                id("v1"),
+                id("schema")
+            ),
+            Err(SqliteOpenError::OfflineUpgradeRequired)
+        ));
+        assert_eq!(
+            db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            version
+        );
+        assert_eq!(
+            db.query_row("PRAGMA schema_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            schema
+        );
+    }
+    db.pragma_update(None, "user_version", 5).unwrap();
+    drop(db);
+    let absent = tmp.0.join("absent");
+    assert!(SqliteCatalogueMaintenance::open(
+        &absent,
+        id("origin"),
+        id("catalogue"),
+        id("v1"),
+        id("schema")
+    )
+    .is_err());
+    assert!(!absent.exists());
+    drop(maintenance(&file));
+    let mut s = source(&file);
+    assert_eq!(
+        s.upsert(&id("a"), b"again"),
+        Err(nessa_sync::replication::catalogue::CatalogueStoreError::Fenced)
+    );
 }
