@@ -46,6 +46,7 @@ pub(super) mod capabilities;
 #[cfg(all(feature = "tls", feature = "sqlite"))]
 pub(super) mod epoch;
 pub(super) mod follow;
+mod frame_codec;
 mod history;
 pub(super) mod scope_pair;
 #[cfg(feature = "tls")]
@@ -183,37 +184,10 @@ fn read_packet_wait_kind(
     idle: bool,
     extra: Option<u8>,
 ) -> Result<Option<Packet>, RecordSessionError> {
-    let mut header = [0; 4];
-    loop {
-        match reader.read(&mut header[..1]) {
-            Ok(0) => return Ok(None),
-            Ok(_) => break,
-            Err(e)
-                if e.kind() == io::ErrorKind::Interrupted
-                    || (idle
-                        && matches!(
-                            e.kind(),
-                            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-                        )) =>
-            {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-    reader.read_exact(&mut header[1..])?;
-    let length = u32::from_be_bytes(header) as usize;
-    if length > limit || length > MAX_CONTROL_BYTES {
-        return Err(RecordSessionError::TooLarge);
-    }
-    if length < HEADER {
-        return Err(RecordSessionError::Protocol);
-    }
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body)?;
+    let Some(body) = frame_codec::read_frame(reader, limit, idle)? else {
+        return Ok(None);
+    };
+    let length = body.len();
     let mut d = Decoder::new(&body);
     if d.take(4)? != b"NSR1" || d.take(2)? != 1_u16.to_be_bytes() {
         return Err(RecordSessionError::Protocol);
@@ -1672,6 +1646,46 @@ mod tests {
             record_bytes: MAX_RECORD_BYTES,
             next: Some(2),
         }
+    }
+    #[test]
+    fn packet_wire_bytes_and_fragmented_reads_remain_compatible() {
+        let packet = Packet {
+            kind: HEAD | REPLY,
+            status: 0,
+            meta: Meta {
+                session: 1,
+                request: 2,
+                handle: 3,
+                generation: 4,
+            },
+            total: 3,
+            offset: 0,
+            payload: b"abc".to_vec(),
+        };
+        let expected: &[u8] = &[
+            0, 0, 0, 47, b'N', b'S', b'R', b'1', 0, 1, 130, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+            0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, b'a', b'b',
+            b'c',
+        ];
+        let mut actual = Vec::new();
+        write_packet(&mut actual, &packet, 8192).unwrap();
+        assert_eq!(actual, expected);
+        struct OneByte<'a>(Cursor<&'a [u8]>);
+        impl Read for OneByte<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let size = buf.len().min(1);
+                self.0.read(&mut buf[..size])
+            }
+        }
+        let decoded = read_packet(&mut OneByte(Cursor::new(expected)), 8192)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.kind, packet.kind);
+        assert_eq!(decoded.status, packet.status);
+        assert_eq!(decoded.meta, packet.meta);
+        assert_eq!(decoded.total, packet.total);
+        assert_eq!(decoded.offset, packet.offset);
+        assert_eq!(decoded.payload, packet.payload);
     }
     #[test]
     fn bad_correlations_statuses_offsets_and_totals_are_fatal() {
