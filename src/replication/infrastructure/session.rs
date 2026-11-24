@@ -432,8 +432,8 @@ pub use authorization::ScopedSessionAuthorizer;
 
 mod records;
 pub use records::{
-    serve_record_session, RecordSession, RecordSessionAuthorizer, RecordSessionError,
-    RecordSessionSource,
+    serve_record_session, RecordOperation, RecordOperationAuthorizer, RecordSession,
+    RecordSessionAuthorizer, RecordSessionError, RecordSessionSource,
 };
 
 mod channel;
@@ -455,7 +455,8 @@ pub use records::follow::{
 };
 
 pub use records::capabilities::{
-    serve_capability_record_session, CapabilityRecordSession, CapabilitySessionSource,
+    serve_capability_record_session, serve_operation_capability_record_session,
+    CapabilityRecordSession, CapabilitySessionSource,
 };
 
 pub use records::scope_pair::{serve_scope_pair_heads, ScopePairHeadsSession};
