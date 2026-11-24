@@ -8,8 +8,9 @@ use nessa_sync::replication::{
         CapabilityError, CapabilitySupport, Id, Limits, Page, PageRequest, Scope, SourceHead,
     },
     infrastructure::session::{
-        serve_capability_record_session, serve_record_session, serve_unary_head_session,
-        CapabilityRecordSession, RecordSession, SessionLimits, TcpSessionIo, UnaryHeadSession,
+        serve_capability_record_session, serve_operation_capability_record_session,
+        serve_record_session, serve_unary_head_session, CapabilityRecordSession, RecordOperation,
+        RecordOperationAuthorizer, RecordSession, SessionLimits, TcpSessionIo, UnaryHeadSession,
     },
     infrastructure::{SqliteReferenceSource, SqliteReplicaStore},
 };
@@ -142,6 +143,9 @@ struct Server {
     pages: Arc<AtomicUsize>,
     heads: Arc<AtomicUsize>,
     after_head: Arc<AtomicU8>,
+    operations: Arc<AtomicU8>,
+    acquisitions: Arc<AtomicUsize>,
+    fragment_revoke: Arc<AtomicU8>,
     task: thread::JoinHandle<()>,
 }
 fn tune(s: &TcpStream) {
@@ -165,6 +169,12 @@ impl Server {
         let h = heads.clone();
         let after_head = Arc::new(AtomicU8::new(0));
         let after = after_head.clone();
+        let operations = Arc::new(AtomicU8::new(0));
+        let operations_server = operations.clone();
+        let acquisitions = Arc::new(AtomicUsize::new(0));
+        let acquisition_count = acquisitions.clone();
+        let fragment_revoke = Arc::new(AtomicU8::new(0));
+        let fragment_revoke_server = fragment_revoke.clone();
         let task = thread::spawn(move || {
             for n in 1..=connections {
                 let (mut socket, _) = listener.accept().unwrap();
@@ -176,16 +186,37 @@ impl Server {
                 let mode = Arc::new(AtomicU8::new(0));
                 let mut policy = Policy(mode.clone());
                 let mut factory = |_: &Scope| {
+                    acquisition_count.fetch_add(1, Ordering::SeqCst);
                     Ok(View {
                         source: source(&path),
                         requirements: req.lock().unwrap().clone(),
                         pages: p.clone(),
                         heads: h.clone(),
-                        policy: mode.clone(),
+                        policy: if endpoint_mode == 3 {
+                            operations_server.clone()
+                        } else {
+                            mode.clone()
+                        },
                         after_head: after.clone(),
                     })
                 };
-                if endpoint_mode == 2 {
+                if endpoint_mode == 3 {
+                    let mut operation_policy = OperationPolicy(operations_server.clone());
+                    let mut socket = RevokeAfterFragment {
+                        socket,
+                        operations: operations_server.clone(),
+                        revoke: fragment_revoke_server.clone(),
+                        pending: false,
+                    };
+                    let _ = serve_operation_capability_record_session(
+                        &mut socket,
+                        n as u64,
+                        limits(),
+                        &mut policy,
+                        &mut operation_policy,
+                        &mut factory,
+                    );
+                } else if endpoint_mode == 2 {
                     let _ = serve_unary_head_session(
                         &mut socket,
                         n as u64,
@@ -218,6 +249,9 @@ impl Server {
             pages,
             heads,
             after_head,
+            operations,
+            acquisitions,
+            fragment_revoke,
             task,
         }
     }
@@ -241,6 +275,149 @@ impl Server {
     }
     fn finish(self) {
         self.task.join().unwrap();
+    }
+}
+
+struct RevokeAfterFragment {
+    socket: TcpStream,
+    operations: Arc<AtomicU8>,
+    revoke: Arc<AtomicU8>,
+    pending: bool,
+}
+impl Read for RevokeAfterFragment {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.read(bytes)
+    }
+}
+impl Write for RevokeAfterFragment {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() >= 48
+            && &bytes[4..8] == b"NSR1"
+            && matches!(bytes[10], 134 | 135)
+            && bytes[11] == 0
+        {
+            let total = u32::from_be_bytes(bytes[40..44].try_into().unwrap()) as usize;
+            let offset = u32::from_be_bytes(bytes[44..48].try_into().unwrap());
+            if offset == 0 && total > bytes.len() - 48 {
+                self.pending = true;
+            }
+        }
+        self.socket.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()?;
+        if self.pending {
+            self.pending = false;
+            let revoked = self.revoke.swap(0, Ordering::SeqCst);
+            if revoked != 0 {
+                self.operations.store(revoked, Ordering::SeqCst);
+            }
+        }
+        Ok(())
+    }
+}
+
+struct OperationPolicy(Arc<AtomicU8>);
+impl RecordOperationAuthorizer for OperationPolicy {
+    fn authorize_operation(&mut self, scope: &Scope, operation: RecordOperation) -> Access {
+        let bit = match operation {
+            RecordOperation::Bind => 1,
+            RecordOperation::Authorize => 2,
+            RecordOperation::Head => 4,
+            RecordOperation::Page => 8,
+        };
+        if self.0.load(Ordering::SeqCst) & bit == 0 {
+            Access::Allowed(scope.clone())
+        } else {
+            Access::Denied
+        }
+    }
+}
+
+#[test]
+fn operation_policy_requires_bind_head_and_page_independently() {
+    for denied in [1, 4] {
+        let f = Directory::new();
+        let server = Server::new_mode(f.path("source.db"), 1, 3);
+        server.operations.store(denied, Ordering::SeqCst);
+        let result = CapabilityRecordSession::connect(
+            server.dial(server.address),
+            scope(),
+            limits(),
+            CapabilitySupport::current(),
+        );
+        assert!(result.is_err());
+        assert_eq!(server.heads.load(Ordering::SeqCst), 0);
+        assert_eq!(server.acquisitions.load(Ordering::SeqCst), 0);
+        assert_eq!(server.pages.load(Ordering::SeqCst), 0);
+        server.finish();
+    }
+
+    let f = Directory::new();
+    let src = f.path("source.db");
+    source(&src).append(&id("fact"), b"value").unwrap();
+    let server = Server::new_mode(src, 1, 3);
+    let session = server.connect(server.address);
+    let (_, mut reads) = session.parts();
+    let (mut auth, _) = session.parts();
+    server.operations.store(2, Ordering::SeqCst);
+    assert_eq!(auth.authorize(&scope()), Access::Denied);
+    server.operations.store(8, Ordering::SeqCst);
+    assert_eq!(reads.head(&scope()).unwrap(), 1);
+    let open = nessa_sync::replication::domain::OpenPageRequest {
+        scope: scope(),
+        after: 0,
+        max_records: 1,
+        max_payload_bytes: 100,
+        max_record_bytes: 100,
+    };
+    assert!(matches!(reads.open_page(&open), Err(SourceError::Denied)));
+    let request = PageRequest {
+        scope: scope(),
+        after: 0,
+        target: 1,
+        max_records: 1,
+        max_payload_bytes: 100,
+        max_record_bytes: 100,
+    };
+    assert!(matches!(reads.page(&request), Err(SourceError::Denied)));
+    assert_eq!(server.pages.load(Ordering::SeqCst), 0);
+    server.operations.store(0, Ordering::SeqCst);
+    server.after_head.store(8, Ordering::SeqCst);
+    assert!(matches!(reads.page(&request), Err(SourceError::Denied)));
+    assert_eq!(server.pages.load(Ordering::SeqCst), 0);
+    server.after_head.store(0, Ordering::SeqCst);
+    server.operations.store(0, Ordering::SeqCst);
+    assert_eq!(reads.page(&request).unwrap().records.len(), 1);
+    server.operations.store(4, Ordering::SeqCst);
+    assert!(matches!(reads.page(&request), Err(SourceError::Denied)));
+    assert_eq!(server.pages.load(Ordering::SeqCst), 1);
+    session.close().unwrap();
+    server.finish();
+}
+
+#[test]
+fn operation_policy_revocation_during_fragmented_page_never_applies() {
+    for revoked in [4, 8] {
+        let f = Directory::new();
+        let src = f.path("source.db");
+        source(&src).append(&id("fact"), &vec![42; 3000]).unwrap();
+        let server = Server::new_mode(src, 1, 3);
+        let session = server.connect(server.address);
+        let (mut auth, mut reads) = session.parts();
+        let mut cache = SqliteReplicaStore::open(f.path("cache.db")).unwrap();
+        server.fragment_revoke.store(revoked, Ordering::SeqCst);
+        assert_eq!(
+            begin_pass_with_page(&scope(), budget(), &mut auth, &mut reads, &mut cache),
+            Err(SyncError::Source(SourceError::Denied))
+        );
+        assert_eq!(server.fragment_revoke.load(Ordering::SeqCst), 0);
+        assert_eq!(server.operations.load(Ordering::SeqCst), revoked);
+        assert_eq!(server.pages.load(Ordering::SeqCst), 1);
+        assert_eq!(cache.checkpoint(&scope()).unwrap(), None);
+        assert_eq!(cache.count(&scope()).unwrap(), 0);
+        session.close().unwrap();
+        server.finish();
     }
 }
 struct Relay {

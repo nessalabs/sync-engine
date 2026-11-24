@@ -121,6 +121,50 @@ where
         },
     )
 }
+
+/// Serve a serialized capability record endpoint with an additional current
+/// operation policy bound by the host to its authenticated peer. Binding
+/// requires Bind and Head; HEAD requires Head; PAGE and OPEN require both Head
+/// and Page because each retrieves and releases head metadata. AUTHORIZE uses
+/// Authorize. Each required decision is rechecked before reads and each reply
+/// fragment. Other selectors terminate the session without source access.
+/// This endpoint does not cover Follow, history, artifacts, epoch or scope pairs.
+pub fn serve_operation_capability_record_session<S, A, P, F, R>(
+    stream: &mut S,
+    session: u64,
+    limits: SessionLimits,
+    policy: &mut A,
+    operation_policy: &mut P,
+    mut factory: F,
+) -> Result<(), RecordSessionError>
+where
+    S: Read + Write,
+    A: ScopeAuthorizer,
+    P: RecordOperationAuthorizer,
+    F: FnMut(&Scope) -> Result<R, SourceError>,
+    R: RecordReadView,
+{
+    serve_bound_impl(
+        stream,
+        session,
+        limits,
+        policy,
+        &mut factory,
+        BoundHooks {
+            follow: None,
+            #[cfg(feature = "tls")]
+            artifact: None,
+        },
+        CapabilityRoutes {
+            head: Some(R::view_head),
+            history: None,
+            scope_pair: false,
+            pair_batch: false,
+        },
+        false,
+        Some(operation_policy),
+    )
+}
 pub(super) fn server_response<A, F, R>(
     packet: &Packet,
     scope: &Scope,

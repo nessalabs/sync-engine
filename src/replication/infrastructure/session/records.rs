@@ -32,6 +32,64 @@ const PAGE: u8 = 3;
 const OPEN_PAGE: u8 = 4;
 const REPLY: u8 = 128;
 const HINT: u8 = 64;
+
+/// A host-authorized action on a serialized capability record session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecordOperation {
+    /// Bind the scope. Binding also requires `Head`, because Bound exposes a head.
+    Bind,
+    /// Answer the explicit current-scope authorization request.
+    Authorize,
+    /// Acquire or release source head metadata.
+    Head,
+    /// Acquire or release record page data.
+    Page,
+}
+
+/// Current operation policy bound by the host to the authenticated peer.
+///
+/// The host must derive that peer independently of packet scope and keep this
+/// policy current. Returning an allowed different scope fails closed. The
+/// operation checks supplement, rather than replace, the scope policy.
+pub trait RecordOperationAuthorizer {
+    /// Decide the current access to this exact scope and operation.
+    fn authorize_operation(&mut self, scope: &Scope, operation: RecordOperation) -> Access;
+}
+
+struct OperationScopePolicy<'a, 'p, A> {
+    scope_policy: &'a mut A,
+    operation_policy: &'a mut Option<&'p mut dyn RecordOperationAuthorizer>,
+    operations: &'static [RecordOperation],
+}
+
+impl<A: ScopeAuthorizer> ScopeAuthorizer for OperationScopePolicy<'_, '_, A> {
+    fn authorize(&mut self, scope: &Scope) -> Access {
+        let access = self.scope_policy.authorize(scope);
+        if access_code(access.clone(), scope) != 0 {
+            return access;
+        }
+        if let Some(policy) = self.operation_policy.as_deref_mut() {
+            for operation in self.operations {
+                let access = policy.authorize_operation(scope, *operation);
+                if access_code(access.clone(), scope) != 0 {
+                    return access;
+                }
+            }
+        }
+        access
+    }
+}
+
+fn operations_for(kind: u8) -> Option<&'static [RecordOperation]> {
+    use RecordOperation::{Authorize, Head, Page};
+    match kind {
+        AUTHORIZE => Some(&[Authorize]),
+        capabilities::HEAD_CAP => Some(&[Head]),
+        // Capability PAGE also reads and returns head metadata.
+        capabilities::OPEN_CAP | capabilities::PAGE_CAP => Some(&[Head, Page]),
+        _ => None,
+    }
+}
 #[derive(Clone, Copy)]
 enum Opening {
     Hello,
@@ -1266,6 +1324,7 @@ where
         hooks,
         routes,
         false,
+        None,
     )
 }
 
@@ -1279,6 +1338,7 @@ fn serve_bound_impl<S, A, F, R>(
     mut hooks: BoundHooks<'_>,
     routes: CapabilityRoutes<R>,
     unary_head: bool,
+    mut operation_policy: Option<&mut dyn RecordOperationAuthorizer>,
 ) -> Result<(), RecordSessionError>
 where
     S: Read + Write,
@@ -1349,13 +1409,18 @@ where
     {
         return Err(RecordSessionError::Protocol);
     }
+    let mut binding_policy = OperationScopePolicy {
+        scope_policy: policy,
+        operation_policy: &mut operation_policy,
+        operations: &[RecordOperation::Bind, RecordOperation::Head],
+    };
     if !scope_pair::write_binding(
         stream,
         correlation,
         &scope,
         1,
         &mut open_source,
-        policy,
+        &mut binding_policy,
         limit,
     )? {
         return Ok(());
@@ -1415,6 +1480,17 @@ where
             (2, 2) => secondary.as_ref().ok_or(RecordSessionError::Protocol)?,
             _ => return Err(RecordSessionError::Protocol),
         };
+        let operations = if operation_policy.is_some() {
+            operations_for(request.kind).ok_or(RecordSessionError::Protocol)?
+        } else {
+            &[]
+        };
+        let mut operation_scope = OperationScopePolicy {
+            scope_policy: policy,
+            operation_policy: &mut operation_policy,
+            operations,
+        };
+        let policy = &mut operation_scope;
         if routes.scope_pair && request.kind != capabilities::HEAD_CAP {
             return Err(RecordSessionError::Protocol);
         }
@@ -1645,6 +1721,95 @@ mod tests {
             limit: 8192,
             record_bytes: MAX_RECORD_BYTES,
             next: Some(2),
+        }
+    }
+    #[test]
+    fn operation_policy_is_rechecked_for_each_response_fragment() {
+        struct Allow;
+        impl ScopeAuthorizer for Allow {
+            fn authorize(&mut self, scope: &Scope) -> Access {
+                Access::Allowed(scope.clone())
+            }
+        }
+        struct RevokeOnSecond(usize);
+        impl RecordOperationAuthorizer for RevokeOnSecond {
+            fn authorize_operation(&mut self, scope: &Scope, op: RecordOperation) -> Access {
+                assert_eq!(op, RecordOperation::Page);
+                self.0 += 1;
+                if self.0 == 1 {
+                    Access::Allowed(scope.clone())
+                } else {
+                    Access::Denied
+                }
+            }
+        }
+        let identity = context();
+        let scope = identity.scope();
+        let request = Packet {
+            kind: capabilities::PAGE_CAP,
+            status: 0,
+            meta: Meta::for_scope(&identity, 2),
+            total: 0,
+            offset: 0,
+            payload: vec![],
+        };
+        let mut scope_policy = Allow;
+        let mut operation = RevokeOnSecond(0);
+        let mut optional: Option<&mut dyn RecordOperationAuthorizer> = Some(&mut operation);
+        let mut policy = OperationScopePolicy {
+            scope_policy: &mut scope_policy,
+            operation_policy: &mut optional,
+            operations: &[RecordOperation::Page],
+        };
+        let mut output = Vec::new();
+        respond(
+            &mut output,
+            &request,
+            0,
+            &[42; 3000],
+            scope,
+            &mut policy,
+            2048,
+        )
+        .unwrap();
+        let mut input = Cursor::new(output);
+        let first = read_packet(&mut input, 2048).unwrap().unwrap();
+        let second = read_packet(&mut input, 2048).unwrap().unwrap();
+        assert_eq!(first.status, 0);
+        assert_eq!(second.status, access_code(Access::Denied, scope));
+        assert!(second.payload.is_empty());
+        assert!(read_packet(&mut input, 2048).unwrap().is_none());
+    }
+    #[test]
+    fn operation_policy_rejects_wrong_scope_and_unclassified_operations() {
+        struct Allow;
+        impl ScopeAuthorizer for Allow {
+            fn authorize(&mut self, scope: &Scope) -> Access {
+                Access::Allowed(scope.clone())
+            }
+        }
+        struct Wrong;
+        impl RecordOperationAuthorizer for Wrong {
+            fn authorize_operation(&mut self, _: &Scope, _: RecordOperation) -> Access {
+                let id = || Id::new("different").unwrap();
+                Access::Allowed(Scope::new(id(), id(), id(), id(), id(), id()))
+            }
+        }
+        let identity = context();
+        let mut scope_policy = Allow;
+        let mut wrong = Wrong;
+        let mut op: Option<&mut dyn RecordOperationAuthorizer> = Some(&mut wrong);
+        let mut policy = OperationScopePolicy {
+            scope_policy: &mut scope_policy,
+            operation_policy: &mut op,
+            operations: &[RecordOperation::Head],
+        };
+        assert_ne!(
+            access_code(policy.authorize(identity.scope()), identity.scope()),
+            0
+        );
+        for kind in [HEAD, PAGE, OPEN_PAGE, 8, 9, 10, 11, 16, 17, 18, HINT, 63] {
+            assert!(operations_for(kind).is_none(), "kind {kind}");
         }
     }
     #[test]

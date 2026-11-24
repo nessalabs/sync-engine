@@ -108,6 +108,9 @@ jobs:
       - name: Current-policy session authorization prerequisite lab
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-session-authorization.py
+      - name: Serialized record operation policy
+        if: steps.changes.outputs.rust != 'false'
+        run: python3 scripts/verify-record-operation-policy.py
       - name: Session record TCP and durable-cache end-to-end foundation
         if: steps.changes.outputs.rust != 'false'
         run: python3 scripts/verify-session-e2e.py
